@@ -1,0 +1,1728 @@
+{
+  "source": "https://github.com/smog1210/2022-ICD-10-CM-JSON (CMS ICD-10-CM 2022)",
+  "block": "K00-K14",
+  "block_label": "Diseases of oral cavity and salivary glands",
+  "count": 215,
+  "codes": [
+    {
+      "code": "K00",
+      "code_compact": "K00",
+      "description": "Disorders of tooth development and eruption",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": false
+    },
+    {
+      "code": "K00.0",
+      "code_compact": "K000",
+      "description": "Anodontia",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.1",
+      "code_compact": "K001",
+      "description": "Supernumerary teeth",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.2",
+      "code_compact": "K002",
+      "description": "Abnormalities of size and form of teeth",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.3",
+      "code_compact": "K003",
+      "description": "Mottled teeth",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.4",
+      "code_compact": "K004",
+      "description": "Disturbances in tooth formation",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.5",
+      "code_compact": "K005",
+      "description": "Hereditary disturbances in tooth structure, not elsewhere classified",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.6",
+      "code_compact": "K006",
+      "description": "Disturbances in tooth eruption",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.7",
+      "code_compact": "K007",
+      "description": "Teething syndrome",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.8",
+      "code_compact": "K008",
+      "description": "Other disorders of tooth development",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K00.9",
+      "code_compact": "K009",
+      "description": "Disorder of tooth development, unspecified",
+      "category": "K00",
+      "category_label": "Disorders of tooth development and eruption",
+      "billable": true
+    },
+    {
+      "code": "K01",
+      "code_compact": "K01",
+      "description": "Embedded and impacted teeth",
+      "category": "K01",
+      "category_label": "Embedded and impacted teeth",
+      "billable": false
+    },
+    {
+      "code": "K01.0",
+      "code_compact": "K010",
+      "description": "Embedded teeth",
+      "category": "K01",
+      "category_label": "Embedded and impacted teeth",
+      "billable": true
+    },
+    {
+      "code": "K01.1",
+      "code_compact": "K011",
+      "description": "Impacted teeth",
+      "category": "K01",
+      "category_label": "Embedded and impacted teeth",
+      "billable": true
+    },
+    {
+      "code": "K02",
+      "code_compact": "K02",
+      "description": "Dental caries",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": false
+    },
+    {
+      "code": "K02.3",
+      "code_compact": "K023",
+      "description": "Arrested dental caries",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.51",
+      "code_compact": "K0251",
+      "description": "Dental caries on pit and fissure surface limited to enamel",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.52",
+      "code_compact": "K0252",
+      "description": "Dental caries on pit and fissure surface penetrating into dentin",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.53",
+      "code_compact": "K0253",
+      "description": "Dental caries on pit and fissure surface penetrating into pulp",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.61",
+      "code_compact": "K0261",
+      "description": "Dental caries on smooth surface limited to enamel",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.62",
+      "code_compact": "K0262",
+      "description": "Dental caries on smooth surface penetrating into dentin",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.63",
+      "code_compact": "K0263",
+      "description": "Dental caries on smooth surface penetrating into pulp",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.7",
+      "code_compact": "K027",
+      "description": "Dental root caries",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K02.9",
+      "code_compact": "K029",
+      "description": "Dental caries, unspecified",
+      "category": "K02",
+      "category_label": "Dental caries",
+      "billable": true
+    },
+    {
+      "code": "K03",
+      "code_compact": "K03",
+      "description": "Other diseases of hard tissues of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": false
+    },
+    {
+      "code": "K03.0",
+      "code_compact": "K030",
+      "description": "Excessive attrition of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.1",
+      "code_compact": "K031",
+      "description": "Abrasion of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.2",
+      "code_compact": "K032",
+      "description": "Erosion of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.3",
+      "code_compact": "K033",
+      "description": "Pathological resorption of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.4",
+      "code_compact": "K034",
+      "description": "Hypercementosis",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.5",
+      "code_compact": "K035",
+      "description": "Ankylosis of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.6",
+      "code_compact": "K036",
+      "description": "Deposits [accretions] on teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.7",
+      "code_compact": "K037",
+      "description": "Posteruptive color changes of dental hard tissues",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.81",
+      "code_compact": "K0381",
+      "description": "Cracked tooth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.89",
+      "code_compact": "K0389",
+      "description": "Other specified diseases of hard tissues of teeth",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K03.9",
+      "code_compact": "K039",
+      "description": "Disease of hard tissues of teeth, unspecified",
+      "category": "K03",
+      "category_label": "Other diseases of hard tissues of teeth",
+      "billable": true
+    },
+    {
+      "code": "K04",
+      "code_compact": "K04",
+      "description": "Diseases of pulp and periapical tissues",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": false
+    },
+    {
+      "code": "K04.01",
+      "code_compact": "K0401",
+      "description": "Reversible pulpitis",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.02",
+      "code_compact": "K0402",
+      "description": "Irreversible pulpitis",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.1",
+      "code_compact": "K041",
+      "description": "Necrosis of pulp",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.2",
+      "code_compact": "K042",
+      "description": "Pulp degeneration",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.3",
+      "code_compact": "K043",
+      "description": "Abnormal hard tissue formation in pulp",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.4",
+      "code_compact": "K044",
+      "description": "Acute apical periodontitis of pulpal origin",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.5",
+      "code_compact": "K045",
+      "description": "Chronic apical periodontitis",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.6",
+      "code_compact": "K046",
+      "description": "Periapical abscess with sinus",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.7",
+      "code_compact": "K047",
+      "description": "Periapical abscess without sinus",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.8",
+      "code_compact": "K048",
+      "description": "Radicular cyst",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.90",
+      "code_compact": "K0490",
+      "description": "Unspecified diseases of pulp and periapical tissues",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K04.99",
+      "code_compact": "K0499",
+      "description": "Other diseases of pulp and periapical tissues",
+      "category": "K04",
+      "category_label": "Diseases of pulp and periapical tissues",
+      "billable": true
+    },
+    {
+      "code": "K05",
+      "code_compact": "K05",
+      "description": "Gingivitis and periodontal diseases",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": false
+    },
+    {
+      "code": "K05.00",
+      "code_compact": "K0500",
+      "description": "Acute gingivitis, plaque induced",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.01",
+      "code_compact": "K0501",
+      "description": "Acute gingivitis, non-plaque induced",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.10",
+      "code_compact": "K0510",
+      "description": "Chronic gingivitis, plaque induced",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.11",
+      "code_compact": "K0511",
+      "description": "Chronic gingivitis, non-plaque induced",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.20",
+      "code_compact": "K0520",
+      "description": "Aggressive periodontitis, unspecified",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.211",
+      "code_compact": "K05211",
+      "description": "Aggressive periodontitis, localized, slight",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.212",
+      "code_compact": "K05212",
+      "description": "Aggressive periodontitis, localized, moderate",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.213",
+      "code_compact": "K05213",
+      "description": "Aggressive periodontitis, localized, severe",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.219",
+      "code_compact": "K05219",
+      "description": "Aggressive periodontitis, localized, unspecified severity",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.221",
+      "code_compact": "K05221",
+      "description": "Aggressive periodontitis, generalized, slight",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.222",
+      "code_compact": "K05222",
+      "description": "Aggressive periodontitis, generalized, moderate",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.223",
+      "code_compact": "K05223",
+      "description": "Aggressive periodontitis, generalized, severe",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.229",
+      "code_compact": "K05229",
+      "description": "Aggressive periodontitis, generalized, unspecified severity",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.30",
+      "code_compact": "K0530",
+      "description": "Chronic periodontitis, unspecified",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.311",
+      "code_compact": "K05311",
+      "description": "Chronic periodontitis, localized, slight",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.312",
+      "code_compact": "K05312",
+      "description": "Chronic periodontitis, localized, moderate",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.313",
+      "code_compact": "K05313",
+      "description": "Chronic periodontitis, localized, severe",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.319",
+      "code_compact": "K05319",
+      "description": "Chronic periodontitis, localized, unspecified severity",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.321",
+      "code_compact": "K05321",
+      "description": "Chronic periodontitis, generalized, slight",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.322",
+      "code_compact": "K05322",
+      "description": "Chronic periodontitis, generalized, moderate",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.323",
+      "code_compact": "K05323",
+      "description": "Chronic periodontitis, generalized, severe",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.329",
+      "code_compact": "K05329",
+      "description": "Chronic periodontitis, generalized, unspecified severity",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.4",
+      "code_compact": "K054",
+      "description": "Periodontosis",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.5",
+      "code_compact": "K055",
+      "description": "Other periodontal diseases",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K05.6",
+      "code_compact": "K056",
+      "description": "Periodontal disease, unspecified",
+      "category": "K05",
+      "category_label": "Gingivitis and periodontal diseases",
+      "billable": true
+    },
+    {
+      "code": "K06",
+      "code_compact": "K06",
+      "description": "Other disorders of gingiva and edentulous alveolar ridge",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": false
+    },
+    {
+      "code": "K06.010",
+      "code_compact": "K06010",
+      "description": "Localized gingival recession, unspecified",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.011",
+      "code_compact": "K06011",
+      "description": "Localized gingival recession, minimal",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.012",
+      "code_compact": "K06012",
+      "description": "Localized gingival recession, moderate",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.013",
+      "code_compact": "K06013",
+      "description": "Localized gingival recession, severe",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.020",
+      "code_compact": "K06020",
+      "description": "Generalized gingival recession, unspecified",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.021",
+      "code_compact": "K06021",
+      "description": "Generalized gingival recession, minimal",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.022",
+      "code_compact": "K06022",
+      "description": "Generalized gingival recession, moderate",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.023",
+      "code_compact": "K06023",
+      "description": "Generalized gingival recession, severe",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.1",
+      "code_compact": "K061",
+      "description": "Gingival enlargement",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.2",
+      "code_compact": "K062",
+      "description": "Gingival and edentulous alveolar ridge lesions associated with trauma",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.3",
+      "code_compact": "K063",
+      "description": "Horizontal alveolar bone loss",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.8",
+      "code_compact": "K068",
+      "description": "Other specified disorders of gingiva and edentulous alveolar ridge",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K06.9",
+      "code_compact": "K069",
+      "description": "Disorder of gingiva and edentulous alveolar ridge, unspecified",
+      "category": "K06",
+      "category_label": "Other disorders of gingiva and edentulous alveolar ridge",
+      "billable": true
+    },
+    {
+      "code": "K08",
+      "code_compact": "K08",
+      "description": "Other disorders of teeth and supporting structures",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": false
+    },
+    {
+      "code": "K08.0",
+      "code_compact": "K080",
+      "description": "Exfoliation of teeth due to systemic causes",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.101",
+      "code_compact": "K08101",
+      "description": "Complete loss of teeth, unspecified cause, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.102",
+      "code_compact": "K08102",
+      "description": "Complete loss of teeth, unspecified cause, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.103",
+      "code_compact": "K08103",
+      "description": "Complete loss of teeth, unspecified cause, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.104",
+      "code_compact": "K08104",
+      "description": "Complete loss of teeth, unspecified cause, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.109",
+      "code_compact": "K08109",
+      "description": "Complete loss of teeth, unspecified cause, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.111",
+      "code_compact": "K08111",
+      "description": "Complete loss of teeth due to trauma, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.112",
+      "code_compact": "K08112",
+      "description": "Complete loss of teeth due to trauma, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.113",
+      "code_compact": "K08113",
+      "description": "Complete loss of teeth due to trauma, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.114",
+      "code_compact": "K08114",
+      "description": "Complete loss of teeth due to trauma, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.119",
+      "code_compact": "K08119",
+      "description": "Complete loss of teeth due to trauma, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.121",
+      "code_compact": "K08121",
+      "description": "Complete loss of teeth due to periodontal diseases, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.122",
+      "code_compact": "K08122",
+      "description": "Complete loss of teeth due to periodontal diseases, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.123",
+      "code_compact": "K08123",
+      "description": "Complete loss of teeth due to periodontal diseases, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.124",
+      "code_compact": "K08124",
+      "description": "Complete loss of teeth due to periodontal diseases, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.129",
+      "code_compact": "K08129",
+      "description": "Complete loss of teeth due to periodontal diseases, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.131",
+      "code_compact": "K08131",
+      "description": "Complete loss of teeth due to caries, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.132",
+      "code_compact": "K08132",
+      "description": "Complete loss of teeth due to caries, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.133",
+      "code_compact": "K08133",
+      "description": "Complete loss of teeth due to caries, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.134",
+      "code_compact": "K08134",
+      "description": "Complete loss of teeth due to caries, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.139",
+      "code_compact": "K08139",
+      "description": "Complete loss of teeth due to caries, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.191",
+      "code_compact": "K08191",
+      "description": "Complete loss of teeth due to other specified cause, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.192",
+      "code_compact": "K08192",
+      "description": "Complete loss of teeth due to other specified cause, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.193",
+      "code_compact": "K08193",
+      "description": "Complete loss of teeth due to other specified cause, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.194",
+      "code_compact": "K08194",
+      "description": "Complete loss of teeth due to other specified cause, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.199",
+      "code_compact": "K08199",
+      "description": "Complete loss of teeth due to other specified cause, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.20",
+      "code_compact": "K0820",
+      "description": "Unspecified atrophy of edentulous alveolar ridge",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.21",
+      "code_compact": "K0821",
+      "description": "Minimal atrophy of the mandible",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.22",
+      "code_compact": "K0822",
+      "description": "Moderate atrophy of the mandible",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.23",
+      "code_compact": "K0823",
+      "description": "Severe atrophy of the mandible",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.24",
+      "code_compact": "K0824",
+      "description": "Minimal atrophy of maxilla",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.25",
+      "code_compact": "K0825",
+      "description": "Moderate atrophy of the maxilla",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.26",
+      "code_compact": "K0826",
+      "description": "Severe atrophy of the maxilla",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.3",
+      "code_compact": "K083",
+      "description": "Retained dental root",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.401",
+      "code_compact": "K08401",
+      "description": "Partial loss of teeth, unspecified cause, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.402",
+      "code_compact": "K08402",
+      "description": "Partial loss of teeth, unspecified cause, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.403",
+      "code_compact": "K08403",
+      "description": "Partial loss of teeth, unspecified cause, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.404",
+      "code_compact": "K08404",
+      "description": "Partial loss of teeth, unspecified cause, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.409",
+      "code_compact": "K08409",
+      "description": "Partial loss of teeth, unspecified cause, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.411",
+      "code_compact": "K08411",
+      "description": "Partial loss of teeth due to trauma, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.412",
+      "code_compact": "K08412",
+      "description": "Partial loss of teeth due to trauma, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.413",
+      "code_compact": "K08413",
+      "description": "Partial loss of teeth due to trauma, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.414",
+      "code_compact": "K08414",
+      "description": "Partial loss of teeth due to trauma, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.419",
+      "code_compact": "K08419",
+      "description": "Partial loss of teeth due to trauma, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.421",
+      "code_compact": "K08421",
+      "description": "Partial loss of teeth due to periodontal diseases, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.422",
+      "code_compact": "K08422",
+      "description": "Partial loss of teeth due to periodontal diseases, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.423",
+      "code_compact": "K08423",
+      "description": "Partial loss of teeth due to periodontal diseases, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.424",
+      "code_compact": "K08424",
+      "description": "Partial loss of teeth due to periodontal diseases, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.429",
+      "code_compact": "K08429",
+      "description": "Partial loss of teeth due to periodontal diseases, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.431",
+      "code_compact": "K08431",
+      "description": "Partial loss of teeth due to caries, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.432",
+      "code_compact": "K08432",
+      "description": "Partial loss of teeth due to caries, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.433",
+      "code_compact": "K08433",
+      "description": "Partial loss of teeth due to caries, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.434",
+      "code_compact": "K08434",
+      "description": "Partial loss of teeth due to caries, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.439",
+      "code_compact": "K08439",
+      "description": "Partial loss of teeth due to caries, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.491",
+      "code_compact": "K08491",
+      "description": "Partial loss of teeth due to other specified cause, class I",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.492",
+      "code_compact": "K08492",
+      "description": "Partial loss of teeth due to other specified cause, class II",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.493",
+      "code_compact": "K08493",
+      "description": "Partial loss of teeth due to other specified cause, class III",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.494",
+      "code_compact": "K08494",
+      "description": "Partial loss of teeth due to other specified cause, class IV",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.499",
+      "code_compact": "K08499",
+      "description": "Partial loss of teeth due to other specified cause, unspecified class",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.50",
+      "code_compact": "K0850",
+      "description": "Unsatisfactory restoration of tooth, unspecified",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.51",
+      "code_compact": "K0851",
+      "description": "Open restoration margins of tooth",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.52",
+      "code_compact": "K0852",
+      "description": "Unrepairable overhanging of dental restorative materials",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.530",
+      "code_compact": "K08530",
+      "description": "Fractured dental restorative material without loss of material",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.531",
+      "code_compact": "K08531",
+      "description": "Fractured dental restorative material with loss of material",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.539",
+      "code_compact": "K08539",
+      "description": "Fractured dental restorative material, unspecified",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.54",
+      "code_compact": "K0854",
+      "description": "Contour of existing restoration of tooth biologically incompatible with oral health",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.55",
+      "code_compact": "K0855",
+      "description": "Allergy to existing dental restorative material",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.56",
+      "code_compact": "K0856",
+      "description": "Poor aesthetic of existing restoration of tooth",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.59",
+      "code_compact": "K0859",
+      "description": "Other unsatisfactory restoration of tooth",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.81",
+      "code_compact": "K0881",
+      "description": "Primary occlusal trauma",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.82",
+      "code_compact": "K0882",
+      "description": "Secondary occlusal trauma",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.89",
+      "code_compact": "K0889",
+      "description": "Other specified disorders of teeth and supporting structures",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K08.9",
+      "code_compact": "K089",
+      "description": "Disorder of teeth and supporting structures, unspecified",
+      "category": "K08",
+      "category_label": "Other disorders of teeth and supporting structures",
+      "billable": true
+    },
+    {
+      "code": "K09",
+      "code_compact": "K09",
+      "description": "Cysts of oral region, not elsewhere classified",
+      "category": "K09",
+      "category_label": "Cysts of oral region, not elsewhere classified",
+      "billable": false
+    },
+    {
+      "code": "K09.0",
+      "code_compact": "K090",
+      "description": "Developmental odontogenic cysts",
+      "category": "K09",
+      "category_label": "Cysts of oral region, not elsewhere classified",
+      "billable": true
+    },
+    {
+      "code": "K09.1",
+      "code_compact": "K091",
+      "description": "Developmental (nonodontogenic) cysts of oral region",
+      "category": "K09",
+      "category_label": "Cysts of oral region, not elsewhere classified",
+      "billable": true
+    },
+    {
+      "code": "K09.8",
+      "code_compact": "K098",
+      "description": "Other cysts of oral region, not elsewhere classified",
+      "category": "K09",
+      "category_label": "Cysts of oral region, not elsewhere classified",
+      "billable": true
+    },
+    {
+      "code": "K09.9",
+      "code_compact": "K099",
+      "description": "Cyst of oral region, unspecified",
+      "category": "K09",
+      "category_label": "Cysts of oral region, not elsewhere classified",
+      "billable": true
+    },
+    {
+      "code": "K11",
+      "code_compact": "K11",
+      "description": "Diseases of salivary glands",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": false
+    },
+    {
+      "code": "K11.0",
+      "code_compact": "K110",
+      "description": "Atrophy of salivary gland",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.1",
+      "code_compact": "K111",
+      "description": "Hypertrophy of salivary gland",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.20",
+      "code_compact": "K1120",
+      "description": "Sialoadenitis, unspecified",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.21",
+      "code_compact": "K1121",
+      "description": "Acute sialoadenitis",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.22",
+      "code_compact": "K1122",
+      "description": "Acute recurrent sialoadenitis",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.23",
+      "code_compact": "K1123",
+      "description": "Chronic sialoadenitis",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.3",
+      "code_compact": "K113",
+      "description": "Abscess of salivary gland",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.4",
+      "code_compact": "K114",
+      "description": "Fistula of salivary gland",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.5",
+      "code_compact": "K115",
+      "description": "Sialolithiasis",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.6",
+      "code_compact": "K116",
+      "description": "Mucocele of salivary gland",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.7",
+      "code_compact": "K117",
+      "description": "Disturbances of salivary secretion",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.8",
+      "code_compact": "K118",
+      "description": "Other diseases of salivary glands",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K11.9",
+      "code_compact": "K119",
+      "description": "Disease of salivary gland, unspecified",
+      "category": "K11",
+      "category_label": "Diseases of salivary glands",
+      "billable": true
+    },
+    {
+      "code": "K12",
+      "code_compact": "K12",
+      "description": "Stomatitis and related lesions",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": false
+    },
+    {
+      "code": "K12.0",
+      "code_compact": "K120",
+      "description": "Recurrent oral aphthae",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.1",
+      "code_compact": "K121",
+      "description": "Other forms of stomatitis",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.2",
+      "code_compact": "K122",
+      "description": "Cellulitis and abscess of mouth",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.30",
+      "code_compact": "K1230",
+      "description": "Oral mucositis (ulcerative), unspecified",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.31",
+      "code_compact": "K1231",
+      "description": "Oral mucositis (ulcerative) due to antineoplastic therapy",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.32",
+      "code_compact": "K1232",
+      "description": "Oral mucositis (ulcerative) due to other drugs",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.33",
+      "code_compact": "K1233",
+      "description": "Oral mucositis (ulcerative) due to radiation",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K12.39",
+      "code_compact": "K1239",
+      "description": "Other oral mucositis (ulcerative)",
+      "category": "K12",
+      "category_label": "Stomatitis and related lesions",
+      "billable": true
+    },
+    {
+      "code": "K13",
+      "code_compact": "K13",
+      "description": "Other diseases of lip and oral mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": false
+    },
+    {
+      "code": "K13.0",
+      "code_compact": "K130",
+      "description": "Diseases of lips",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.1",
+      "code_compact": "K131",
+      "description": "Cheek and lip biting",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.21",
+      "code_compact": "K1321",
+      "description": "Leukoplakia of oral mucosa, including tongue",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.22",
+      "code_compact": "K1322",
+      "description": "Minimal keratinized residual ridge mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.23",
+      "code_compact": "K1323",
+      "description": "Excessive keratinized residual ridge mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.24",
+      "code_compact": "K1324",
+      "description": "Leukokeratosis nicotina palati",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.29",
+      "code_compact": "K1329",
+      "description": "Other disturbances of oral epithelium, including tongue",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.3",
+      "code_compact": "K133",
+      "description": "Hairy leukoplakia",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.4",
+      "code_compact": "K134",
+      "description": "Granuloma and granuloma-like lesions of oral mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.5",
+      "code_compact": "K135",
+      "description": "Oral submucous fibrosis",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.6",
+      "code_compact": "K136",
+      "description": "Irritative hyperplasia of oral mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.70",
+      "code_compact": "K1370",
+      "description": "Unspecified lesions of oral mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K13.79",
+      "code_compact": "K1379",
+      "description": "Other lesions of oral mucosa",
+      "category": "K13",
+      "category_label": "Other diseases of lip and oral mucosa",
+      "billable": true
+    },
+    {
+      "code": "K14",
+      "code_compact": "K14",
+      "description": "Diseases of tongue",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": false
+    },
+    {
+      "code": "K14.0",
+      "code_compact": "K140",
+      "description": "Glossitis",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.1",
+      "code_compact": "K141",
+      "description": "Geographic tongue",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.2",
+      "code_compact": "K142",
+      "description": "Median rhomboid glossitis",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.3",
+      "code_compact": "K143",
+      "description": "Hypertrophy of tongue papillae",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.4",
+      "code_compact": "K144",
+      "description": "Atrophy of tongue papillae",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.5",
+      "code_compact": "K145",
+      "description": "Plicated tongue",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.6",
+      "code_compact": "K146",
+      "description": "Glossodynia",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.8",
+      "code_compact": "K148",
+      "description": "Other diseases of tongue",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    },
+    {
+      "code": "K14.9",
+      "code_compact": "K149",
+      "description": "Disease of tongue, unspecified",
+      "category": "K14",
+      "category_label": "Diseases of tongue",
+      "billable": true
+    }
+  ]
+}

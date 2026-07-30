@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.db
+.demsta.db
+demsta.db
+node_modules/
+dist/
+.DS_Store
+*.log
+.coverage
+htmlcov/
+.idea/
+.vscode/
+frontend/dev-dist/
