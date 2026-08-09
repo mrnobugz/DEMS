@@ -2,9 +2,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import ClinicId, DbSession, require_permission
+from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
 from app.models import User
-from app.schemas import Page, PatientCreate, PatientOut, PatientUpdate
+from app.schemas import Page, PatientAssignDentist, PatientCreate, PatientOut, PatientUpdate
 from app.services import domain as svc
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -19,8 +19,9 @@ async def list_patients(
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    _ = user
-    items, total = await svc.list_patients(db, clinic_id, q=q, limit=limit, offset=offset)
+    items, total = await svc.list_patients(
+        db, clinic_id, q=q, limit=limit, offset=offset, actor=user
+    )
     return Page(items=items, total=total, limit=limit, offset=offset)
 
 
@@ -41,8 +42,7 @@ async def get_patient(
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("patients:read"))],
 ):
-    _ = user
-    return await svc.get_patient(db, clinic_id, patient_id)
+    return await svc.get_patient(db, clinic_id, patient_id, actor=user)
 
 
 @router.patch("/{patient_id}", response_model=PatientOut)
@@ -53,4 +53,21 @@ async def update_patient(
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("patients:update"))],
 ):
+    # Enforce assignment scope before mutation
+    await svc.get_patient(db, clinic_id, patient_id, actor=user)
     return await svc.update_patient(db, clinic_id, user.id, patient_id, body)
+
+
+@router.put("/{patient_id}/primary-dentist", response_model=PatientOut)
+async def assign_primary_dentist(
+    patient_id: str,
+    body: PatientAssignDentist,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[
+        User, Depends(require_any_permission("patients:assign", "patients:*"))
+    ],
+):
+    return await svc.assign_primary_dentist(
+        db, clinic_id, user.id, patient_id, body.dentist_id
+    )

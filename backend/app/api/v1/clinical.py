@@ -19,6 +19,7 @@ from app.schemas import (
     ConsentOut,
     PerioExamCreate,
     PerioExamOut,
+    ToothHistoryOut,
     TreatmentPlanCreate,
     TreatmentPlanOut,
     TreatmentPlanUpdate,
@@ -91,6 +92,17 @@ async def create_note(
     return await svc.create_clinical_note(db, clinic_id, user.id, patient_id, body)
 
 
+@router.get("/patients/{patient_id}/consents", response_model=list[ConsentOut])
+async def list_consents(
+    patient_id: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("patients:read"))],
+):
+    _ = user
+    return await svc.list_consents(db, clinic_id, patient_id)
+
+
 @router.post("/patients/{patient_id}/consents", response_model=ConsentOut, status_code=201)
 async def create_consent(
     patient_id: str,
@@ -100,6 +112,21 @@ async def create_consent(
     user: Annotated[User, Depends(require_permission("patients:*"))],
 ):
     return await svc.create_consent(db, clinic_id, user.id, patient_id, body)
+
+
+@router.get(
+    "/patients/{patient_id}/teeth/{tooth_number}/history",
+    response_model=ToothHistoryOut,
+)
+async def get_tooth_history(
+    patient_id: str,
+    tooth_number: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("clinical:read"))],
+):
+    _ = user
+    return await svc.tooth_history(db, clinic_id, patient_id, tooth_number)
 
 
 @router.get("/patients/{patient_id}/treatment-plans", response_model=list[TreatmentPlanOut])

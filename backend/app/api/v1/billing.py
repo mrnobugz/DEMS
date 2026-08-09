@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -6,12 +7,14 @@ from app.api.deps import ClinicId, DbSession, require_permission
 from app.models import User
 from app.schemas import (
     BillableChartEntryOut,
+    CashUpOut,
     ChartToCashRequest,
     FeeScheduleItemCreate,
     FeeScheduleItemOut,
     FeeScheduleItemUpdate,
     InvoiceCreate,
     InvoiceOut,
+    OutstandingInvoiceOut,
     PaymentCreate,
 )
 from app.services import domain as svc
@@ -81,9 +84,33 @@ async def list_invoices(
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("billing:read"))],
     patient_id: str | None = Query(None),
+    outstanding: bool = Query(False),
 ):
     _ = user
-    return await svc.list_invoices(db, clinic_id, patient_id)
+    return await svc.list_invoices(
+        db, clinic_id, patient_id, outstanding_only=outstanding
+    )
+
+
+@router.get("/outstanding", response_model=list[OutstandingInvoiceOut])
+async def outstanding_invoices(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("billing:read"))],
+):
+    _ = user
+    return await svc.list_outstanding_invoices(db, clinic_id)
+
+
+@router.get("/cash-up", response_model=CashUpOut)
+async def cash_up(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("billing:read"))],
+    on_date: date | None = Query(None, alias="date"),
+):
+    _ = user
+    return await svc.daily_cash_up(db, clinic_id, on_date)
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)

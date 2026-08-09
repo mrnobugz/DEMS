@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Generic, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.schemas.clerkship import (
     MedicalHistoryFlags,
@@ -18,6 +18,7 @@ from app.schemas.exam import (
 )
 
 T = TypeVar("T")
+_UNSET = object()
 
 
 class ORMModel(BaseModel):
@@ -191,6 +192,8 @@ class PatientOut(ORMModel):
     notes: Optional[str] = None
     is_active: bool
     clinic_id: str
+    primary_dentist_id: Optional[str] = None
+    primary_dentist_name: Optional[str] = None
     created_at: datetime
 
     @computed_field  # type: ignore[prop-decorator]
@@ -214,6 +217,25 @@ class PatientOut(ORMModel):
         if v is not None and v not in (1, 2, 3):
             raise ValueError("pregnancy_trimester must be 1, 2, or 3")
         return v
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _attach_dentist_name(cls, value, handler):
+        result = handler(value)
+        if isinstance(value, dict) or not hasattr(value, "__dict__"):
+            return result
+        # Avoid async lazy-load: only use dentist if already loaded on the instance
+        loaded = value.__dict__.get("primary_dentist", _UNSET)
+        if loaded is _UNSET:
+            return result
+        return result.model_copy(
+            update={"primary_dentist_name": loaded.full_name if loaded else None}
+        )
+
+
+class PatientAssignDentist(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dentist_id: Optional[str] = None  # null clears assignment
 
 
 # ── Appointments ──────────────────────────────────────
@@ -353,6 +375,51 @@ class ConsentOut(ORMModel):
     signed_at: Optional[datetime] = None
     signed_by_name: Optional[str] = None
     guardian: bool
+    document_hash: Optional[str] = None
+    created_at: Optional[datetime] = None
+    signature_data: Optional[str] = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_signature(self) -> bool:
+        return bool(self.signature_data)
+
+
+class OutstandingInvoiceOut(BaseModel):
+    id: str
+    invoice_number: str
+    patient_id: str
+    patient_name: str
+    patient_code: str
+    total: float
+    amount_paid: float
+    balance: float
+    status: str
+    issued_at: Optional[datetime] = None
+    days_outstanding: int
+    aging_bucket: str
+    currency: str = "USD"
+
+
+class CashUpOut(BaseModel):
+    date: str
+    total: float
+    by_method: dict[str, float]
+    payment_count: int
+
+
+class ToothHistoryEventOut(BaseModel):
+    kind: str
+    id: str
+    occurred_at: Optional[datetime] = None
+    summary: str
+    status: Optional[str] = None
+    details: dict = Field(default_factory=dict)
+
+
+class ToothHistoryOut(BaseModel):
+    tooth_number: str
+    events: list[ToothHistoryEventOut]
 
 
 class TreatmentPlanItemCreate(BaseModel):

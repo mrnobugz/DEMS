@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
-from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError, ValidationAppError
+from app.core.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationAppError,
+)
+from app.core.rbac import Role, has_permission, is_assignment_scoped_role
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -25,6 +32,7 @@ from app.models import (
     ClinicalVisit,
     ConsentRecord,
     DentalChartEntry,
+    EndoCase,
     FeeScheduleItem,
     Invoice,
     InvoiceLineItem,
@@ -34,6 +42,7 @@ from app.models import (
     PerioExam,
     PerioSite,
     RefreshToken,
+    Restoration,
     TreatmentPlan,
     TreatmentPlanItem,
     User,
@@ -310,16 +319,86 @@ async def list_patients(
     q: str | None = None,
     limit: int = 25,
     offset: int = 0,
+    actor: User | None = None,
 ) -> tuple[list[Patient], int]:
     from app.repositories.patients import PatientRepository
 
-    return await PatientRepository(db, clinic_id).search(q=q, limit=limit, offset=offset)
+    assigned_to: str | None = None
+    if actor is not None and is_assignment_scoped_role(actor.role):
+        assigned_to = actor.id
+    return await PatientRepository(db, clinic_id).search(
+        q=q,
+        limit=limit,
+        offset=offset,
+        assigned_dentist_id=assigned_to,
+        include_unassigned=True,
+    )
 
 
-async def get_patient(db: AsyncSession, clinic_id: str, patient_id: str) -> Patient:
+async def get_patient(
+    db: AsyncSession,
+    clinic_id: str,
+    patient_id: str,
+    *,
+    actor: User | None = None,
+) -> Patient:
     from app.repositories.patients import PatientRepository
 
-    return await PatientRepository(db, clinic_id).get_or_raise(patient_id, resource="Patient")
+    repo = PatientRepository(db, clinic_id)
+    patient = await repo.get_with_dentist(patient_id)
+    if not patient:
+        raise NotFoundError("Patient")
+    if actor is not None:
+        enforce_patient_assignment(actor, patient)
+    return patient
+
+
+def enforce_patient_assignment(actor: User, patient: Patient) -> None:
+    """Dentists/hygienists may access assigned patients or the unassigned pool."""
+    if not is_assignment_scoped_role(actor.role):
+        return
+    if patient.primary_dentist_id in (None, actor.id):
+        return
+    raise ForbiddenError("Patient is assigned to another clinician")
+
+
+async def assign_primary_dentist(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    patient_id: str,
+    dentist_id: str | None,
+) -> Patient:
+    patient = await get_patient(db, clinic_id, patient_id)
+    before = {"primary_dentist_id": patient.primary_dentist_id}
+    if dentist_id:
+        dentist = (
+            await db.execute(
+                select(User).where(
+                    User.id == dentist_id,
+                    User.clinic_id == clinic_id,
+                    User.is_active.is_(True),
+                    User.role.in_([Role.DENTIST, Role.HYGIENIST, Role.CLINIC_ADMIN]),
+                )
+            )
+        ).scalar_one_or_none()
+        if not dentist:
+            raise ValidationAppError("Dentist not found in this clinic")
+        patient.primary_dentist_id = dentist.id
+    else:
+        patient.primary_dentist_id = None
+    await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="assign",
+        resource_type="patient",
+        resource_id=patient.id,
+        before=before,
+        after={"primary_dentist_id": patient.primary_dentist_id},
+    )
+    return await get_patient(db, clinic_id, patient_id)
 
 
 async def update_patient(
@@ -412,6 +491,7 @@ async def check_conflicts(
     base = and_(
         Appointment.clinic_id == clinic_id,
         Appointment.status.notin_([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW]),
+        Appointment.waitlist.is_(False),
         Appointment.starts_at < ends_at,
         Appointment.ends_at > starts_at,
     )
@@ -454,14 +534,15 @@ async def create_appointment(
         if atype:
             color = atype.color
 
-    await check_conflicts(
-        db,
-        clinic_id,
-        data.dentist_id,
-        data.starts_at,
-        data.ends_at,
-        chair_number=data.chair_number,
-    )
+    if not data.waitlist:
+        await check_conflicts(
+            db,
+            clinic_id,
+            data.dentist_id,
+            data.starts_at,
+            data.ends_at,
+            chair_number=data.chair_number,
+        )
     appt = Appointment(clinic_id=clinic_id, color=color, **data.model_dump(exclude={"color"}))
     if color:
         appt.color = color
@@ -485,6 +566,7 @@ async def list_appointments(
     start: datetime | None = None,
     end: datetime | None = None,
     dentist_id: str | None = None,
+    waitlist: bool | None = None,
 ) -> list[Appointment]:
     stmt = (
         select(Appointment)
@@ -497,12 +579,20 @@ async def list_appointments(
         stmt = stmt.where(Appointment.starts_at <= end)
     if dentist_id:
         stmt = stmt.where(Appointment.dentist_id == dentist_id)
+    if waitlist is not None:
+        stmt = stmt.where(Appointment.waitlist.is_(waitlist))
     rows = (await db.execute(stmt.order_by(Appointment.starts_at))).scalars().all()
     return list(rows)
 
 
 async def update_appointment(
-    db: AsyncSession, clinic_id: str, actor_id: str, appt_id: str, data: AppointmentUpdate
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    appt_id: str,
+    data: AppointmentUpdate,
+    *,
+    actor: User | None = None,
 ) -> Appointment:
     appt = (
         await db.execute(
@@ -514,12 +604,28 @@ async def update_appointment(
     if not appt:
         raise NotFoundError("Appointment")
 
+    if actor is not None and not has_permission(actor.role, "appointments:*"):
+        if not has_permission(actor.role, "appointments:update_own"):
+            raise ForbiddenError("Missing permission: appointments:update_own")
+        if appt.dentist_id != actor.id:
+            raise ForbiddenError("You can only update your own appointments")
+
     payload = data.model_dump(exclude_unset=True)
     starts = payload.get("starts_at", appt.starts_at)
     ends = payload.get("ends_at", appt.ends_at)
     dentist = payload.get("dentist_id", appt.dentist_id)
     chair = payload.get("chair_number", appt.chair_number)
-    if "starts_at" in payload or "ends_at" in payload or "dentist_id" in payload or "chair_number" in payload:
+    will_waitlist = payload.get("waitlist", appt.waitlist)
+    if (
+        not will_waitlist
+        and (
+            "starts_at" in payload
+            or "ends_at" in payload
+            or "dentist_id" in payload
+            or "chair_number" in payload
+            or ("waitlist" in payload and not will_waitlist)
+        )
+    ):
         await check_conflicts(
             db, clinic_id, dentist, starts, ends, exclude_id=appt.id, chair_number=chair
         )
@@ -624,7 +730,37 @@ async def create_consent(
     )
     db.add(consent)
     await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="create",
+        resource_type="consent",
+        resource_id=consent.id,
+        after={
+            "procedure_name": data.procedure_name,
+            "signed_by_name": data.signed_by_name,
+            "guardian": data.guardian,
+            "has_signature": bool(data.signature_data),
+            "document_hash": consent.document_hash,
+        },
+    )
     return consent
+
+
+async def list_consents(db: AsyncSession, clinic_id: str, patient_id: str) -> list[ConsentRecord]:
+    await get_patient(db, clinic_id, patient_id)
+    rows = (
+        await db.execute(
+            select(ConsentRecord)
+            .where(
+                ConsentRecord.clinic_id == clinic_id,
+                ConsentRecord.patient_id == patient_id,
+            )
+            .order_by(ConsentRecord.created_at.desc())
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 async def create_treatment_plan(
@@ -1403,16 +1539,193 @@ async def get_invoice(db: AsyncSession, clinic_id: str, invoice_id: str) -> Invo
     return inv
 
 
-async def list_invoices(db: AsyncSession, clinic_id: str, patient_id: str | None = None) -> list[Invoice]:
+async def list_invoices(
+    db: AsyncSession,
+    clinic_id: str,
+    patient_id: str | None = None,
+    *,
+    outstanding_only: bool = False,
+) -> list[Invoice]:
     stmt = (
         select(Invoice)
-        .options(selectinload(Invoice.line_items), selectinload(Invoice.payments))
+        .options(
+            selectinload(Invoice.line_items),
+            selectinload(Invoice.payments),
+            selectinload(Invoice.patient),
+        )
         .where(Invoice.clinic_id == clinic_id)
     )
     if patient_id:
         stmt = stmt.where(Invoice.patient_id == patient_id)
+    if outstanding_only:
+        stmt = stmt.where(
+            Invoice.status.in_([InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID])
+        )
     rows = (await db.execute(stmt.order_by(Invoice.created_at.desc()))).scalars().all()
     return list(rows)
+
+
+def aging_bucket(days: int) -> str:
+    if days <= 30:
+        return "0_30"
+    if days <= 60:
+        return "31_60"
+    if days <= 90:
+        return "61_90"
+    return "90_plus"
+
+
+async def list_outstanding_invoices(db: AsyncSession, clinic_id: str) -> list[dict]:
+    rows = await list_invoices(db, clinic_id, outstanding_only=True)
+    now = datetime.now(UTC)
+    out: list[dict] = []
+    for inv in rows:
+        balance = float(inv.total) - float(inv.amount_paid)
+        if balance <= 0.001:
+            continue
+        issued = inv.issued_at or inv.created_at
+        days = (now - issued).days if issued else 0
+        patient = inv.patient
+        out.append(
+            {
+                "id": inv.id,
+                "invoice_number": inv.invoice_number,
+                "patient_id": inv.patient_id,
+                "patient_name": (
+                    f"{patient.first_name} {patient.last_name}" if patient else "Patient"
+                ),
+                "patient_code": patient.patient_code if patient else "",
+                "total": float(inv.total),
+                "amount_paid": float(inv.amount_paid),
+                "balance": balance,
+                "status": inv.status,
+                "issued_at": issued,
+                "days_outstanding": days,
+                "aging_bucket": aging_bucket(days),
+                "currency": inv.currency,
+            }
+        )
+    out.sort(key=lambda r: (-r["days_outstanding"], -r["balance"]))
+    return out
+
+
+async def daily_cash_up(db: AsyncSession, clinic_id: str, on_date: date | None = None) -> dict:
+    day = on_date or datetime.now(UTC).date()
+    day_start = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    day_end = day_start + timedelta(days=1)
+    rows = (
+        await db.execute(
+            select(Payment).where(
+                Payment.clinic_id == clinic_id,
+                Payment.paid_at >= day_start,
+                Payment.paid_at < day_end,
+            )
+        )
+    ).scalars().all()
+    by_method: dict[str, float] = {}
+    total = 0.0
+    for p in rows:
+        method = p.method or "other"
+        by_method[method] = by_method.get(method, 0.0) + float(p.amount)
+        total += float(p.amount)
+    return {
+        "date": day.isoformat(),
+        "total": total,
+        "by_method": by_method,
+        "payment_count": len(rows),
+    }
+
+
+async def tooth_history(
+    db: AsyncSession, clinic_id: str, patient_id: str, tooth_number: str
+) -> dict:
+    await get_patient(db, clinic_id, patient_id)
+    tooth = tooth_number.strip()
+    events: list[dict] = []
+
+    chart_rows = (
+        await db.execute(
+            select(DentalChartEntry).where(
+                DentalChartEntry.clinic_id == clinic_id,
+                DentalChartEntry.patient_id == patient_id,
+                DentalChartEntry.tooth_number == tooth,
+            )
+        )
+    ).scalars().all()
+    for c in chart_rows:
+        when = datetime.combine(c.visit_date, datetime.min.time(), tzinfo=UTC) if c.visit_date else c.created_at
+        events.append(
+            {
+                "kind": "chart",
+                "id": c.id,
+                "occurred_at": when,
+                "summary": f"{c.condition_label}"
+                + (f" ({c.surfaces})" if c.surfaces else "")
+                + f" · {c.entry_kind}",
+                "status": c.status,
+                "details": {
+                    "condition_code": c.condition_code,
+                    "material": c.material,
+                    "shade": c.shade,
+                    "surfaces": c.surfaces,
+                },
+            }
+        )
+
+    resto_rows = (
+        await db.execute(
+            select(Restoration).where(
+                Restoration.clinic_id == clinic_id,
+                Restoration.patient_id == patient_id,
+                Restoration.tooth_number == tooth,
+            )
+        )
+    ).scalars().all()
+    for r in resto_rows:
+        events.append(
+            {
+                "kind": "restoration",
+                "id": r.id,
+                "occurred_at": r.created_at,
+                "summary": f"{r.restoration_type}"
+                + (f" · {r.surfaces}" if r.surfaces else "")
+                + (f" · {r.material}" if r.material else ""),
+                "status": r.status,
+                "details": {
+                    "cavity_size": r.cavity_size,
+                    "blacks_class": r.blacks_class,
+                    "shade": r.shade,
+                },
+            }
+        )
+
+    endo_rows = (
+        await db.execute(
+            select(EndoCase).where(
+                EndoCase.clinic_id == clinic_id,
+                EndoCase.patient_id == patient_id,
+                EndoCase.tooth_number == tooth,
+            )
+        )
+    ).scalars().all()
+    for e in endo_rows:
+        events.append(
+            {
+                "kind": "endo",
+                "id": e.id,
+                "occurred_at": e.created_at,
+                "summary": f"{e.procedure_type}"
+                + (f" · WL {e.working_length_mm}mm" if e.working_length_mm else ""),
+                "status": e.status,
+                "details": {
+                    "canal_count": e.canal_count,
+                    "prep_method": e.prep_method,
+                },
+            }
+        )
+
+    events.sort(key=lambda ev: ev["occurred_at"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return {"tooth_number": tooth, "events": events}
 
 
 async def add_payment(

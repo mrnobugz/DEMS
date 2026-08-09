@@ -384,6 +384,13 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
     db.add_all(patients)
     await db.flush()
 
+    # Primary dentist assignment (resource scoping) — leave one unassigned as pool
+    for p in patients[:5]:
+        p.primary_dentist_id = dentist.id
+    patients[5].primary_dentist_id = None  # Fatima — unassigned pool
+    patients[6].primary_dentist_id = east_dentist.id
+    await db.flush()
+
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     appts = [
         Appointment(

@@ -104,7 +104,7 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 - [x] Clinic entity CRUD (Super Admin)
 - [x] Staff invite / password reset / refresh revocation (invite + profiles; reset later)
 - [x] Active-clinic claim in JWT + clinic switcher UI (`X-Clinic-Id` for platform owner)
-- [ ] Dentist↔patient assignment for resource scoping
+- [x] Dentist↔patient assignment for resource scoping
 - [x] Permission matrix enforced on every route (not UI-hide only)
 - [x] Department panels: front desk, clinical, hygiene, imaging, lab, pharmacy, inventory, clinic admin, system owner
 - [x] Extended roles: lab_tech, pharmacy, imaging_tech + rich multi-clinic seed
@@ -122,22 +122,22 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 - [x] Past dental history (attendance reasons: checkup, extraction, scaling, restoration, prosthesis)
 - [x] **Pain assessment block:** onset, severity, character, quality, duration, radiation, aggravating/relieving
 - [x] Reported symptoms checklist (cavities, swelling, fistula, halitosis, bleeding, loose dentures, ulceration)
-- [ ] Consent capture (signature pad → encrypted PDF/image + procedure link)
+- [~] Consent capture (signature pad + hashed trail + audit; encrypted PDF/object storage later)
 - [ ] Duplicate merge workflow with audit
 
 ### 3.3 Scheduling
 - [x] Color-coded appointment types, conflict detection, smart slot suggestions (baseline)
-- [ ] Day/week/month multi-doctor multi-chair calendar
-- [ ] Drag-and-drop reschedule (optimistic UI + API conflict recheck)
+- [~] Day/week multi-doctor calendar (month + chair-lane view later)
+- [x] Drag-and-drop reschedule (API conflict recheck on PATCH)
 - [ ] Configurable durations per appointment type
 - [ ] Recurring appointments (ortho recall every N weeks)
-- [ ] Waitlist + auto-offer on cancel
-- [ ] No-show flag + reporting seed
+- [~] Waitlist + offer into open slot (auto-offer on cancel later)
+- [x] No-show flag + reporting seed
 - [ ] Offline draft appointments + sync/conflict resolution
 
 ### 3.4 Clinical notes & odontogram (baseline EMR)
 - [x] SOAP notes + interactive FDI odontogram (baseline)
-- [ ] Per-tooth history timeline (all conditions/procedures for that tooth)
+- [x] Per-tooth history timeline (chart + restorations + endo)
 - [ ] Adult vs pediatric (primary) charting modes
 - [ ] Existing vs planned conditions (distinct visual coding)
 - [ ] SOAP templates per procedure type (clinic-configurable)
@@ -161,11 +161,11 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 - [x] Fee schedule master (clinic-scoped)
 - [x] Invoice lines generated from completed clinical/chart items
 - [x] Payment methods: cash, card, mobile money, bank transfer (pluggable gateway)
-- [ ] PDF receipts + daily cash-up report
-- [ ] Outstanding balance list (simple aging)
+- [~] PDF receipts + daily cash-up report (browser print receipt + cash-up by method; PDF lib later)
+- [x] Outstanding balance list (simple aging)
 
 ### 3.7 Phase 1 quality bar
-- [ ] E2E test: register patient → book → examine → note → invoice → pay
+- [x] E2E test: register patient → book → examine → note → invoice → pay (service-layer)
 - [ ] Load test smoke on patient search & calendar
 - [ ] Security review of auth + tenant isolation
 - [ ] Ops runbook: backup, restore, deploy
@@ -357,17 +357,17 @@ Work in **vertical slices**, not horizontal “finish all models then UI”.
 3. [x] Expand patient schema to full clerkship demographics + medical/pain blocks
 4. [x] Visit/exam structured forms (vitals → extra/intra-oral)
 5. [x] Fee schedule + Chart-to-Cash invoice from completed items
-6. [ ] Calendar day/week + drag-drop + waitlist
-7. [ ] Consent capture + audit hardening
-8. [ ] E2E happy path + security pass
+6. [x] Calendar day/week + drag-drop + waitlist
+7. [~] Consent capture + audit hardening (pad + list + audit; encryption/PDF later)
+8. [~] E2E happy path (service-layer done) + security pass remaining
 
 ### Sprint track B — Phase 2 clinical core
-1. [ ] Restoration + surface model + odontogram binding
-2. [ ] Endo multi-visit case
-3. [ ] Perio persistence + trends
-4. [ ] Treatment plan phases + patient sign-off
-5. [ ] e-Rx + inventory usage links
-6. [ ] Reports v1
+1. [x] Restoration + surface model + odontogram binding
+2. [x] Endo multi-visit case
+3. [x] Perio persistence + trends
+4. [x] Treatment plan phases + patient sign-off
+5. [x] e-Rx + inventory usage links
+6. [x] Reports v1
 
 ### Sprint track C — Phase 3 engagement & revenue
 1. [ ] Imaging storage + viewer
@@ -400,19 +400,19 @@ A feature is done only when **all** are true:
 
 | Area | State |
 |---|---|
-| Auth / RBAC / refresh | Scaffolded |
-| Patients / search / history | Baseline |
-| Scheduling / conflicts / smart slots | Baseline |
-| Odontogram / SOAP / consent | Baseline |
-| Billing / payments / idempotency | Baseline |
-| Perio UI | Partial UI |
+| Auth / RBAC / refresh | Done (scaffold + hardening items remain) |
+| Patients / clerkship intake | Done |
+| Scheduling day/week + DnD + waitlist | Done (month/offline later) |
+| Odontogram / SOAP / tooth timeline / consent pad | Done (encrypted PDF later) |
+| Billing / Chart-to-Cash / aging / cash-up / print receipt | Done (PDF lib later) |
+| Phase 2 clinical depth (restorative/endo/perio/plans/e-Rx/inventory/reports) | Done |
 | AI stubs | Present |
 | PWA installability | Baseline |
-| Full clerkship forms | Not yet |
-| Surface restorative / endo / plans | Not yet |
-| DICOM / lab / insurance / portal | Not yet |
-| RLS / Alembic / workers | Not yet |
+| DICOM / lab polish / insurance / portal / workers | Not yet |
+| Dentist↔patient assignment + scoped list/get | Done |
+| E2E happy path (service-layer) | Done |
+| HTTP E2E / security pass / load smoke | Next |
 
 ---
 
-*This list is the single source of truth for implementation sequencing. Next action: execute **Sprint track A** starting with product decisions + Postgres/Alembic/tenancy, then Digital Clerkship patient/exam expansion.*
+*This list is the single source of truth for implementation sequencing. Next action: **Sprint track C** (imaging storage, lab overdue alerts + restoration hard-link, insurance estimates) or Track A polish (HTTP E2E, security review).*

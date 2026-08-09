@@ -233,6 +233,8 @@ export type Patient = {
   notes?: string | null;
   is_active: boolean;
   clinic_id: string;
+  primary_dentist_id?: string | null;
+  primary_dentist_name?: string | null;
   created_at: string;
 };
 

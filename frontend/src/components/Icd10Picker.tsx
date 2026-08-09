@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Icd10Code } from "@/lib/types";
+import type { Icd10Code, Icd10CodeRef } from "@/lib/types";
 
 type Props = {
   label?: string;
-  selected: Icd10Code[];
-  onChange: (codes: Icd10Code[]) => void;
+  selected: Icd10CodeRef[];
+  onChange: (codes: Icd10CodeRef[]) => void;
   multiple?: boolean;
   placeholder?: string;
 };

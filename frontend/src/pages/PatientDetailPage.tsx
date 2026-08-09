@@ -7,18 +7,29 @@ import {
   type ClerkshipFormState,
 } from "@/components/ClerkshipIntakeFields";
 import { ClinicalExamPanel } from "@/components/ClinicalExamPanel";
+import { ConsentPad } from "@/components/ConsentPad";
 import { Icd10Picker } from "@/components/Icd10Picker";
 import { Odontogram } from "@/components/Odontogram";
 import { PerioChart } from "@/components/PerioChart";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { EndoPanel } from "@/components/EndoPanel";
+import { ToothHistoryPanel } from "@/components/ToothHistoryPanel";
 import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { ChartEntry, ClinicalNote, Patient, PerioExam, TreatmentPlan } from "@/lib/types";
+
+type Dentist = { id: string; full_name: string; role: string };
 
 export function PatientDetailPage() {
   const { id = "" } = useParams();
+  const user = useAuth((s) => s.user);
+  const canAssign =
+    user?.role === "clinic_admin" ||
+    user?.role === "receptionist" ||
+    user?.role === "super_admin";
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [dentists, setDentists] = useState<Dentist[]>([]);
   const [chart, setChart] = useState<ChartEntry[]>([]);
   const [notes, setNotes] = useState<ClinicalNote[]>([]);
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
@@ -54,14 +65,18 @@ export function PatientDetailPage() {
   const [msg, setMsg] = useState("");
 
   async function reload() {
-    const [p, c, n, t, pe] = await Promise.all([
+    const [p, c, n, t, pe, d] = await Promise.all([
       api<Patient>(`/api/v1/patients/${id}`),
       api<ChartEntry[]>(`/api/v1/clinical/patients/${id}/chart`),
       api<ClinicalNote[]>(`/api/v1/clinical/patients/${id}/notes`),
       api<TreatmentPlan[]>(`/api/v1/clinical/patients/${id}/treatment-plans`),
       api<PerioExam[]>(`/api/v1/clinical/patients/${id}/perio`),
+      canAssign
+        ? api<Dentist[]>("/api/v1/staff/dentists").catch(() => [])
+        : Promise.resolve([] as Dentist[]),
     ]);
     setPatient(p);
+    setDentists(d);
     setIntakeForm(formFromPatient(p));
     setChart(c);
     setNotes(n);
@@ -87,6 +102,23 @@ export function PatientDetailPage() {
       setIntakeOpen(false);
     } catch (err) {
       setMsg(err instanceof ApiError ? err.message : "Intake save failed");
+    }
+  }
+
+  async function assignDentist(dentistId: string | null) {
+    try {
+      const updated = await api<Patient>(`/api/v1/patients/${id}/primary-dentist`, {
+        method: "PUT",
+        body: JSON.stringify({ dentist_id: dentistId }),
+      });
+      setPatient(updated);
+      setMsg(
+        updated.primary_dentist_name
+          ? `Assigned to ${updated.primary_dentist_name}`
+          : "Moved to unassigned pool",
+      );
+    } catch (err) {
+      setMsg(err instanceof ApiError ? err.message : "Assignment failed");
     }
   }
 
@@ -288,6 +320,10 @@ export function PatientDetailPage() {
               {patient.town_city ? ` · ${patient.town_city}` : ""}
               {patient.allergies ? ` · Allergies: ${patient.allergies}` : ""}
             </p>
+            <p className="mt-1 text-sm text-brand-800">
+              <span className="font-semibold">Primary dentist:</span>{" "}
+              {patient.primary_dentist_name || "Unassigned"}
+            </p>
             {patient.chief_complaint && (
               <p className="mt-2 text-sm text-brand-800">
                 <span className="font-semibold">Chief complaint:</span> {patient.chief_complaint}
@@ -308,6 +344,23 @@ export function PatientDetailPage() {
                 <div className="font-display text-2xl font-bold text-brand-700">
                   {(patient.caries_risk_score * 100).toFixed(0)}%
                 </div>
+              </div>
+            )}
+            {canAssign && (
+              <div className="w-56">
+                <label className="label">Assign dentist</label>
+                <select
+                  className="input text-xs"
+                  value={patient.primary_dentist_id || ""}
+                  onChange={(e) => void assignDentist(e.target.value || null)}
+                >
+                  <option value="">Unassigned pool</option>
+                  {dentists.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.full_name}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             <button
@@ -353,6 +406,15 @@ export function PatientDetailPage() {
         onSelect={setSelectedTooth}
         onMark={markTooth}
       />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ToothHistoryPanel patientId={id} toothNumber={selectedTooth} />
+        <ConsentPad
+          patientId={id}
+          patientName={patient ? `${patient.first_name} ${patient.last_name}` : undefined}
+          onMessage={setMsg}
+        />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <RestorativePanel patientId={id} selectedTooth={selectedTooth} />

@@ -1,17 +1,30 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { addDays, format, parseISO, startOfDay } from "date-fns";
+import {
+  addDays,
+  differenceInMinutes,
+  format,
+  parseISO,
+  startOfDay,
+  startOfWeek,
+} from "date-fns";
 import { api, ApiError } from "@/lib/api";
+import { DayCalendar } from "@/components/DayCalendar";
+import { WeekCalendar } from "@/components/WeekCalendar";
 import type { Appointment, AppointmentType, Page, Patient } from "@/lib/types";
 
 type Dentist = { id: string; full_name: string; role: string; specialty?: string | null };
+type ViewMode = "day" | "week";
 
 export function SchedulePage() {
   const [day, setDay] = useState(() => startOfDay(new Date()));
+  const [view, setView] = useState<ViewMode>("day");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [waitlist, setWaitlist] = useState<Appointment[]>([]);
   const [types, setTypes] = useState<AppointmentType[]>([]);
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [slots, setSlots] = useState<Array<{ starts_at: string; ends_at: string; score: number; reason: string }>>([]);
+  const [selected, setSelected] = useState<Appointment | null>(null);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     patient_id: "",
@@ -21,30 +34,43 @@ export function SchedulePage() {
     starts_at: "",
     duration: "30",
     reason: "",
+    waitlist: false,
   });
 
+  const weekStart = useMemo(() => startOfWeek(day, { weekStartsOn: 1 }), [day]);
   const range = useMemo(() => {
-    const start = day.toISOString();
-    const end = addDays(day, 1).toISOString();
-    return { start, end };
-  }, [day]);
+    if (view === "week") {
+      return { start: weekStart.toISOString(), end: addDays(weekStart, 7).toISOString() };
+    }
+    return { start: day.toISOString(), end: addDays(day, 1).toISOString() };
+  }, [day, view, weekStart]);
 
   async function load() {
-    const [a, t, d, p] = await Promise.all([
+    const [a, t, d, p, w] = await Promise.all([
       api<Appointment[]>(
         `/api/v1/appointments?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`,
       ),
       api<AppointmentType[]>("/api/v1/appointments/types"),
       api<Dentist[]>("/api/v1/staff/dentists"),
       api<Page<Patient>>("/api/v1/patients?limit=100"),
+      api<Appointment[]>(
+        `/api/v1/appointments?waitlist=true&start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(addDays(parseISO(range.end), 14).toISOString())}`,
+      ),
     ]);
-    setAppointments(a);
+    setAppointments(a.filter((x) => !x.waitlist));
+    setWaitlist(w.filter((x) => x.waitlist));
     setTypes(t);
     setDentists(d);
     setPatients(p.items);
     if (!form.dentist_id && d[0]) setForm((f) => ({ ...f, dentist_id: d[0].id }));
     if (!form.patient_id && p.items[0]) setForm((f) => ({ ...f, patient_id: p.items[0].id }));
-    if (!form.appointment_type_id && t[0]) setForm((f) => ({ ...f, appointment_type_id: t[0].id, duration: String(t[0].duration_minutes) }));
+    if (!form.appointment_type_id && t[0]) {
+      setForm((f) => ({
+        ...f,
+        appointment_type_id: t[0].id,
+        duration: String(t[0].duration_minutes),
+      }));
+    }
   }
 
   useEffect(() => {
@@ -80,12 +106,39 @@ export function SchedulePage() {
           starts_at: starts.toISOString(),
           ends_at: ends.toISOString(),
           reason: form.reason || null,
+          waitlist: form.waitlist,
         }),
       });
       await load();
       setSlots([]);
+      setForm((f) => ({ ...f, waitlist: false, reason: "" }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Booking failed");
+    }
+  }
+
+  async function reschedule(id: string, startsAt: Date, dentistId?: string) {
+    setError("");
+    const appt = appointments.find((a) => a.id === id) || waitlist.find((a) => a.id === id);
+    if (!appt) return;
+    const duration = Math.max(
+      15,
+      differenceInMinutes(parseISO(appt.ends_at), parseISO(appt.starts_at)),
+    );
+    const endsAt = new Date(startsAt.getTime() + duration * 60_000);
+    try {
+      await api(`/api/v1/appointments/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
+          ...(dentistId ? { dentist_id: dentistId } : {}),
+          waitlist: false,
+        }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Reschedule conflict");
     }
   }
 
@@ -95,6 +148,16 @@ export function SchedulePage() {
       body: JSON.stringify({ status }),
     });
     await load();
+    setSelected(null);
+  }
+
+  async function offerFromWaitlist(id: string) {
+    if (!form.starts_at) {
+      setError("Pick a start time in the booking form, then offer the waitlist slot");
+      return;
+    }
+    const starts = new Date(form.starts_at);
+    await reschedule(id, starts, form.dentist_id || undefined);
   }
 
   return (
@@ -102,55 +165,81 @@ export function SchedulePage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl font-bold text-brand-900">Schedule</h2>
-          <p className="text-sm text-muted">Color-coded chairs · API conflict detection · smart slot assist</p>
+          <p className="text-sm text-muted">
+            Multi-dentist day/week grid · drag to reschedule · waitlist
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="btn-ghost" onClick={() => setDay(addDays(day, -1))}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-xl bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "day" ? "bg-brand-500 text-white" : "text-muted"}`}
+              onClick={() => setView("day")}
+            >
+              Day
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "week" ? "bg-brand-500 text-white" : "text-muted"}`}
+              onClick={() => setView("week")}
+            >
+              Week
+            </button>
+          </div>
+          <button
+            className="btn-ghost"
+            onClick={() => setDay(addDays(day, view === "week" ? -7 : -1))}
+          >
             Prev
           </button>
           <div className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-brand-800">
-            {format(day, "EEE, MMM d")}
+            {view === "week"
+              ? `${format(weekStart, "MMM d")} – ${format(addDays(weekStart, 6), "MMM d")}`
+              : format(day, "EEE, MMM d")}
           </div>
-          <button className="btn-ghost" onClick={() => setDay(addDays(day, 1))}>
+          <button
+            className="btn-ghost"
+            onClick={() => setDay(addDays(day, view === "week" ? 7 : 1))}
+          >
             Next
+          </button>
+          <button className="btn-ghost" onClick={() => setDay(startOfDay(new Date()))}>
+            Today
           </button>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <div className="glass-panel space-y-3 rounded-3xl p-5">
-          {appointments.length === 0 && <p className="text-sm text-muted">No appointments this day.</p>}
-          {appointments.map((a) => (
-            <div
-              key={a.id}
-              className="rounded-2xl border border-brand-100 bg-white/80 p-4"
-              style={{ borderLeftWidth: 5, borderLeftColor: a.color || "#0B5FFF" }}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="font-semibold">
-                    {a.patient ? `${a.patient.first_name} ${a.patient.last_name}` : "Patient"}
-                  </div>
-                  <div className="text-xs text-muted">
-                    {format(parseISO(a.starts_at), "HH:mm")}–{format(parseISO(a.ends_at), "HH:mm")}
-                    {a.chair_number ? ` · Chair ${a.chair_number}` : ""}
-                    {a.reason ? ` · ${a.reason}` : ""}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="btn-ghost text-xs" onClick={() => void moveStatus(a.id, "checked_in")}>
-                    Check in
-                  </button>
-                  <button className="btn-ghost text-xs" onClick={() => void moveStatus(a.id, "completed")}>
-                    Complete
-                  </button>
-                  <button className="btn-ghost text-xs" onClick={() => void moveStatus(a.id, "no_show")}>
-                    No-show
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+        <div className="glass-panel rounded-3xl p-4">
+          {view === "day" ? (
+            dentists.length === 0 ? (
+              <p className="text-sm text-muted">No dentists available.</p>
+            ) : (
+              <DayCalendar
+                day={day}
+                dentists={dentists}
+                appointments={appointments}
+                onReschedule={(id, starts, dentistId) => reschedule(id, starts, dentistId)}
+                onSelect={setSelected}
+              />
+            )
+          ) : (
+            <WeekCalendar
+              weekStart={weekStart}
+              appointments={appointments}
+              onReschedule={(id, starts) => reschedule(id, starts)}
+              onSelectDay={(d) => {
+                setDay(d);
+                setView("day");
+              }}
+            />
+          )}
         </div>
 
         <div className="space-y-4">
@@ -236,16 +325,91 @@ export function SchedulePage() {
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
               />
             </div>
-            {error && <div className="text-sm text-red-600">{error}</div>}
+            <label className="flex items-center gap-2 text-sm text-brand-800">
+              <input
+                type="checkbox"
+                checked={form.waitlist}
+                onChange={(e) => setForm({ ...form, waitlist: e.target.checked })}
+              />
+              Add to waitlist (no chair conflict)
+            </label>
             <div className="flex flex-wrap gap-2">
               <button className="btn-primary" type="submit">
-                Book
+                {form.waitlist ? "Join waitlist" : "Book"}
               </button>
               <button className="btn-ghost" type="button" onClick={() => void suggestSlots()}>
                 Suggest smart slots
               </button>
             </div>
           </form>
+
+          {selected && (
+            <div className="glass-panel space-y-2 rounded-3xl p-5">
+              <h3 className="font-display text-lg font-bold">Selected</h3>
+              <p className="text-sm font-semibold">
+                {selected.patient
+                  ? `${selected.patient.first_name} ${selected.patient.last_name}`
+                  : "Patient"}
+              </p>
+              <p className="text-xs text-muted">
+                {format(parseISO(selected.starts_at), "HH:mm")}–
+                {format(parseISO(selected.ends_at), "HH:mm")} · {selected.status}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-ghost text-xs" onClick={() => void moveStatus(selected.id, "checked_in")}>
+                  Check in
+                </button>
+                <button className="btn-ghost text-xs" onClick={() => void moveStatus(selected.id, "completed")}>
+                  Complete
+                </button>
+                <button className="btn-ghost text-xs" onClick={() => void moveStatus(selected.id, "no_show")}>
+                  No-show
+                </button>
+                <button className="btn-ghost text-xs" onClick={() => void moveStatus(selected.id, "cancelled")}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="glass-panel space-y-3 rounded-3xl p-5">
+            <h3 className="font-display text-lg font-bold">Waitlist</h3>
+            <p className="text-xs text-muted">Offer an open slot when a cancellation frees the chair</p>
+            {waitlist.length === 0 ? (
+              <p className="text-sm text-muted">No waitlisted patients.</p>
+            ) : (
+              <ul className="space-y-2">
+                {waitlist.map((a) => (
+                  <li
+                    key={a.id}
+                    className="rounded-2xl border border-brand-100 bg-white/80 px-3 py-2 text-sm"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/appointment-id", a.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                  >
+                    <div className="font-semibold">
+                      {a.patient
+                        ? `${a.patient.first_name} ${a.patient.last_name}`
+                        : "Patient"}
+                    </div>
+                    <div className="text-xs text-muted">
+                      Prefers {format(parseISO(a.starts_at), "MMM d HH:mm")}
+                      {a.reason ? ` · ${a.reason}` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-ghost mt-1 text-xs"
+                      onClick={() => void offerFromWaitlist(a.id)}
+                    >
+                      Offer current form time
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           {slots.length > 0 && (
             <div className="glass-panel rounded-3xl p-5">
@@ -263,7 +427,8 @@ export function SchedulePage() {
                     }}
                   >
                     <div className="font-semibold">
-                      {format(parseISO(s.starts_at), "HH:mm")} – {format(parseISO(s.ends_at), "HH:mm")}
+                      {format(parseISO(s.starts_at), "HH:mm")} –{" "}
+                      {format(parseISO(s.ends_at), "HH:mm")}
                     </div>
                     <div className="text-xs text-muted">
                       Score {(s.score * 100).toFixed(0)}% · {s.reason}

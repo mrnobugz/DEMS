@@ -4,7 +4,6 @@ import { api, ApiError } from "@/lib/api";
 import type {
   ClinicalVisit,
   ExtraOralExam,
-  Icd10CodeRef,
   IntraOralExam,
   VisitDiagnosis,
   VisitInvestigations,
@@ -678,7 +677,7 @@ export function ClinicalExamPanel({ patientId, chiefComplaint, onMessage }: Prop
               Diagnosis & plan bridge
             </h4>
             <Icd10Picker
-              selected={(dx.icd10_codes || []) as Icd10CodeRef[]}
+              selected={dx.icd10_codes || []}
               onChange={(codes) => setDx({ ...dx, icd10_codes: codes })}
               multiple
             />

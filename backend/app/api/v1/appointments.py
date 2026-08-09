@@ -4,7 +4,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
-from app.api.deps import ClinicId, DbSession, require_permission
+from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
+from app.core.rbac import is_assignment_scoped_role
 from app.models import AppointmentType, User
 from app.schemas import (
     AppointmentCreate,
@@ -43,10 +44,18 @@ async def list_appointments(
     start: datetime | None = None,
     end: datetime | None = None,
     dentist_id: str | None = None,
+    waitlist: bool | None = Query(default=None),
 ):
-    _ = user
+    scoped_dentist = dentist_id
+    if is_assignment_scoped_role(user.role) and not dentist_id:
+        scoped_dentist = user.id
     return await svc.list_appointments(
-        db, clinic_id, start=start, end=end, dentist_id=dentist_id
+        db,
+        clinic_id,
+        start=start,
+        end=end,
+        dentist_id=scoped_dentist,
+        waitlist=waitlist,
     )
 
 
@@ -66,6 +75,11 @@ async def update_appointment(
     body: AppointmentUpdate,
     db: DbSession,
     clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("appointments:*"))],
+    user: Annotated[
+        User,
+        Depends(require_any_permission("appointments:*", "appointments:update_own")),
+    ],
 ):
-    return await svc.update_appointment(db, clinic_id, user.id, appointment_id, body)
+    return await svc.update_appointment(
+        db, clinic_id, user.id, appointment_id, body, actor=user
+    )

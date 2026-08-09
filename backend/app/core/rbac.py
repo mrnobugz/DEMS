@@ -19,6 +19,7 @@ PERMISSIONS: dict[Role, set[str]] = {
     Role.SUPER_ADMIN: {"*"},
     Role.CLINIC_ADMIN: {
         "patients:*",
+        "patients:assign",
         "appointments:*",
         "clinical:read",
         "billing:*",
@@ -35,6 +36,7 @@ PERMISSIONS: dict[Role, set[str]] = {
     Role.DENTIST: {
         "patients:read",
         "patients:update",
+        "patients:own",  # scoped to assigned (+ unassigned pool)
         "appointments:read",
         "appointments:update_own",
         "clinical:*",
@@ -49,6 +51,7 @@ PERMISSIONS: dict[Role, set[str]] = {
     },
     Role.HYGIENIST: {
         "patients:read",
+        "patients:own",
         "appointments:read",
         "appointments:update_own",
         "clinical:read",
@@ -58,6 +61,7 @@ PERMISSIONS: dict[Role, set[str]] = {
     },
     Role.RECEPTIONIST: {
         "patients:*",
+        "patients:assign",
         "appointments:*",
         "billing:create",
         "billing:read",
@@ -117,3 +121,12 @@ def has_permission(role: Role | str, permission: str) -> bool:
 
 def has_any_permission(role: Role | str, *permissions: str) -> bool:
     return any(has_permission(role, p) for p in permissions)
+
+
+def is_assignment_scoped_role(role: Role | str) -> bool:
+    """Dentists/hygienists only see assigned patients (plus unassigned pool)."""
+    try:
+        role_enum = Role(role) if isinstance(role, str) else role
+    except ValueError:
+        return False
+    return role_enum in {Role.DENTIST, Role.HYGIENIST}

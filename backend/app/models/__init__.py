@@ -179,8 +179,12 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     perio_risk_band: Mapped[Optional[str]] = mapped_column(String(32))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    primary_dentist_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
 
     clinic: Mapped["Clinic"] = relationship(back_populates="patients")
+    primary_dentist: Mapped[Optional["User"]] = relationship(foreign_keys=[primary_dentist_id])
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="patient")
     chart_entries: Mapped[list["DentalChartEntry"]] = relationship(back_populates="patient")
     clinical_notes: Mapped[list["ClinicalNote"]] = relationship(back_populates="patient")

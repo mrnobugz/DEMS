@@ -494,7 +494,11 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
         await db.execute(
             select(func.count())
             .select_from(Appointment)
-            .where(Appointment.clinic_id == clinic_id, Appointment.status == "scheduled")
+            .where(
+                Appointment.clinic_id == clinic_id,
+                Appointment.waitlist.is_(True),
+                Appointment.status.notin_(["cancelled", "no_show", "completed"]),
+            )
         )
     ).scalar_one()
     open_lab = (
