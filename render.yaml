@@ -61,7 +61,6 @@ services:
     name: demsta-web
     runtime: static
     plan: starter
-    region: oregon
     rootDir: frontend
     buildCommand: (npm ci || npm install) && npm run build
     staticPublishPath: dist
