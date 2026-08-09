@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
@@ -905,6 +905,8 @@ class LabCaseCreate(BaseModel):
     due_at: Optional[datetime] = None
     lab_cost: float = 0
     notes: Optional[str] = None
+    restoration_id: Optional[str] = None
+    restoration_case_id: Optional[str] = None
 
 
 class LabCaseUpdate(BaseModel):
@@ -917,6 +919,8 @@ class LabCaseUpdate(BaseModel):
     due_at: Optional[datetime] = None
     lab_cost: Optional[float] = None
     notes: Optional[str] = None
+    restoration_id: Optional[str] = None
+    restoration_case_id: Optional[str] = None
 
 
 class LabCaseOut(ORMModel):
@@ -934,7 +938,25 @@ class LabCaseOut(ORMModel):
     fitted_at: Optional[datetime] = None
     lab_cost: float
     notes: Optional[str] = None
+    restoration_id: Optional[str] = None
+    restoration_case_id: Optional[str] = None
+    is_overdue: bool = False
     created_at: datetime
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _compute_overdue(cls, value, handler):
+        result = handler(value)
+        due = getattr(value, "due_at", None) if not isinstance(value, dict) else value.get("due_at")
+        status = getattr(value, "status", None) if not isinstance(value, dict) else value.get("status")
+        overdue = False
+        if due and status not in ("fitted", "cancelled", "draft"):
+            now = datetime.now(due.tzinfo) if getattr(due, "tzinfo", None) else datetime.now(UTC)
+            try:
+                overdue = due < now
+            except TypeError:
+                overdue = False
+        return result.model_copy(update={"is_overdue": overdue})
 
 
 class ImagingStudyCreate(BaseModel):
@@ -957,8 +979,108 @@ class ImagingStudyOut(ORMModel):
     tooth: Optional[str] = None
     captured_at: datetime
     storage_key: Optional[str] = None
+    content_type: Optional[str] = None
+    byte_size: Optional[int] = None
+    checksum_sha256: Optional[str] = None
+    is_encrypted: bool = False
+    original_filename: Optional[str] = None
     notes: Optional[str] = None
+    has_content: bool = False
     created_at: datetime
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _has_content_flag(cls, value, handler):
+        result = handler(value)
+        key = getattr(value, "storage_key", None) if not isinstance(value, dict) else value.get("storage_key")
+        return result.model_copy(
+            update={"has_content": bool(key and str(key).startswith("localenc://"))}
+        )
+
+
+class PatientInsurancePlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_name: str = Field(min_length=1, max_length=200)
+    plan_name: Optional[str] = None
+    member_id: Optional[str] = None
+    group_number: Optional[str] = None
+    coverage_pct: float = Field(default=80.0, ge=0, le=100)
+    annual_max: Optional[float] = Field(default=None, ge=0)
+    lifetime_max: Optional[float] = Field(default=None, ge=0)
+    amount_used_ytd: float = Field(default=0.0, ge=0)
+    deductible: float = Field(default=0.0, ge=0)
+    deductible_met: float = Field(default=0.0, ge=0)
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_primary: bool = True
+    notes: Optional[str] = None
+
+
+class PatientInsurancePlanUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    plan_name: Optional[str] = None
+    member_id: Optional[str] = None
+    group_number: Optional[str] = None
+    coverage_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    annual_max: Optional[float] = Field(default=None, ge=0)
+    lifetime_max: Optional[float] = Field(default=None, ge=0)
+    amount_used_ytd: Optional[float] = Field(default=None, ge=0)
+    deductible: Optional[float] = Field(default=None, ge=0)
+    deductible_met: Optional[float] = Field(default=None, ge=0)
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_primary: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class PatientInsurancePlanOut(ORMModel):
+    id: str
+    patient_id: str
+    payer_name: str
+    plan_name: Optional[str] = None
+    member_id: Optional[str] = None
+    group_number: Optional[str] = None
+    coverage_pct: float
+    annual_max: Optional[float] = None
+    lifetime_max: Optional[float] = None
+    amount_used_ytd: float
+    deductible: float
+    deductible_met: float
+    remaining_annual: Optional[float] = None
+    remaining_deductible: float = 0
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_primary: bool
+    notes: Optional[str] = None
+    clinic_id: str
+    created_at: datetime
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _remaining(cls, value, handler):
+        result = handler(value)
+        annual = result.annual_max
+        remaining_annual = None if annual is None else max(annual - result.amount_used_ytd, 0.0)
+        remaining_deductible = max(result.deductible - result.deductible_met, 0.0)
+        return result.model_copy(
+            update={
+                "remaining_annual": remaining_annual,
+                "remaining_deductible": remaining_deductible,
+            }
+        )
+
+
+class InsuranceEstimateOut(BaseModel):
+    patient_id: str
+    subtotal: float
+    coverage_pct: float
+    deductible_remaining: float
+    insurance_estimate: float
+    patient_estimate: float
+    plan_id: Optional[str] = None
+    payer_name: Optional[str] = None
+    notes: str = ""
 
 
 class DrugTemplateCreate(BaseModel):
@@ -1025,6 +1147,7 @@ class DepartmentHomeOut(BaseModel):
     checked_in: int = 0
     waitlist: int = 0
     open_lab_cases: int = 0
+    overdue_lab_cases: int = 0
     low_stock_items: int = 0
     open_prescriptions: int = 0
     outstanding_balance: float = 0

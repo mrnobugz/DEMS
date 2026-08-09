@@ -16,9 +16,22 @@ async def list_cases(
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("lab:read"))],
     status: str | None = Query(None),
+    overdue: bool = Query(False),
 ):
     _ = user
-    return await dept.list_lab_cases(db, clinic_id, status=status)
+    return await dept.list_lab_cases(
+        db, clinic_id, status=status, overdue_only=overdue
+    )
+
+
+@router.get("/cases/overdue", response_model=list[LabCaseOut])
+async def overdue_cases(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("lab:read"))],
+):
+    _ = user
+    return await dept.list_lab_cases(db, clinic_id, overdue_only=True)
 
 
 @router.post("/cases", response_model=LabCaseOut, status_code=201)

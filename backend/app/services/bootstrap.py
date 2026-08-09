@@ -27,6 +27,7 @@ from app.models import (
     LabCase,
     LabCaseStatus,
     Patient,
+    PatientInsurancePlan,
     Payment,
     PaymentMethod,
     Prescription,
@@ -59,9 +60,20 @@ async def wipe_demo_data(db: AsyncSession) -> None:
         "prescriptions",
         "drug_templates",
         "imaging_studies",
+        "endo_obturations",
+        "endo_cases",
+        "restoration_qualities",
+        "inventory_usages",
+        "restorations",
+        "restoration_cases",
         "lab_cases",
+        "patient_insurance_plans",
         "inventory_items",
+        "purchase_orders",
+        "suppliers",
         "staff_profiles",
+        "staff_shifts",
+        "staff_leaves",
         "payments",
         "invoice_line_items",
         "invoices",
@@ -391,6 +403,23 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
     patients[6].primary_dentist_id = east_dentist.id
     await db.flush()
 
+    db.add(
+        PatientInsurancePlan(
+            clinic_id=main.id,
+            patient_id=patients[0].id,
+            payer_name="DEMSTA Mutual Dental",
+            plan_name="Family Plus",
+            member_id="INS-JAMES-001",
+            coverage_pct=80.0,
+            annual_max=2000.0,
+            amount_used_ytd=350.0,
+            deductible=50.0,
+            deductible_met=50.0,
+            is_primary=True,
+        )
+    )
+    await db.flush()
+
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     appts = [
         Appointment(
@@ -624,7 +653,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 status=LabCaseStatus.IN_PROGRESS,
                 lab_name="SmileLab Pro",
                 sent_at=datetime.now(UTC) - timedelta(days=7),
-                due_at=datetime.now(UTC) + timedelta(days=1),
+                due_at=datetime.now(UTC) - timedelta(days=2),  # overdue demo
                 lab_cost=220,
             ),
             LabCase(
@@ -795,6 +824,9 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
     )
     db.add_all([rest_planned, rest_done])
     await db.flush()
+    if lab:
+        lab.restoration_id = rest_planned.id
+        lab.restoration_case_id = rcase.id
     db.add(
         RestorationQuality(
             restoration_id=rest_done.id,

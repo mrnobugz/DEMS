@@ -38,6 +38,7 @@ from app.models import (
     InvoiceLineItem,
     InvoiceStatus,
     Patient,
+    PatientInsurancePlan,
     Payment,
     PerioExam,
     PerioSite,
@@ -59,6 +60,8 @@ from app.schemas import (
     FeeScheduleItemCreate,
     FeeScheduleItemUpdate,
     InvoiceCreate,
+    PatientInsurancePlanCreate,
+    PatientInsurancePlanUpdate,
     PatientCreate,
     PatientUpdate,
     PaymentCreate,
@@ -1856,3 +1859,165 @@ def create_user(
         phone=phone,
         specialty=specialty,
     )
+
+
+# ── Insurance plans & estimates ───────────────────────
+async def list_insurance_plans(
+    db: AsyncSession, clinic_id: str, patient_id: str
+) -> list[PatientInsurancePlan]:
+    await get_patient(db, clinic_id, patient_id)
+    rows = (
+        await db.execute(
+            select(PatientInsurancePlan)
+            .where(
+                PatientInsurancePlan.clinic_id == clinic_id,
+                PatientInsurancePlan.patient_id == patient_id,
+            )
+            .order_by(PatientInsurancePlan.is_primary.desc(), PatientInsurancePlan.created_at.desc())
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def get_primary_insurance_plan(
+    db: AsyncSession, clinic_id: str, patient_id: str
+) -> PatientInsurancePlan | None:
+    plans = await list_insurance_plans(db, clinic_id, patient_id)
+    for p in plans:
+        if p.is_primary:
+            return p
+    return plans[0] if plans else None
+
+
+async def upsert_insurance_plan(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    patient_id: str,
+    data: PatientInsurancePlanCreate,
+) -> PatientInsurancePlan:
+    await get_patient(db, clinic_id, patient_id)
+    if data.is_primary:
+        existing = await list_insurance_plans(db, clinic_id, patient_id)
+        for p in existing:
+            p.is_primary = False
+    plan = PatientInsurancePlan(clinic_id=clinic_id, patient_id=patient_id, **data.model_dump())
+    db.add(plan)
+    await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="create",
+        resource_type="insurance_plan",
+        resource_id=plan.id,
+        after={"payer_name": plan.payer_name, "coverage_pct": plan.coverage_pct},
+    )
+    return plan
+
+
+async def update_insurance_plan(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    plan_id: str,
+    data: PatientInsurancePlanUpdate,
+) -> PatientInsurancePlan:
+    plan = (
+        await db.execute(
+            select(PatientInsurancePlan).where(
+                PatientInsurancePlan.id == plan_id,
+                PatientInsurancePlan.clinic_id == clinic_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not plan:
+        raise NotFoundError("Insurance plan")
+    payload = data.model_dump(exclude_unset=True)
+    if payload.get("is_primary"):
+        for other in await list_insurance_plans(db, clinic_id, plan.patient_id):
+            if other.id != plan.id:
+                other.is_primary = False
+    for k, v in payload.items():
+        setattr(plan, k, v)
+    await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="update",
+        resource_type="insurance_plan",
+        resource_id=plan.id,
+        after=payload,
+    )
+    return plan
+
+
+def estimate_patient_responsibility(
+    *,
+    subtotal: float,
+    coverage_pct: float,
+    deductible_remaining: float,
+    remaining_annual: float | None,
+) -> tuple[float, float, str]:
+    """Return (insurance_estimate, patient_estimate, notes)."""
+    if subtotal <= 0:
+        return 0.0, 0.0, "No charges"
+    deductible_applied = min(max(deductible_remaining, 0.0), subtotal)
+    covered_base = max(subtotal - deductible_applied, 0.0)
+    insurance = covered_base * (coverage_pct / 100.0)
+    if remaining_annual is not None:
+        insurance = min(insurance, max(remaining_annual, 0.0))
+    patient = max(subtotal - insurance, 0.0)
+    notes = (
+        f"Deductible applied {deductible_applied:.2f}; coverage {coverage_pct:.0f}%"
+        + (f"; annual remaining cap {remaining_annual:.2f}" if remaining_annual is not None else "")
+    )
+    return round(insurance, 2), round(patient, 2), notes
+
+
+async def insurance_estimate_for_patient(
+    db: AsyncSession,
+    clinic_id: str,
+    patient_id: str,
+    *,
+    amount: float | None = None,
+) -> dict:
+    await get_patient(db, clinic_id, patient_id)
+    if amount is None:
+        billable = await list_billable_chart_entries(db, clinic_id, patient_id)
+        subtotal = sum(float(b["unit_price"]) for b in billable)
+    else:
+        subtotal = float(amount)
+    plan = await get_primary_insurance_plan(db, clinic_id, patient_id)
+    if not plan:
+        return {
+            "patient_id": patient_id,
+            "subtotal": subtotal,
+            "coverage_pct": 0.0,
+            "deductible_remaining": 0.0,
+            "insurance_estimate": 0.0,
+            "patient_estimate": subtotal,
+            "plan_id": None,
+            "payer_name": None,
+            "notes": "No insurance plan on file — patient pays full amount",
+        }
+    remaining_annual = None if plan.annual_max is None else max(plan.annual_max - plan.amount_used_ytd, 0.0)
+    deductible_remaining = max(plan.deductible - plan.deductible_met, 0.0)
+    insurance, patient_est, notes = estimate_patient_responsibility(
+        subtotal=subtotal,
+        coverage_pct=plan.coverage_pct,
+        deductible_remaining=deductible_remaining,
+        remaining_annual=remaining_annual,
+    )
+    return {
+        "patient_id": patient_id,
+        "subtotal": subtotal,
+        "coverage_pct": plan.coverage_pct,
+        "deductible_remaining": deductible_remaining,
+        "insurance_estimate": insurance,
+        "patient_estimate": patient_est,
+        "plan_id": plan.id,
+        "payer_name": plan.payer_name,
+        "notes": notes,
+    }

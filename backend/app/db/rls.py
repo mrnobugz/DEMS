@@ -35,6 +35,7 @@ TENANT_TABLES = (
     "purchase_orders",
     "staff_shifts",
     "staff_leaves",
+    "patient_insurance_plans",
 )
 
 

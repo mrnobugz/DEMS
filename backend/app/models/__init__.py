@@ -537,6 +537,12 @@ class LabCase(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     fitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     lab_cost: Mapped[float] = mapped_column(Float, default=0.0)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    restoration_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("restorations.id", ondelete="SET NULL"), index=True
+    )
+    restoration_case_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("restoration_cases.id", ondelete="SET NULL"), index=True
+    )
 
     patient: Mapped["Patient"] = relationship()
     dentist: Mapped[Optional["User"]] = relationship()
@@ -554,10 +560,39 @@ class ImagingStudy(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
     storage_key: Mapped[Optional[str]] = mapped_column(String(500))  # stub path / URI
+    content_type: Mapped[Optional[str]] = mapped_column(String(120))
+    byte_size: Mapped[Optional[int]] = mapped_column(Integer)
+    checksum_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(255))
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     patient: Mapped["Patient"] = relationship()
     captured_by: Mapped[Optional["User"]] = relationship()
+
+
+class PatientInsurancePlan(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Patient-level insurance plan driving co-pay estimates (pre-EDI claims)."""
+
+    __tablename__ = "patient_insurance_plans"
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    payer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    plan_name: Mapped[Optional[str]] = mapped_column(String(200))
+    member_id: Mapped[Optional[str]] = mapped_column(String(80))
+    group_number: Mapped[Optional[str]] = mapped_column(String(80))
+    coverage_pct: Mapped[float] = mapped_column(Float, default=80.0)
+    annual_max: Mapped[Optional[float]] = mapped_column(Float)
+    lifetime_max: Mapped[Optional[float]] = mapped_column(Float)
+    amount_used_ytd: Mapped[float] = mapped_column(Float, default=0.0)
+    deductible: Mapped[float] = mapped_column(Float, default=0.0)
+    deductible_met: Mapped[float] = mapped_column(Float, default=0.0)
+    effective_from: Mapped[Optional[date]] = mapped_column(Date)
+    effective_to: Mapped[Optional[date]] = mapped_column(Date)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
 
 
 class DrugTemplate(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):

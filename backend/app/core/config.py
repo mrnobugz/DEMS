@@ -1,7 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+import json
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     debug: bool = True
 
-    # Database — SQLite for quick local; PostgreSQL for scalable / Docker
+    # Database — SQLite for quick local; PostgreSQL for Docker / Render
     database_url: str = "sqlite+aiosqlite:///./demsta.db"
     db_pool_size: int = 10
     db_max_overflow: int = 20
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
             "http://localhost:4173",
         ]
     )
+    # Render / production: set to the static site origin (https://….onrender.com)
+    frontend_origin: str | None = None
 
     # Redis — shared rate-limit / cache / future job broker (falls back in-process)
     redis_url: str = "redis://localhost:6379/0"
@@ -57,13 +60,66 @@ class Settings(BaseSettings):
     # MFA
     mfa_issuer: str = "DEMSTA"
 
+    # Object storage (imaging / consents) — local encrypted filesystem by default
+    # On Render, mount a disk at /var/data and set OBJECT_STORAGE_PATH=/var/data/object_store
+    object_storage_path: str = "./data/object_store"
+    imaging_max_upload_bytes: int = 15 * 1024 * 1024  # 15 MB
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: Any) -> Any:
+        if not isinstance(v, str) or not v:
+            return v
+        url = v.strip()
+        # Render / Heroku style → SQLAlchemy asyncpg
+        if url.startswith("postgres://"):
+            url = "postgresql+asyncpg://" + url[len("postgres://") :]
+        elif url.startswith("postgresql://") and "+asyncpg" not in url:
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+        # Remote Postgres (Render) requires TLS
+        if (
+            "+asyncpg://" in url
+            and "ssl=" not in url
+            and "localhost" not in url
+            and "127.0.0.1" not in url
+            and "@db:" not in url  # docker-compose service name
+        ):
+            url += ("&" if "?" in url else "?") + "ssl=require"
+        return url
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> Any:
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                return json.loads(s)
+            return [part.strip() for part in s.split(",") if part.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def production_defaults(self) -> "Settings":
+        if self.environment == "production" and self.debug:
+            object.__setattr__(self, "debug", False)
+        origins = list(self.cors_origins)
+        if self.frontend_origin:
+            fo = self.frontend_origin.strip().rstrip("/")
+            if fo and fo not in origins:
+                origins.append(fo)
+            object.__setattr__(self, "cors_origins", origins)
+        return self
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
 
     @property
     def is_postgres(self) -> bool:
-        return self.database_url.startswith("postgresql")
+        return "postgresql" in self.database_url
 
 
 @lru_cache

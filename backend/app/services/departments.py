@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -279,14 +279,90 @@ async def adjust_inventory(
 
 
 # ── Lab ───────────────────────────────────────────────
+def _lab_overdue_clause():
+    return and_(
+        LabCase.due_at.is_not(None),
+        LabCase.due_at < datetime.now(UTC),
+        LabCase.status.notin_(
+            [LabCaseStatus.FITTED, LabCaseStatus.CANCELLED, LabCaseStatus.DRAFT]
+        ),
+    )
+
+
 async def list_lab_cases(
-    db: AsyncSession, clinic_id: str, *, status: str | None = None
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    status: str | None = None,
+    overdue_only: bool = False,
 ) -> list[LabCase]:
     q = select(LabCase).where(LabCase.clinic_id == clinic_id)
     if status:
         q = q.where(LabCase.status == status)
-    result = await db.execute(q.order_by(LabCase.created_at.desc()))
+    if overdue_only:
+        q = q.where(_lab_overdue_clause())
+    result = await db.execute(q.order_by(LabCase.due_at.asc().nullslast(), LabCase.created_at.desc()))
     return list(result.scalars().all())
+
+
+async def count_overdue_lab_cases(db: AsyncSession, clinic_id: str) -> int:
+    return int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(LabCase)
+                .where(LabCase.clinic_id == clinic_id, _lab_overdue_clause())
+            )
+        ).scalar_one()
+    )
+
+
+async def _link_restoration(
+    db: AsyncSession,
+    clinic_id: str,
+    case: LabCase,
+    *,
+    restoration_id: str | None = None,
+    restoration_case_id: str | None = None,
+) -> None:
+    from app.models import Restoration, RestorationCase
+
+    if restoration_id:
+        resto = (
+            await db.execute(
+                select(Restoration).where(
+                    Restoration.id == restoration_id,
+                    Restoration.clinic_id == clinic_id,
+                    Restoration.patient_id == case.patient_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not resto:
+            raise ValidationAppError("Restoration not found for this patient")
+        case.restoration_id = resto.id
+        if resto.case_id:
+            case.restoration_case_id = resto.case_id
+            rcase = (
+                await db.execute(
+                    select(RestorationCase).where(RestorationCase.id == resto.case_id)
+                )
+            ).scalar_one_or_none()
+            if rcase:
+                rcase.lab_case_id = case.id
+    if restoration_case_id:
+        rcase = (
+            await db.execute(
+                select(RestorationCase).where(
+                    RestorationCase.id == restoration_case_id,
+                    RestorationCase.clinic_id == clinic_id,
+                    RestorationCase.patient_id == case.patient_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not rcase:
+            raise ValidationAppError("Restoration case not found for this patient")
+        case.restoration_case_id = rcase.id
+        rcase.lab_case_id = case.id
 
 
 async def create_lab_case(
@@ -299,15 +375,27 @@ async def create_lab_case(
     ).scalar_one_or_none()
     if not patient:
         raise NotFoundError("Patient not found")
+    payload = data.model_dump()
+    restoration_id = payload.pop("restoration_id", None)
+    restoration_case_id = payload.pop("restoration_case_id", None)
     case = LabCase(
         clinic_id=clinic_id,
         dentist_id=actor.id if actor.role == Role.DENTIST else None,
-        **data.model_dump(),
+        **payload,
     )
     if case.status == LabCaseStatus.SENT and not case.sent_at:
         case.sent_at = datetime.now(UTC)
     db.add(case)
     await db.flush()
+    if restoration_id or restoration_case_id:
+        await _link_restoration(
+            db,
+            clinic_id,
+            case,
+            restoration_id=restoration_id,
+            restoration_case_id=restoration_case_id,
+        )
+        await db.flush()
     return case
 
 
@@ -322,6 +410,8 @@ async def update_lab_case(
     if not case:
         raise NotFoundError("Lab case not found")
     payload = data.model_dump(exclude_unset=True)
+    restoration_id = payload.pop("restoration_id", _UNSET)
+    restoration_case_id = payload.pop("restoration_case_id", _UNSET)
     now = datetime.now(UTC)
     if "status" in payload:
         st = payload["status"]
@@ -333,8 +423,19 @@ async def update_lab_case(
             case.fitted_at = now
     for k, v in payload.items():
         setattr(case, k, v)
+    if restoration_id is not _UNSET or restoration_case_id is not _UNSET:
+        await _link_restoration(
+            db,
+            clinic_id,
+            case,
+            restoration_id=None if restoration_id is _UNSET else restoration_id,
+            restoration_case_id=None if restoration_case_id is _UNSET else restoration_case_id,
+        )
     await db.flush()
     return case
+
+
+_UNSET = object()
 
 
 # ── Imaging ───────────────────────────────────────────
@@ -346,6 +447,19 @@ async def list_imaging(
         q = q.where(ImagingStudy.patient_id == patient_id)
     result = await db.execute(q.order_by(ImagingStudy.captured_at.desc()))
     return list(result.scalars().all())
+
+
+async def get_imaging_study(db: AsyncSession, clinic_id: str, study_id: str) -> ImagingStudy:
+    study = (
+        await db.execute(
+            select(ImagingStudy).where(
+                ImagingStudy.id == study_id, ImagingStudy.clinic_id == clinic_id
+            )
+        )
+    ).scalar_one_or_none()
+    if not study:
+        raise NotFoundError("Imaging study")
+    return study
 
 
 async def create_imaging_study(
@@ -372,6 +486,67 @@ async def create_imaging_study(
     db.add(study)
     await db.flush()
     return study
+
+
+ALLOWED_IMAGING_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/dicom",
+    "application/octet-stream",
+}
+
+
+async def upload_imaging_content(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    study_id: str,
+    *,
+    filename: str,
+    content_type: str,
+    data: bytes,
+) -> ImagingStudy:
+    from app.core.config import get_settings
+    from app.storage import get_object_storage
+
+    settings = get_settings()
+    if len(data) > settings.imaging_max_upload_bytes:
+        raise ValidationAppError(
+            f"File exceeds max size ({settings.imaging_max_upload_bytes} bytes)"
+        )
+    ctype = (content_type or "application/octet-stream").split(";")[0].strip().lower()
+    if ctype not in ALLOWED_IMAGING_TYPES and not ctype.startswith("image/"):
+        raise ValidationAppError(f"Unsupported content type: {ctype}")
+
+    study = await get_imaging_study(db, clinic_id, study_id)
+    storage = get_object_storage()
+    meta = storage.put(
+        clinic_id=clinic_id,
+        prefix=f"imaging/{study.patient_id}",
+        data=data,
+        content_type=ctype,
+    )
+    study.storage_key = meta["storage_key"]
+    study.content_type = ctype
+    study.byte_size = meta["byte_size"]
+    study.checksum_sha256 = meta["checksum_sha256"]
+    study.is_encrypted = True
+    study.original_filename = filename[:255] if filename else None
+    await db.flush()
+    return study
+
+
+async def read_imaging_content(
+    db: AsyncSession, clinic_id: str, study_id: str
+) -> tuple[ImagingStudy, bytes]:
+    from app.storage import get_object_storage
+
+    study = await get_imaging_study(db, clinic_id, study_id)
+    if not study.storage_key or not str(study.storage_key).startswith("localenc://"):
+        raise ValidationAppError("No encrypted content uploaded for this study")
+    data = get_object_storage().get(study.storage_key)
+    return study, data
 
 
 # ── Pharmacy ──────────────────────────────────────────
@@ -513,6 +688,7 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
             )
         )
     ).scalar_one()
+    overdue_lab = await count_overdue_lab_cases(db, clinic_id)
     low_stock = (
         await db.execute(
             select(func.count())
@@ -565,6 +741,7 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
         "checked_in": checked_in,
         "waitlist": waitlist,
         "open_lab_cases": open_lab,
+        "overdue_lab_cases": overdue_lab,
         "low_stock_items": low_stock,
         "open_prescriptions": open_rx,
         "outstanding_balance": float(outstanding or 0),

@@ -11,6 +11,7 @@ type Home = {
   checked_in: number;
   waitlist: number;
   open_lab_cases: number;
+  overdue_lab_cases?: number;
   low_stock_items: number;
   open_prescriptions: number;
   outstanding_balance: number;
@@ -38,6 +39,7 @@ export function StatGrid({ home }: { home: Home }) {
     ["Waitlist", home.waitlist],
     ["Patients", home.patients_total],
     ["Lab open", home.open_lab_cases],
+    ["Lab overdue", home.overdue_lab_cases ?? 0],
     ["Low stock", home.low_stock_items],
     ["Active Rx", home.open_prescriptions],
     ["Imaging today", home.imaging_today],

@@ -8,6 +8,7 @@ import {
 } from "@/components/ClerkshipIntakeFields";
 import { ClinicalExamPanel } from "@/components/ClinicalExamPanel";
 import { ConsentPad } from "@/components/ConsentPad";
+import { InsurancePlanPanel } from "@/components/InsurancePlanPanel";
 import { Icd10Picker } from "@/components/Icd10Picker";
 import { Odontogram } from "@/components/Odontogram";
 import { PerioChart } from "@/components/PerioChart";
@@ -415,6 +416,8 @@ export function PatientDetailPage() {
           onMessage={setMsg}
         />
       </div>
+
+      <InsurancePlanPanel patientId={id} onMessage={setMsg} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <RestorativePanel patientId={id} selectedTooth={selectedTooth} />

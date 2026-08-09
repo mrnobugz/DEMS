@@ -39,6 +39,16 @@ type CashUp = {
   payment_count: number;
 };
 
+type InsuranceEstimate = {
+  subtotal: number;
+  coverage_pct: number;
+  deductible_remaining: number;
+  insurance_estimate: number;
+  patient_estimate: number;
+  payer_name?: string | null;
+  notes: string;
+};
+
 function printReceipt(inv: Invoice, patientLabel: string, money: (n: number) => string) {
   const lines = inv.line_items
     .map(
@@ -88,6 +98,7 @@ export function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [outstanding, setOutstanding] = useState<Outstanding[]>([]);
   const [cashUp, setCashUp] = useState<CashUp | null>(null);
+  const [estimate, setEstimate] = useState<InsuranceEstimate | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [fees, setFees] = useState<FeeScheduleItem[]>([]);
   const [billable, setBillable] = useState<BillableChart[]>([]);
@@ -128,14 +139,19 @@ export function BillingPage() {
       setForm((f) => ({ ...f, patient_id: nextPatient }));
     }
     if (nextPatient) {
-      const rows = await api<BillableChart[]>(
-        `/api/v1/billing/patients/${nextPatient}/billable-chart`,
-      );
+      const [rows, est] = await Promise.all([
+        api<BillableChart[]>(`/api/v1/billing/patients/${nextPatient}/billable-chart`),
+        api<InsuranceEstimate>(`/api/v1/insurance/patients/${nextPatient}/estimate`).catch(
+          () => null,
+        ),
+      ]);
       setBillable(rows);
       setSelected(new Set(rows.map((r) => r.id)));
+      setEstimate(est);
     } else {
       setBillable([]);
       setSelected(new Set());
+      setEstimate(null);
     }
   }
 
@@ -145,11 +161,13 @@ export function BillingPage() {
 
   async function onPatientChange(patientId: string) {
     setForm((f) => ({ ...f, patient_id: patientId }));
-    const rows = await api<BillableChart[]>(
-      `/api/v1/billing/patients/${patientId}/billable-chart`,
-    );
+    const [rows, est] = await Promise.all([
+      api<BillableChart[]>(`/api/v1/billing/patients/${patientId}/billable-chart`),
+      api<InsuranceEstimate>(`/api/v1/insurance/patients/${patientId}/estimate`).catch(() => null),
+    ]);
     setBillable(rows);
     setSelected(new Set(rows.map((r) => r.id)));
+    setEstimate(est);
   }
 
   async function createInvoice(e: FormEvent) {
@@ -364,6 +382,18 @@ export function BillingPage() {
             <span className="text-muted">Selected total</span>
             <span className="font-display font-bold text-brand-800">{money(chartTotal)}</span>
           </div>
+          {estimate && (
+            <div className="rounded-xl bg-brand-50 px-3 py-2 text-xs text-brand-900">
+              <div className="font-semibold">
+                Co-pay estimate{estimate.payer_name ? ` · ${estimate.payer_name}` : ""}
+              </div>
+              <div>
+                Insurance {money(estimate.insurance_estimate)} · patient{" "}
+                {money(estimate.patient_estimate)}
+              </div>
+              <div className="text-muted">{estimate.notes}</div>
+            </div>
+          )}
           <button
             type="button"
             className="btn-primary w-full"

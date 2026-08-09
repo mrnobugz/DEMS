@@ -1,4 +1,6 @@
 .env
+.env.local
+.env.*.local
 .venv/
 __pycache__/
 *.pyc
@@ -14,3 +16,7 @@ htmlcov/
 .idea/
 .vscode/
 frontend/dev-dist/
+backend/data/
+data/
+*.egg-info/
+.pytest_cache/

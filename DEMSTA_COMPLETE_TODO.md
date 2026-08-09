@@ -247,21 +247,21 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 
 ### 5.1 Imaging / PACS-lite
 - [x] Study metadata registry + stub storage keys (imaging department shell)
-- [ ] Encrypted object storage for X-rays, OPG, CBCT, photos
+- [~] Encrypted object storage for X-rays, OPG, CBCT, photos (local Fernet store + upload/view)
 - [ ] DICOM import/export/view
-- [ ] In-browser viewer (zoom, contrast, annotate, measure)
-- [ ] Link images to visit/tooth/procedure
+- [~] In-browser viewer (basic image view; zoom/contrast/annotate later)
+- [~] Link images to visit/tooth/procedure (tooth + visit_id on study)
 - [ ] Before/after comparison UI
 
 ### 5.2 Lab Case Management
 - [x] Case pipeline: Sent → In Progress → Received → Fitted (department shell)
 - [x] Shade/specs, dates, lab cost
-- [ ] Overdue alerts
-- [ ] Hard link to restoration entry
+- [x] Overdue alerts
+- [x] Hard link to restoration entry
 
 ### 5.3 Insurance
-- [ ] Patient plans, coverage %, annual/lifetime limits
-- [ ] Co-pay estimate at invoicing
+- [x] Patient plans, coverage %, annual/lifetime limits
+- [x] Co-pay estimate at invoicing
 - [ ] Claim draft/submit/status/denial/resubmit (pre-EDI)
 - [ ] EDI 837/835 adapter interface (implement later Phase 6)
 
@@ -370,9 +370,9 @@ Work in **vertical slices**, not horizontal “finish all models then UI”.
 6. [x] Reports v1
 
 ### Sprint track C — Phase 3 engagement & revenue
-1. [ ] Imaging storage + viewer
-2. [ ] Lab Journey
-3. [ ] Insurance estimates + claims status
+1. [~] Imaging storage + basic viewer (DICOM/annotate later)
+2. [x] Lab Journey (overdue + restoration hard-link)
+3. [~] Insurance estimates (claims status later)
 4. [ ] Portal + Recall & Reach notifications
 
 ### Sprint track D — Scale & intelligence
@@ -411,8 +411,11 @@ A feature is done only when **all** are true:
 | DICOM / lab polish / insurance / portal / workers | Not yet |
 | Dentist↔patient assignment + scoped list/get | Done |
 | E2E happy path (service-layer) | Done |
-| HTTP E2E / security pass / load smoke | Next |
+| Lab overdue + restoration hard-link | Done |
+| Imaging encrypted local upload/view | Done (PACS/DICOM later) |
+| Insurance plans + co-pay estimate | Done (claims later) |
+| Portal / recall / claims / HTTP E2E | Next |
 
 ---
 
-*This list is the single source of truth for implementation sequencing. Next action: **Sprint track C** (imaging storage, lab overdue alerts + restoration hard-link, insurance estimates) or Track A polish (HTTP E2E, security review).*
+*This list is the single source of truth for implementation sequencing. Next action: **portal + Recall & Reach**, insurance claims draft, or Track A polish (HTTP E2E / security review).*

@@ -117,12 +117,27 @@ Starts **Postgres 17** + **Redis 7** + API + web.
 - PWA + Chairside Mode + role-aware navigation
 - Scale foundation: Alembic, Postgres RLS, tenant repos, Redis rate limits
 
+## Deploy on Render
+
+Blueprint: [`render.yaml`](./render.yaml) · step-by-step: [`docs/RENDER_DEPLOY.md`](./docs/RENDER_DEPLOY.md)
+
+Creates **Postgres**, **demsta-api** (Docker + persistent disk for encrypted imaging), and **demsta-web** (static PWA).
+
+After the first deploy, set cross-service URLs:
+
+1. `VITE_API_BASE` on **demsta-web** → API `https://…onrender.com` (no trailing slash), then rebuild web  
+2. `FRONTEND_ORIGIN` on **demsta-api** → web `https://…onrender.com`
+
+Health: `/ready` · Env templates: `backend/.env.example`, `frontend/.env.example`
+
 ## Project layout
 
 ```
 DEMS/
 ├── backend/app/          # FastAPI modular monolith
 ├── frontend/             # React PWA
+├── render.yaml           # Render Blueprint
+├── docs/RENDER_DEPLOY.md
 ├── docker-compose.yml
 └── DEMSTA_COMPLETE_TODO.md
 ```

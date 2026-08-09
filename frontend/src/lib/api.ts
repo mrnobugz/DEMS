@@ -75,3 +75,41 @@ export async function api<T>(
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+/** Multipart upload — do not set Content-Type (browser sets boundary). */
+export async function apiUpload<T>(path: string, formData: FormData, retry = true): Promise<T> {
+  const headers = new Headers();
+  const token = useAuth.getState().accessToken;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const { user, activeClinicId } = useAuth.getState();
+  if (user?.role === "super_admin" && activeClinicId) {
+    headers.set("X-Clinic-Id", activeClinicId);
+  }
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
+  if (res.status === 401 && retry) {
+    const next = await refreshAccess();
+    if (next) return apiUpload<T>(path, formData, false);
+  }
+  if (!res.ok) {
+    let payload: any = null;
+    try {
+      payload = await res.json();
+    } catch {
+      /* ignore */
+    }
+    const err = payload?.error;
+    throw new ApiError(
+      res.status,
+      err?.code ?? "HTTP_ERROR",
+      err?.message ?? res.statusText,
+      err?.details ?? [],
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
+export function imagingContentUrl(studyId: string): string {
+  const token = useAuth.getState().accessToken;
+  const base = `${API_BASE}/api/v1/imaging/studies/${studyId}/content`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}

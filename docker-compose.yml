@@ -43,8 +43,13 @@ services:
       DB_MAX_OVERFLOW: "20"
       RATE_LIMIT_ENABLED: "true"
       SECRET_KEY: change-me-in-production
-      CORS_ORIGINS: '["http://localhost:5173","http://localhost:4173","http://127.0.0.1:5173"]'
+      CORS_ORIGINS: http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173
+      FRONTEND_ORIGIN: http://localhost:5173
       ENVIRONMENT: development
+      OBJECT_STORAGE_PATH: /var/data/object_store
+      PORT: "8000"
+    volumes:
+      - demsta_media:/var/data
     ports:
       - "8000:8000"
     depends_on:
@@ -72,3 +77,4 @@ services:
 volumes:
   demsta_pg:
   demsta_redis:
+  demsta_media:

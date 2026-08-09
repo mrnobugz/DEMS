@@ -8,6 +8,7 @@ from app.api.v1 import (
     clinical_depth,
     departments,
     imaging,
+    insurance,
     inventory,
     lab,
     ops,
@@ -25,6 +26,7 @@ api_router.include_router(appointments.router)
 api_router.include_router(clinical.router)
 api_router.include_router(clinical_depth.router)
 api_router.include_router(billing.router)
+api_router.include_router(insurance.router)
 api_router.include_router(ops.router)
 api_router.include_router(owner.router)
 api_router.include_router(staff.router)
