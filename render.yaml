@@ -13,7 +13,7 @@ services:
   - type: web
     name: demsta-api
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
