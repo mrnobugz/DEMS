@@ -10,7 +10,13 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
+
+from app.db.migration_ops import (
+    add_columns_if_missing,
+    create_index_if_missing,
+    drop_columns_if_present,
+    drop_index_if_present,
+)
 
 revision: str = "004_icd10_treatment_plan"
 down_revision: Union[str, None] = "003_clinical_visits"
@@ -19,14 +25,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("treatment_plan_items") as batch:
-        batch.add_column(sa.Column("icd10_code", sa.String(length=16), nullable=True))
-        batch.add_column(sa.Column("icd10_description", sa.String(length=400), nullable=True))
-    op.create_index("ix_treatment_plan_items_icd10_code", "treatment_plan_items", ["icd10_code"])
+    add_columns_if_missing(
+        "treatment_plan_items",
+        sa.Column("icd10_code", sa.String(length=16), nullable=True),
+        sa.Column("icd10_description", sa.String(length=400), nullable=True),
+    )
+    create_index_if_missing(
+        "ix_treatment_plan_items_icd10_code", "treatment_plan_items", ["icd10_code"]
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_treatment_plan_items_icd10_code", table_name="treatment_plan_items")
-    with op.batch_alter_table("treatment_plan_items") as batch:
-        batch.drop_column("icd10_description")
-        batch.drop_column("icd10_code")
+    drop_index_if_present("ix_treatment_plan_items_icd10_code", "treatment_plan_items")
+    drop_columns_if_present("treatment_plan_items", "icd10_description", "icd10_code")

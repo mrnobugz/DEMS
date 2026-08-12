@@ -10,7 +10,13 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
+
+from app.db.migration_ops import (
+    add_columns_if_missing,
+    create_table_if_missing,
+    drop_columns_if_present,
+    drop_table_if_present,
+)
 
 revision: str = "011_portal_notifications"
 down_revision: Union[str, None] = "010_currency_tzs"
@@ -19,11 +25,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("patients") as batch:
-        batch.add_column(sa.Column("portal_enabled", sa.Boolean(), nullable=False, server_default=sa.false()))
-        batch.add_column(sa.Column("portal_pin_hash", sa.String(length=255), nullable=True))
+    add_columns_if_missing(
+        "patients",
+        sa.Column("portal_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("portal_pin_hash", sa.String(length=255), nullable=True),
+    )
 
-    op.create_table(
+    create_table_if_missing(
         "notification_outbox",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("clinic_id", sa.String(length=36), sa.ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -45,7 +53,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("notification_outbox")
-    with op.batch_alter_table("patients") as batch:
-        batch.drop_column("portal_pin_hash")
-        batch.drop_column("portal_enabled")
+    drop_table_if_present("notification_outbox")
+    drop_columns_if_present("patients", "portal_pin_hash", "portal_enabled")

@@ -10,7 +10,17 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
+
+from app.db.migration_ops import (
+    add_columns_if_missing,
+    create_foreign_key_if_missing,
+    create_index_if_missing,
+    create_table_if_missing,
+    drop_columns_if_present,
+    drop_constraint_if_present,
+    drop_index_if_present,
+    drop_table_if_present,
+)
 
 revision: str = "009_phase3_lab_imaging_insurance"
 down_revision: Union[str, None] = "008_dentist_patient_assignment"
@@ -19,34 +29,42 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("lab_cases") as batch:
-        batch.add_column(sa.Column("restoration_id", sa.String(length=36), nullable=True))
-        batch.add_column(sa.Column("restoration_case_id", sa.String(length=36), nullable=True))
-        batch.create_index("ix_lab_cases_restoration_id", ["restoration_id"])
-        batch.create_index("ix_lab_cases_restoration_case_id", ["restoration_case_id"])
-        batch.create_foreign_key(
-            "fk_lab_cases_restoration_id_restorations",
-            "restorations",
-            ["restoration_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
-        batch.create_foreign_key(
-            "fk_lab_cases_restoration_case_id_restoration_cases",
-            "restoration_cases",
-            ["restoration_case_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
+    add_columns_if_missing(
+        "lab_cases",
+        sa.Column("restoration_id", sa.String(length=36), nullable=True),
+        sa.Column("restoration_case_id", sa.String(length=36), nullable=True),
+    )
+    create_index_if_missing("ix_lab_cases_restoration_id", "lab_cases", ["restoration_id"])
+    create_index_if_missing(
+        "ix_lab_cases_restoration_case_id", "lab_cases", ["restoration_case_id"]
+    )
+    create_foreign_key_if_missing(
+        "fk_lab_cases_restoration_id_restorations",
+        "lab_cases",
+        "restorations",
+        ["restoration_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+    create_foreign_key_if_missing(
+        "fk_lab_cases_restoration_case_id_restoration_cases",
+        "lab_cases",
+        "restoration_cases",
+        ["restoration_case_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
 
-    with op.batch_alter_table("imaging_studies") as batch:
-        batch.add_column(sa.Column("content_type", sa.String(length=120), nullable=True))
-        batch.add_column(sa.Column("byte_size", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("checksum_sha256", sa.String(length=64), nullable=True))
-        batch.add_column(sa.Column("is_encrypted", sa.Boolean(), nullable=False, server_default=sa.false()))
-        batch.add_column(sa.Column("original_filename", sa.String(length=255), nullable=True))
+    add_columns_if_missing(
+        "imaging_studies",
+        sa.Column("content_type", sa.String(length=120), nullable=True),
+        sa.Column("byte_size", sa.Integer(), nullable=True),
+        sa.Column("checksum_sha256", sa.String(length=64), nullable=True),
+        sa.Column("is_encrypted", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("original_filename", sa.String(length=255), nullable=True),
+    )
 
-    op.create_table(
+    create_table_if_missing(
         "patient_insurance_plans",
         sa.Column("id", sa.String(36), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -71,26 +89,30 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["patient_id"], ["patients.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_patient_insurance_plans_clinic_id", "patient_insurance_plans", ["clinic_id"])
-    op.create_index("ix_patient_insurance_plans_patient_id", "patient_insurance_plans", ["patient_id"])
+    create_index_if_missing(
+        "ix_patient_insurance_plans_clinic_id", "patient_insurance_plans", ["clinic_id"]
+    )
+    create_index_if_missing(
+        "ix_patient_insurance_plans_patient_id", "patient_insurance_plans", ["patient_id"]
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_patient_insurance_plans_patient_id", table_name="patient_insurance_plans")
-    op.drop_index("ix_patient_insurance_plans_clinic_id", table_name="patient_insurance_plans")
-    op.drop_table("patient_insurance_plans")
+    drop_index_if_present("ix_patient_insurance_plans_patient_id", "patient_insurance_plans")
+    drop_index_if_present("ix_patient_insurance_plans_clinic_id", "patient_insurance_plans")
+    drop_table_if_present("patient_insurance_plans")
 
-    with op.batch_alter_table("imaging_studies") as batch:
-        batch.drop_column("original_filename")
-        batch.drop_column("is_encrypted")
-        batch.drop_column("checksum_sha256")
-        batch.drop_column("byte_size")
-        batch.drop_column("content_type")
+    drop_columns_if_present(
+        "imaging_studies",
+        "original_filename",
+        "is_encrypted",
+        "checksum_sha256",
+        "byte_size",
+        "content_type",
+    )
 
-    with op.batch_alter_table("lab_cases") as batch:
-        batch.drop_constraint("fk_lab_cases_restoration_case_id_restoration_cases", type_="foreignkey")
-        batch.drop_constraint("fk_lab_cases_restoration_id_restorations", type_="foreignkey")
-        batch.drop_index("ix_lab_cases_restoration_case_id")
-        batch.drop_index("ix_lab_cases_restoration_id")
-        batch.drop_column("restoration_case_id")
-        batch.drop_column("restoration_id")
+    drop_constraint_if_present("fk_lab_cases_restoration_case_id_restoration_cases", "lab_cases")
+    drop_constraint_if_present("fk_lab_cases_restoration_id_restorations", "lab_cases")
+    drop_index_if_present("ix_lab_cases_restoration_case_id", "lab_cases")
+    drop_index_if_present("ix_lab_cases_restoration_id", "lab_cases")
+    drop_columns_if_present("lab_cases", "restoration_case_id", "restoration_id")

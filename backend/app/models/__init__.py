@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -138,7 +139,10 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     __tablename__ = "patients"
-    __table_args__ = (UniqueConstraint("clinic_id", "patient_code", name="uq_patients_clinic_code"),)
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "patient_code", name="uq_patients_clinic_code"),
+        Index("ix_patients_clinic_name", "clinic_id", "last_name", "first_name"),
+    )
 
     patient_code: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     hospital_reg_number: Mapped[Optional[str]] = mapped_column(String(64), index=True)
@@ -211,6 +215,7 @@ class AppointmentType(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
 
 class Appointment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     __tablename__ = "appointments"
+    __table_args__ = (Index("ix_appointments_clinic_starts", "clinic_id", "starts_at"),)
 
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
     dentist_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -386,6 +391,7 @@ class TreatmentPlanItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     __tablename__ = "invoices"
+    __table_args__ = (Index("ix_invoices_clinic_status", "clinic_id", "status"),)
 
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
     invoice_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
@@ -439,6 +445,7 @@ class Payment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
 
 class AuditLog(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_clinic_created", "clinic_id", "created_at"),)
 
     clinic_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
     actor_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
@@ -489,6 +496,7 @@ class ClinicalVisit(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     """Visit container: vitals → extra/intra-oral exam → investigations → diagnosis."""
 
     __tablename__ = "clinical_visits"
+    __table_args__ = (Index("ix_clinical_visits_clinic_date", "clinic_id", "visit_date"),)
 
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
     appointment_id: Mapped[Optional[str]] = mapped_column(ForeignKey("appointments.id"), index=True)

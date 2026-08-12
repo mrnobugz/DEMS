@@ -10,7 +10,13 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
+
+from app.db.migration_ops import (
+    create_index_if_missing,
+    create_table_if_missing,
+    drop_index_if_present,
+    drop_table_if_present,
+)
 
 revision: str = "003_clinical_visits"
 down_revision: Union[str, None] = "002_clerkship_patient"
@@ -19,7 +25,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    create_table_if_missing(
         "clinical_visits",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -43,13 +49,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["patient_id"], ["patients.id"]),
         sa.PrimaryKeyConstraint("id", name="pk_clinical_visits"),
     )
-    op.create_index("ix_clinical_visits_clinic_id", "clinical_visits", ["clinic_id"])
-    op.create_index("ix_clinical_visits_patient_id", "clinical_visits", ["patient_id"])
-    op.create_index("ix_clinical_visits_appointment_id", "clinical_visits", ["appointment_id"])
-    op.create_index("ix_clinical_visits_examiner_id", "clinical_visits", ["examiner_id"])
-    op.create_index("ix_clinical_visits_visit_date", "clinical_visits", ["visit_date"])
-    op.create_index("ix_clinical_visits_status", "clinical_visits", ["status"])
-    op.create_index(
+    create_index_if_missing("ix_clinical_visits_clinic_id", "clinical_visits", ["clinic_id"])
+    create_index_if_missing("ix_clinical_visits_patient_id", "clinical_visits", ["patient_id"])
+    create_index_if_missing("ix_clinical_visits_appointment_id", "clinical_visits", ["appointment_id"])
+    create_index_if_missing("ix_clinical_visits_examiner_id", "clinical_visits", ["examiner_id"])
+    create_index_if_missing("ix_clinical_visits_visit_date", "clinical_visits", ["visit_date"])
+    create_index_if_missing("ix_clinical_visits_status", "clinical_visits", ["status"])
+    create_index_if_missing(
         "ix_clinical_visits_clinic_date",
         "clinical_visits",
         ["clinic_id", "visit_date"],
@@ -57,11 +63,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_clinical_visits_clinic_date", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_status", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_visit_date", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_examiner_id", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_appointment_id", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_patient_id", table_name="clinical_visits")
-    op.drop_index("ix_clinical_visits_clinic_id", table_name="clinical_visits")
-    op.drop_table("clinical_visits")
+    for index in (
+        "ix_clinical_visits_clinic_date",
+        "ix_clinical_visits_status",
+        "ix_clinical_visits_visit_date",
+        "ix_clinical_visits_examiner_id",
+        "ix_clinical_visits_appointment_id",
+        "ix_clinical_visits_patient_id",
+        "ix_clinical_visits_clinic_id",
+    ):
+        drop_index_if_present(index, "clinical_visits")
+    drop_table_if_present("clinical_visits")
