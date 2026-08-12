@@ -67,17 +67,56 @@ export function StatGrid({ home }: { home: Home }) {
 export function FrontDeskPage() {
   const { home, error } = useDepartmentHome();
   const [appts, setAppts] = useState<any[]>([]);
+  const [recall, setRecall] = useState<
+    Array<{
+      id: string;
+      patient_code: string;
+      name: string;
+      hygiene_recall_due?: string | null;
+      perio_risk_band?: string | null;
+    }>
+  >([]);
+  const [msg, setMsg] = useState("");
+
   useEffect(() => {
     api<any[]>("/api/v1/departments/today-appointments").then(setAppts).catch(() => setAppts([]));
+    api<typeof recall>("/api/v1/patients/hygiene-recall-due")
+      .then(setRecall)
+      .catch(() => setRecall([]));
   }, []);
+
+  async function sendAppointmentReminders() {
+    try {
+      const res = await api<{ queued: number; dispatched: number }>(
+        "/api/v1/notifications/reminders/appointments",
+        { method: "POST", body: JSON.stringify({ window_hours: 24 }) },
+      );
+      setMsg(`Queued ${res.queued} appointment reminders · dispatched ${res.dispatched}`);
+    } catch (e: any) {
+      setMsg(e.message ?? "Failed to queue reminders");
+    }
+  }
+
+  async function sendRecallReminders() {
+    try {
+      const res = await api<{ queued: number; dispatched: number }>(
+        "/api/v1/notifications/reminders/hygiene-recall",
+        { method: "POST", body: JSON.stringify({ days_ahead: 14 }) },
+      );
+      setMsg(`Queued ${res.queued} recall messages · dispatched ${res.dispatched}`);
+    } catch (e: any) {
+      setMsg(e.message ?? "Failed to queue recall reminders");
+    }
+  }
 
   return (
     <div className="animate-rise space-y-6">
       <div>
         <h2 className="font-display text-3xl font-bold text-brand-900">Front desk</h2>
-        <p className="text-sm text-muted">Check-in, waitlist, and patient flow for today.</p>
+        <p className="text-sm text-muted">Check-in, waitlist, recall, and patient flow for today.</p>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {msg && <p className="text-sm text-brand-700">{msg}</p>}
       {home && <StatGrid home={home} />}
       <div className="flex flex-wrap gap-2">
         <Link className="btn-primary" to="/patients">
@@ -89,6 +128,12 @@ export function FrontDeskPage() {
         <Link className="btn-ghost" to="/billing">
           Billing
         </Link>
+        <button className="btn-ghost" type="button" onClick={sendAppointmentReminders}>
+          Send 24h reminders
+        </button>
+        <button className="btn-ghost" type="button" onClick={sendRecallReminders}>
+          Send recall messages
+        </button>
       </div>
       <section className="glass-panel rounded-3xl p-5">
         <h3 className="font-display text-lg font-bold text-brand-900">Today&apos;s board</h3>
@@ -101,10 +146,45 @@ export function FrontDeskPage() {
                 <div>
                   <div className="font-semibold text-ink">{a.reason || "Visit"}</div>
                   <div className="text-xs text-muted">
-                    Chair {a.chair_number} · {new Date(a.starts_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    Chair {a.chair_number} ·{" "}
+                    {new Date(a.starts_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </div>
                 </div>
-                <span className="status-pill status-pill--info capitalize">{a.status.replaceAll("_", " ")}</span>
+                <span className="status-pill status-pill--info capitalize">
+                  {a.status.replaceAll("_", " ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="glass-panel rounded-3xl p-5">
+        <h3 className="font-display text-lg font-bold text-brand-900">
+          Hygiene recall due (front desk)
+        </h3>
+        {recall.length === 0 ? (
+          <EmptyState
+            title="No recalls due"
+            hint="Perio risk bands set hygiene_recall_due automatically."
+          />
+        ) : (
+          <ul className="mt-3 divide-y divide-brand-100">
+            {recall.map((r) => (
+              <li key={r.id} className="flex items-center justify-between py-3 text-sm">
+                <div>
+                  <Link
+                    className="font-semibold text-brand-700 hover:underline"
+                    to={`/patients/${r.id}`}
+                  >
+                    {r.patient_code} · {r.name}
+                  </Link>
+                  <div className="text-xs text-muted capitalize">
+                    Risk {r.perio_risk_band || "—"} · due {r.hygiene_recall_due}
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

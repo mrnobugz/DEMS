@@ -30,7 +30,7 @@ export function OwnerPage() {
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ name: "", code: "", currency: "USD" });
+  const [form, setForm] = useState({ name: "", code: "", currency: "TZS" });
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -54,7 +54,7 @@ export function OwnerPage() {
         method: "POST",
         body: JSON.stringify(form),
       });
-      setForm({ name: "", code: "", currency: "USD" });
+      setForm({ name: "", code: "", currency: "TZS" });
       await load();
     } catch (err: any) {
       setError(err.message);

@@ -34,9 +34,10 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 
 ## 1. Product decisions (do before / early in implementation)
 
-- [ ] Confirm primary deployment region(s), currency, tax rules, and data-protection baseline (GDPR/HIPAA-equivalent)
-- [ ] Confirm payment gateway(s) (card + mobile money if regional)
-- [ ] Confirm notification channels for Phase 1 vs later (email first; SMS/WhatsApp later)
+- [x] Confirm primary deployment region(s), currency, tax rules, and data-protection baseline (GDPR/HIPAA-equivalent)
+  - Region: Tanzania · Currency: **TZS (TSh)** · Tax: clinic-configurable · Privacy: baseline audit + tenant isolation (HIPAA-equivalent hardening continues)
+- [x] Confirm payment gateway(s) (card + mobile money if regional) — methods: cash/card/mobile money/bank; live PSP later
+- [ ] Confirm notification channels for Phase 1 vs later (email first; SMS/WhatsApp later) — outbox ready; log provider default
 - [ ] Confirm whether Phase 1 ships single-clinic UI only (data model stays multi-clinic)
 - [ ] Confirm migration: greenfield only vs import from existing PMS/Excel
 - [ ] Confirm chairside tablet as first-class layout (recommended: yes)
@@ -271,16 +272,16 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 - [ ] Doctor commission rules + statements
 
 ### 5.5 Patient portal & CRM
-- [ ] Portal: view plan, appointments, invoices, pay, limited history
+- [x] Portal: view plan, appointments, invoices, pay, limited history (view + TZS; pay later)
 - [ ] Self-book within clinic rules
-- [ ] Automated reminders (24h / 2h)
-- [ ] Recall engine (hygiene/ortho/perio intervals by risk)
-- [ ] Front-desk recall due list
+- [x] Automated reminders (24h / 2h) — outbox + front-desk queue (log/SMS/email channels)
+- [x] Recall engine (hygiene/ortho/perio intervals by risk) — hygiene due list + recall send
+- [x] Front-desk recall due list
 
 ### 5.6 Notifications service
-- [ ] Unified gateway abstraction (email/SMS/WhatsApp/push)
-- [ ] Templated, localized messages
-- [ ] Provider swap without touching domain logic
+- [x] Unified gateway abstraction (email/SMS/WhatsApp/push) — log provider default
+- [x] Templated, localized messages (EN/SW appointment + recall templates)
+- [~] Provider swap without touching domain logic (adapter seam ready; live SMS later)
 
 ---
 
@@ -373,7 +374,7 @@ Work in **vertical slices**, not horizontal “finish all models then UI”.
 1. [~] Imaging storage + basic viewer (DICOM/annotate later)
 2. [x] Lab Journey (overdue + restoration hard-link)
 3. [~] Insurance estimates (claims status later)
-4. [ ] Portal + Recall & Reach notifications
+4. [~] Portal + Recall & Reach notifications (portal login/home + outbox reminders; SMS provider later)
 
 ### Sprint track D — Scale & intelligence
 1. [ ] Multi-clinic dashboards + 3D Visual Case Studio
@@ -414,8 +415,8 @@ A feature is done only when **all** are true:
 | Lab overdue + restoration hard-link | Done |
 | Imaging encrypted local upload/view | Done (PACS/DICOM later) |
 | Insurance plans + co-pay estimate | Done (claims later) |
-| Portal / recall / claims / HTTP E2E | Next |
+| Portal / recall / claims / HTTP E2E | Portal + recall outbox done; claims / HTTP E2E next |
 
 ---
 
-*This list is the single source of truth for implementation sequencing. Next action: **portal + Recall & Reach**, insurance claims draft, or Track A polish (HTTP E2E / security review).*
+*This list is the single source of truth for implementation sequencing. Next action: **insurance claims draft**, Track A polish (HTTP E2E / security review), or live SMS/WhatsApp providers.*

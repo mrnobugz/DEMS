@@ -9,6 +9,8 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { PatientDetailPage } from "@/pages/PatientDetailPage";
 import { PatientsPage } from "@/pages/PatientsPage";
+import { PortalHomePage } from "@/pages/PortalHomePage";
+import { PortalLoginPage } from "@/pages/PortalLoginPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { ClinicAdminPage } from "@/pages/department/ClinicAdminPage";
@@ -38,6 +40,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/portal/login" element={<PortalLoginPage />} />
+      <Route path="/portal" element={<PortalHomePage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/home" element={<RoleHomeRedirect />} />

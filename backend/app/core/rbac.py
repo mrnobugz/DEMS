@@ -32,6 +32,8 @@ PERMISSIONS: dict[Role, set[str]] = {
         "config:clinic",
         "ai:*",
         "departments:read",
+        "notifications:send",
+        "notifications:read",
     },
     Role.DENTIST: {
         "patients:read",
@@ -68,6 +70,8 @@ PERMISSIONS: dict[Role, set[str]] = {
         "inventory:read",
         "ai:suggest",
         "departments:read",
+        "notifications:send",
+        "notifications:read",
     },
     Role.ACCOUNTANT: {
         "billing:*",
@@ -99,6 +103,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "appointments:own",
         "clinical:own_read",
         "billing:own_read",
+        "portal:read",
     },
 }
 

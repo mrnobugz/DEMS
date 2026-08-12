@@ -12,33 +12,46 @@ Modern dental clinic OS built from the DCMS architecture requirements: FastAPI a
 | Scale | Connection pooling · tenant repositories · Postgres RLS · `/ready` probes · rate limits |
 | Theme | Blue–white clinical UI · DEMSTA logo · Chairside Mode · role-aware department panels |
 
-## Quick start (local, no Docker)
+## Quick start (one command)
 
-### 1. Backend
+**Windows** (double-click or PowerShell):
+
+```powershell
+.\start.bat
+# or
+.\start.ps1
+```
+
+**macOS / Linux / Git Bash:**
 
 ```bash
-cd backend
-python -m venv .venv
-# Windows:
-.\.venv\Scripts\activate
+chmod +x start.sh
+./start.sh
+```
+
+This installs deps if needed, starts API (`:8000`) + PWA (`:5173`), and opens the browser.  
+Ctrl+C (or close the windows) stops both.
+
+| Flag | Effect |
+|---|---|
+| `-Docker` / `--docker` | `docker compose up --build -d` instead |
+| `-NoBrowser` / `--no-browser` | Don’t open a browser tab |
+| `-SkipInstall` / `--skip-install` | Skip pip/npm install |
+
+App: http://127.0.0.1:5173 · API docs: http://127.0.0.1:8000/docs
+
+### Manual (two terminals)
+
+```bash
+# Backend
+cd backend && python -m venv .venv
+# Windows: .\.venv\Scripts\activate
 pip install -r requirements.txt
-# Fresh demo seed (optional wipe):
-# set SEED_FORCE=true
 uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev
 ```
-
-API docs: http://127.0.0.1:8000/docs  
-Health: http://127.0.0.1:8000/health
-
-### 2. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-App: http://127.0.0.1:5173
 
 ## Demo accounts
 
@@ -71,6 +84,14 @@ Owner console: `/owner` — create clinics, chain KPIs, switch active clinic (`X
 | Dentist | dentist@east.demsta.clinic | Demsta!Dentist1 |
 
 Login clinic code: `EAST`.
+
+### Patient portal
+
+| Clinic | Patient ID | PIN | URL |
+|---|---|---|---|
+| MAIN | P202600001 (James Kariuki) | 1234 | http://127.0.0.1:5173/portal/login |
+
+Currency everywhere is **TZS (TSh)**.
 
 ### Reseed
 

@@ -38,7 +38,7 @@ class HappyPathE2ETests(unittest.IsolatedAsyncioTestCase):
         self.Session = async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
 
         async with self.Session() as db:
-            clinic = Clinic(name="E2E Clinic", code="E2E", currency="USD", timezone="UTC")
+            clinic = Clinic(name="E2E Clinic", code="E2E", currency="TZS", timezone="Africa/Dar_es_Salaam")
             db.add(clinic)
             await db.flush()
             dentist = User(

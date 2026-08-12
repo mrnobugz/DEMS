@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rbac import Role
+from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal, apply_tenant_rls
 from app.models import (
     Appointment,
@@ -114,10 +115,23 @@ async def seed_if_empty() -> None:
 
         count = (await db.execute(select(func.count()).select_from(Clinic))).scalar_one()
         if count:
+            # Ensure demo portal access + TZS currency on existing DBs
+            await ensure_tzs_and_portal_demo(db)
+            await db.commit()
             return
 
         await seed_demo_fabric(db)
         await db.commit()
+
+
+async def ensure_tzs_and_portal_demo(db: AsyncSession) -> None:
+    """Idempotent currency upgrade for already-seeded local DBs."""
+    clinics = (await db.execute(select(Clinic))).scalars().all()
+    for clinic in clinics:
+        if clinic.currency in (None, "", "USD", "TSH"):
+            clinic.currency = settings.default_currency
+        if clinic.timezone == "UTC":
+            clinic.timezone = "Africa/Dar_es_Salaam"
 
 
 async def seed_demo_fabric(db: AsyncSession) -> None:
@@ -128,19 +142,19 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
         name=settings.default_clinic_name,
         code=settings.default_clinic_code,
         address="100 Smile Avenue, Health District",
-        phone="+1-555-0100",
+        phone="+255-22-555-0100",
         email="care@demsta.clinic",
-        timezone="UTC",
-        currency="USD",
+        timezone="Africa/Dar_es_Salaam",
+        currency=settings.default_currency,
     )
     east = Clinic(
         name="DEMSTA East Wing",
         code="EAST",
         address="42 Horizon Blvd, East District",
-        phone="+1-555-0200",
+        phone="+255-22-555-0200",
         email="east@demsta.clinic",
-        timezone="UTC",
-        currency="USD",
+        timezone="Africa/Dar_es_Salaam",
+        currency=settings.default_currency,
     )
     db.add_all([main, east])
     await db.flush()
@@ -224,7 +238,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.CONSULTATION,
             duration_minutes=20,
             color="#1E6BFF",
-            default_fee=45,
+            default_fee=30000,
         ),
         AppointmentType(
             clinic_id=main.id,
@@ -232,7 +246,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.CLEANING,
             duration_minutes=45,
             color="#0EA5E9",
-            default_fee=90,
+            default_fee=50000,
         ),
         AppointmentType(
             clinic_id=main.id,
@@ -240,7 +254,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.FILLING,
             duration_minutes=60,
             color="#2563EB",
-            default_fee=150,
+            default_fee=80000,
         ),
         AppointmentType(
             clinic_id=main.id,
@@ -248,7 +262,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.EXTRACTION,
             duration_minutes=45,
             color="#0369A1",
-            default_fee=180,
+            default_fee=60000,
         ),
         AppointmentType(
             clinic_id=main.id,
@@ -256,7 +270,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.ROOT_CANAL,
             duration_minutes=90,
             color="#1D4ED8",
-            default_fee=550,
+            default_fee=350000,
         ),
         AppointmentType(
             clinic_id=main.id,
@@ -264,7 +278,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             category=ProcedureCategory.CROWN,
             duration_minutes=75,
             color="#0284C7",
-            default_fee=800,
+            default_fee=600000,
         ),
     ]
     db.add_all(types)
@@ -411,10 +425,10 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             plan_name="Family Plus",
             member_id="INS-JAMES-001",
             coverage_pct=80.0,
-            annual_max=2000.0,
-            amount_used_ytd=350.0,
-            deductible=50.0,
-            deductible_met=50.0,
+            annual_max=5_000_000.0,
+            amount_used_ytd=875_000.0,
+            deductible=100_000.0,
+            deductible_met=100_000.0,
             is_primary=True,
         )
     )
@@ -528,7 +542,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             procedure_name="Root canal therapy",
             tooth_number="36",
             description="RCT then crown",
-            estimated_fee=550,
+            estimated_fee=350000,
             icd10_code="K04.01",
             icd10_description="Reversible pulpitis",
         )
@@ -542,10 +556,11 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
         patient_id=patients[1].id,
         invoice_number="INV-2026-0001",
         status=InvoiceStatus.PAID,
-        subtotal=90,
+        subtotal=50000,
         tax=0,
-        total=90,
-        amount_paid=90,
+        total=50000,
+        amount_paid=50000,
+        currency=settings.default_currency,
         issued_at=datetime.now(UTC) - timedelta(days=2),
     )
     inv_open = Invoice(
@@ -553,10 +568,11 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
         patient_id=patients[0].id,
         invoice_number="INV-2026-0002",
         status=InvoiceStatus.ISSUED,
-        subtotal=150,
+        subtotal=80000,
         tax=0,
-        total=150,
+        total=80000,
         amount_paid=0,
+        currency=settings.default_currency,
         issued_at=datetime.now(UTC) - timedelta(days=1),
     )
     db.add_all([inv_paid, inv_open])
@@ -567,23 +583,23 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 invoice_id=inv_paid.id,
                 description="Prophy cleaning",
                 quantity=1,
-                unit_price=90,
-                total=90,
+                unit_price=50000,
+                total=50000,
                 procedure_code="D1110",
             ),
             InvoiceLineItem(
                 invoice_id=inv_open.id,
                 description="Composite filling",
                 quantity=1,
-                unit_price=150,
-                total=150,
+                unit_price=80000,
+                total=80000,
                 procedure_code="D2391",
                 chart_entry_id=chart.id,
             ),
             Payment(
                 clinic_id=main.id,
                 invoice_id=inv_paid.id,
-                amount=90,
+                amount=50000,
                 method=PaymentMethod.MOBILE_MONEY,
                 received_by_id=users["billing@demsta.clinic"].id,
                 reference="MM-77821",
@@ -601,7 +617,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 quantity=8,
                 reorder_level=10,
                 unit="syringe",
-                unit_cost=12.5,
+                unit_cost=25000,
                 notes="Below reorder — restock",
             ),
             InventoryItem(
@@ -612,7 +628,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 quantity=240,
                 reorder_level=100,
                 unit="box",
-                unit_cost=6.0,
+                unit_cost=18000,
             ),
             InventoryItem(
                 clinic_id=main.id,
@@ -622,7 +638,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 quantity=45,
                 reorder_level=20,
                 unit="carpule",
-                unit_cost=1.8,
+                unit_cost=3500,
             ),
         ]
     )
@@ -640,7 +656,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 lab_name="SmileLab Pro",
                 sent_at=datetime.now(UTC) - timedelta(days=3),
                 due_at=datetime.now(UTC) + timedelta(days=4),
-                lab_cost=180,
+                lab_cost=450000,
                 notes="PFM crown",
             ),
             LabCase(
@@ -654,7 +670,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 lab_name="SmileLab Pro",
                 sent_at=datetime.now(UTC) - timedelta(days=7),
                 due_at=datetime.now(UTC) - timedelta(days=2),  # overdue demo
-                lab_cost=220,
+                lab_cost=550000,
             ),
             LabCase(
                 clinic_id=main.id,
@@ -667,7 +683,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
                 lab_name="SmileLab Pro",
                 sent_at=datetime.now(UTC) - timedelta(days=14),
                 received_at=datetime.now(UTC) - timedelta(days=1),
-                lab_cost=175,
+                lab_cost=420000,
             ),
         ]
     )
@@ -869,6 +885,8 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
 
     patients[0].hygiene_recall_due = date.today() + timedelta(days=7)
     patients[0].perio_risk_band = "moderate"
+    patients[0].portal_enabled = True
+    patients[0].portal_pin_hash = hash_password("1234")
     patients[3].hygiene_recall_due = date.today() - timedelta(days=2)
     patients[3].perio_risk_band = "high"
 

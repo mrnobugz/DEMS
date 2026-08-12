@@ -398,7 +398,7 @@ class OutstandingInvoiceOut(BaseModel):
     issued_at: Optional[datetime] = None
     days_outstanding: int
     aging_bucket: str
-    currency: str = "USD"
+    currency: str = "TZS"
 
 
 class CashUpOut(BaseModel):
@@ -616,7 +616,7 @@ class FeeScheduleItemCreate(BaseModel):
     label: str = Field(min_length=1, max_length=200)
     category: str = "general"
     unit_price: float = Field(ge=0)
-    currency: str = "USD"
+    currency: str = "TZS"
     is_active: bool = True
     billable: bool = True
     notes: Optional[str] = None
@@ -785,8 +785,8 @@ class ClinicCreate(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
-    timezone: str = "UTC"
-    currency: str = "USD"
+    timezone: str = "Africa/Dar_es_Salaam"
+    currency: str = "TZS"
 
 
 class ClinicUpdate(BaseModel):

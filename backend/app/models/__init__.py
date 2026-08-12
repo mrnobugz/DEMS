@@ -84,7 +84,7 @@ class Clinic(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     email: Mapped[Optional[str]] = mapped_column(String(200))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
-    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    currency: Mapped[str] = mapped_column(String(8), default="TZS")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     users: Mapped[list["User"]] = relationship(back_populates="clinic")
@@ -182,6 +182,8 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     primary_dentist_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    portal_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    portal_pin_hash: Mapped[Optional[str]] = mapped_column(String(255))
 
     clinic: Mapped["Clinic"] = relationship(back_populates="patients")
     primary_dentist: Mapped[Optional["User"]] = relationship(foreign_keys=[primary_dentist_id])
@@ -193,6 +195,7 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="patient")
     consents: Mapped[list["ConsentRecord"]] = relationship(back_populates="patient")
     visits: Mapped[list["ClinicalVisit"]] = relationship(back_populates="patient")
+    notifications: Mapped[list["NotificationOutbox"]] = relationship(back_populates="patient")
 
 
 class AppointmentType(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -394,7 +397,7 @@ class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     discount: Mapped[float] = mapped_column(Float, default=0.0)
     total: Mapped[float] = mapped_column(Float, default=0.0)
     amount_paid: Mapped[float] = mapped_column(Float, default=0.0)
-    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    currency: Mapped[str] = mapped_column(String(8), default="TZS")
     notes: Mapped[Optional[str]] = mapped_column(Text)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
 
@@ -476,7 +479,7 @@ class FeeScheduleItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     label: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(40), default="general")
     unit_price: Mapped[float] = mapped_column(Float, default=0.0)
-    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    currency: Mapped[str] = mapped_column(String(8), default="TZS")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     billable: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
@@ -812,3 +815,41 @@ class StaffLeave(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     leave_type: Mapped[str] = mapped_column(String(40), default="annual")
     status: Mapped[str] = mapped_column(String(32), default="approved")
     notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class NotificationChannel(StrEnum):
+    LOG = "log"
+    EMAIL = "email"
+    SMS = "sms"
+    WHATSAPP = "whatsapp"
+    PUSH = "push"
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class NotificationOutbox(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Unified Recall & Reach outbox — providers swap without touching domain logic."""
+
+    __tablename__ = "notification_outbox"
+
+    patient_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("patients.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    channel: Mapped[str] = mapped_column(String(32), default=NotificationChannel.LOG, index=True)
+    template_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    subject: Mapped[Optional[str]] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=NotificationStatus.PENDING, index=True)
+    to_address: Mapped[Optional[str]] = mapped_column(String(200))
+    scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    meta_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    patient: Mapped[Optional["Patient"]] = relationship(back_populates="notifications")

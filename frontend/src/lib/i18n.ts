@@ -73,13 +73,16 @@ export function t(key: StringKey, locale: LocaleCode = "en"): string {
 
 export function formatMoney(
   amount: number,
-  currency = "USD",
-  locale = "en-US",
+  currency = "TZS",
+  locale = "en-TZ",
 ): string {
+  const isTzs = currency.toUpperCase() === "TZS" || currency.toUpperCase() === "TSH";
+  const code = isTzs ? "TZS" : currency;
   return new Intl.NumberFormat(locale, {
     style: "currency",
-    currency,
-    maximumFractionDigits: 2,
+    currency: code,
+    maximumFractionDigits: isTzs ? 0 : 2,
+    minimumFractionDigits: 0,
   }).format(amount);
 }
 

@@ -112,6 +112,13 @@ export function LoginPage() {
             System owner: clinic code <code className="font-mono">PLATFORM</code> ·{" "}
             <code className="font-mono">owner@demsta.clinic</code>
           </p>
+          <p className="text-center text-[11px] text-muted">
+            Patient portal:{" "}
+            <a className="text-brand-700 hover:underline" href="/portal/login">
+              /portal/login
+            </a>{" "}
+            · P202600001 / PIN 1234
+          </p>
         </form>
       </div>
     </div>

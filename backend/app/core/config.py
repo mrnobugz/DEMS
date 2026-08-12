@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     # Default clinic bootstrap
     default_clinic_name: str = "DEMSTA Dental Care"
     default_clinic_code: str = "MAIN"
+    # ISO 4217 — Tanzanian Shilling (displayed as TSh / TSH in UI locales)
+    default_currency: str = "TZS"
 
     # MFA
     mfa_issuer: str = "DEMSTA"

@@ -1209,12 +1209,12 @@ async def update_clinical_visit(
 
 
 DEFAULT_FEE_SCHEDULE: list[tuple[str, str, str, float, bool]] = [
-    ("consultation", "Consultation", "general", 45.0, True),
-    ("cleaning", "Prophylaxis / cleaning", "hygiene", 90.0, True),
-    ("filling", "Filling (composite/amalgam)", "restorative", 120.0, True),
-    ("crown", "Crown", "restorative", 800.0, True),
-    ("rct", "Root canal treatment", "endodontic", 450.0, True),
-    ("extraction", "Simple extraction", "surgery", 180.0, True),
+    ("consultation", "Consultation", "general", 30000.0, True),
+    ("cleaning", "Prophylaxis / cleaning", "hygiene", 50000.0, True),
+    ("filling", "Filling (composite/amalgam)", "restorative", 80000.0, True),
+    ("crown", "Crown", "restorative", 600000.0, True),
+    ("rct", "Root canal treatment", "endodontic", 350000.0, True),
+    ("extraction", "Simple extraction", "surgery", 60000.0, True),
     ("caries", "Caries (charting only)", "diagnostic", 0.0, False),
     ("missing", "Missing tooth (charting)", "diagnostic", 0.0, False),
     ("sound", "Sound tooth", "diagnostic", 0.0, False),
@@ -1232,6 +1232,12 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
     ).scalar_one()
     if count:
         return
+    from app.core.config import get_settings
+
+    currency = get_settings().default_currency
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one_or_none()
+    if clinic and clinic.currency:
+        currency = clinic.currency
     for code, label, category, price, billable in DEFAULT_FEE_SCHEDULE:
         db.add(
             FeeScheduleItem(
@@ -1240,6 +1246,7 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
                 label=label,
                 category=category,
                 unit_price=price,
+                currency=currency,
                 billable=billable,
                 is_active=True,
             )
@@ -1488,6 +1495,7 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
 
     subtotal = sum(li.quantity * li.unit_price for li in data.line_items)
     total = max(subtotal + data.tax - data.discount, 0)
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
     invoice = Invoice(
         clinic_id=clinic_id,
         patient_id=data.patient_id,
@@ -1498,6 +1506,7 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
         tax=data.tax,
         discount=data.discount,
         total=total,
+        currency=clinic.currency or "TZS",
         notes=data.notes,
         idempotency_key=data.idempotency_key,
     )

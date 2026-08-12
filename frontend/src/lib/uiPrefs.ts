@@ -20,8 +20,8 @@ export const useUiPrefs = create<UiPrefs>()(
   persist(
     (set, get) => ({
       chairside: false,
-      locale: "en-US",
-      currency: "USD",
+      locale: "en-TZ",
+      currency: "TZS",
       setChairside: (chairside) => {
         applyChairsideClass(chairside);
         set({ chairside });
@@ -37,7 +37,15 @@ export const useUiPrefs = create<UiPrefs>()(
     {
       name: "demsta-ui",
       onRehydrateStorage: () => (state) => {
-        if (state) applyChairsideClass(state.chairside);
+        if (!state) return;
+        applyChairsideClass(state.chairside);
+        // Migrate legacy USD prefs → Tanzanian Shilling
+        if (!state.currency || state.currency === "USD" || state.currency === "TSH") {
+          state.currency = "TZS";
+        }
+        if (!state.locale || state.locale === "en-US") {
+          state.locale = "en-TZ";
+        }
       },
     },
   ),

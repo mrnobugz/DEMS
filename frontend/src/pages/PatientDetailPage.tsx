@@ -18,6 +18,8 @@ import { ToothHistoryPanel } from "@/components/ToothHistoryPanel";
 import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { formatMoney } from "@/lib/i18n";
+import { useUiPrefs } from "@/lib/uiPrefs";
 import type { ChartEntry, ClinicalNote, Patient, PerioExam, TreatmentPlan } from "@/lib/types";
 
 type Dentist = { id: string; full_name: string; role: string };
@@ -25,6 +27,8 @@ type Dentist = { id: string; full_name: string; role: string };
 export function PatientDetailPage() {
   const { id = "" } = useParams();
   const user = useAuth((s) => s.user);
+  const currency = useUiPrefs((s) => s.currency);
+  const locale = useUiPrefs((s) => s.locale);
   const canAssign =
     user?.role === "clinic_admin" ||
     user?.role === "receptionist" ||
@@ -247,11 +251,7 @@ export function PatientDetailPage() {
   }
 
   function money(amount: number) {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatMoney(amount, currency, locale);
   }
 
   async function chartToCashFromPatient() {
@@ -275,7 +275,7 @@ export function PatientDetailPage() {
         },
       );
       await reload();
-      setMsg(`Chart-to-Cash created ${inv.invoice_number} · $${inv.total.toFixed(2)}`);
+      setMsg(`Chart-to-Cash created ${inv.invoice_number} · ${money(inv.total)}`);
     } catch (err) {
       setMsg(err instanceof ApiError ? err.message : "Chart-to-Cash failed");
     }
