@@ -22,7 +22,7 @@ services:
     disk:
       name: demsta-media
       mountPath: /var/data
-      sizeGB: 5
+      sizeGB: 1
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -85,7 +85,7 @@ services:
 
 databases:
   - name: demsta-db
-    plan: basic-256mb
+    plan: basic
     databaseName: demsta
     user: demsta
     postgresMajorVersion: "16"
