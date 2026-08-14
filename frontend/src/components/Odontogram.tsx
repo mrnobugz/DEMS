@@ -1,29 +1,20 @@
+/**
+ * Interactive odontogram — Carestream SoftDent charting pattern:
+ * 1. Pick a procedure on the toolbar
+ * 2. Click a tooth (and surfaces when the procedure requires them)
+ * 3. Optional action sheet maps the tooth into a department operation
+ *
+ * Anatomical 2D arch is the baseline; the 5-zone surface glyph is the
+ * pointing device for surface-true codes.
+ */
+
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ChartEntry } from "@/lib/types";
-
-const UPPER = ["18", "17", "16", "15", "14", "13", "12", "11", "21", "22", "23", "24", "25", "26", "27", "28"];
-const LOWER = ["48", "47", "46", "45", "44", "43", "42", "41", "31", "32", "33", "34", "35", "36", "37", "38"];
-
-const CONDITIONS = [
-  { code: "sound", label: "Sound", color: "#ffffff" },
-  { code: "caries", label: "Caries", color: "#ef4444" },
-  { code: "filling", label: "Filling", color: "#3b82f6" },
-  { code: "crown", label: "Crown", color: "#f59e0b" },
-  { code: "missing", label: "Missing", color: "#94a3b8" },
-  { code: "rct", label: "RCT", color: "#8b5cf6" },
-  { code: "planned", label: "Planned", color: "#0ea5e9" },
-];
-
-const STATUS_COLORS: Record<string, string> = {
-  planned: "#0ea5e9",
-  in_progress: "#f59e0b",
-  completed: "#22c55e",
-  failed: "#ef4444",
-  replaced: "#a855f7",
-  recorded: "#3b82f6",
-};
-
-const SURFACES = ["M", "O", "D", "B", "L", "F", "I", "P"] as const;
+import { ArchChart } from "@/components/viz/ArchChart";
+import { ToothSurfaceDiagram } from "@/components/viz/ToothSurfaceDiagram";
+import { CHART_TOOLS, TOOTH_ACTIONS, type ChartTool } from "@/components/viz/chartActions";
+import { TOOTH_STATUS_COLORS, type Dentition } from "@/components/viz/teeth";
 
 export type OdontogramMark = {
   tooth: string;
@@ -38,13 +29,24 @@ type Props = {
   selected?: string | null;
   onSelect?: (tooth: string) => void;
   onMark?: (mark: OdontogramMark) => void;
-  /** Prefer restoration status colors when present on chart entry.status */
   colorByStatus?: boolean;
+  dentition?: Dentition;
+  patientId?: string;
 };
 
-export function Odontogram({ entries, selected, onSelect, onMark, colorByStatus = true }: Props) {
-  const [tool, setTool] = useState(CONDITIONS[1]);
+export function Odontogram({
+  entries,
+  selected,
+  onSelect,
+  onMark,
+  colorByStatus = true,
+  dentition = "permanent",
+  patientId,
+}: Props) {
+  const navigate = useNavigate();
+  const [tool, setTool] = useState<ChartTool>(CHART_TOOLS[0]);
   const [surfaces, setSurfaces] = useState<string[]>(["O"]);
+  const [sheet, setSheet] = useState<string | null>(null);
 
   const byTooth = useMemo(() => {
     const map = new Map<string, ChartEntry>();
@@ -57,106 +59,123 @@ export function Odontogram({ entries, selected, onSelect, onMark, colorByStatus 
     return map;
   }, [entries]);
 
-  function colorFor(tooth: string) {
-    const e = byTooth.get(tooth);
-    if (!e) return "#fff";
-    if (colorByStatus && e.status && STATUS_COLORS[e.status]) {
-      return STATUS_COLORS[e.status];
+  const colors = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const [tooth, e] of byTooth) {
+      map[tooth] =
+        (colorByStatus && e.status && TOOTH_STATUS_COLORS[e.status]) ||
+        TOOTH_STATUS_COLORS[e.condition_code] ||
+        (e.entry_kind === "planned" ? TOOTH_STATUS_COLORS.planned : "#bfdbfe");
     }
-    const found = CONDITIONS.find((c) => c.code === e.condition_code);
-    return found?.color ?? (e.entry_kind === "planned" ? "#0ea5e9" : "#bfdbfe");
-  }
+    return map;
+  }, [byTooth, colorByStatus]);
 
-  function toggleSurface(s: string) {
-    setSurfaces((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
-    );
-  }
+  const badges = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const [tooth, e] of byTooth) {
+      if (e.surfaces) map[tooth] = e.surfaces;
+    }
+    return map;
+  }, [byTooth]);
 
-  function Tooth({ n }: { n: string }) {
-    const active = selected === n;
-    const entry = byTooth.get(n);
-    return (
-      <button
-        type="button"
-        title={`Tooth ${n}${entry?.surfaces ? ` · ${entry.surfaces}` : ""}`}
-        onClick={() => {
-          onSelect?.(n);
-          if (onMark) {
-            onMark({
-              tooth: n,
-              condition_code: tool.code,
-              condition_label: tool.label,
-              entry_kind: tool.code === "planned" ? "planned" : "existing",
-              surfaces: surfaces.join(""),
-            });
-          }
-        }}
-        className={`odontogram-tooth flex h-11 w-8 flex-col items-center justify-center rounded-lg border text-[10px] font-bold transition ${
-          active ? "border-brand-500 ring-2 ring-brand-300" : "border-brand-200"
-        }`}
-        style={{ background: colorFor(n), color: "#0a1628" }}
-      >
-        <span className="opacity-80">{n}</span>
-        <span className="mt-0.5 text-[8px] font-semibold opacity-70">
-          {entry?.surfaces || "·"}
-        </span>
-      </button>
-    );
+  function apply(tooth: string) {
+    onSelect?.(tooth);
+    if (tool.id === "select") {
+      setSheet(tooth);
+      return;
+    }
+    if (tool.needsSurface && surfaces.length === 0) return;
+    onMark?.({
+      tooth,
+      condition_code: tool.condition_code,
+      condition_label: tool.condition_label,
+      entry_kind: tool.entry_kind,
+      surfaces: tool.needsSurface ? surfaces.join("") : "",
+    });
   }
 
   return (
     <div className="glass-panel rounded-3xl p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg font-bold text-brand-900">Interactive Odontogram</h3>
+          <h3 className="font-display text-lg font-bold text-brand-900">Interactive odontogram</h3>
           <p className="text-sm text-muted">
-            FDI · surface-true charting · color by status when available
+            Pick a procedure, then click a tooth — surface-true charting · FDI
+            {tool.id !== "select" ? ` · armed: ${tool.label}` : " · select a tooth for department actions"}
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {CONDITIONS.map((c) => (
-            <button
-              key={c.code}
-              type="button"
-              onClick={() => setTool(c)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                tool.code === c.code ? "bg-brand-500 text-white" : "bg-white text-muted border border-brand-100"
-              }`}
-            >
-              <span
-                className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full border border-black/10"
-                style={{ background: c.color }}
-              />
-              {c.label}
-            </button>
-          ))}
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase text-muted">Surfaces</span>
-        {SURFACES.map((s) => (
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {CHART_TOOLS.map((c) => (
           <button
-            key={s}
+            key={c.id}
             type="button"
-            onClick={() => toggleSurface(s)}
-            className={`h-8 w-8 rounded-lg text-xs font-bold ${
-              surfaces.includes(s)
-                ? "bg-brand-500 text-white"
-                : "border border-brand-200 bg-white text-muted"
+            onClick={() => setTool(c)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              tool.id === c.id ? "bg-brand-500 text-white" : "border border-brand-100 bg-white text-muted"
             }`}
           >
-            {s}
+            <span
+              className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full border border-black/10"
+              style={{ background: c.color }}
+            />
+            {c.label}
           </button>
         ))}
       </div>
 
-      <div className="space-y-3 overflow-x-auto">
-        <div className="flex min-w-max justify-center gap-1">{UPPER.map((n) => <Tooth key={n} n={n} />)}</div>
-        <div className="mx-auto h-px max-w-3xl bg-gradient-to-r from-transparent via-brand-300 to-transparent" />
-        <div className="flex min-w-max justify-center gap-1">{LOWER.map((n) => <Tooth key={n} n={n} />)}</div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_140px]">
+        <ArchChart
+          dentition={dentition}
+          colors={colors}
+          badges={badges}
+          selected={selected}
+          onSelect={apply}
+          height={320}
+        />
+        <div className="flex flex-col items-center justify-center gap-2">
+          <ToothSurfaceDiagram
+            fdi={selected}
+            value={surfaces}
+            onChange={setSurfaces}
+            size={128}
+          />
+          <p className="text-center text-[10px] text-muted">
+            {tool.needsSurface
+              ? "Click zones, then the tooth"
+              : "Whole-tooth procedure — surfaces optional"}
+          </p>
+        </div>
       </div>
+
+      {sheet && (
+        <div className="mt-4 rounded-2xl border border-brand-100 bg-brand-50/60 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h4 className="text-sm font-bold text-brand-900">Tooth {sheet} — actions</h4>
+            <button type="button" className="btn-ghost text-xs" onClick={() => setSheet(null)}>
+              Close
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {TOOTH_ACTIONS.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className="rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm hover:bg-brand-50"
+                onClick={() => {
+                  if (patientId) navigate(a.href(patientId, sheet));
+                  setSheet(null);
+                }}
+                disabled={!patientId && a.id !== "imaging"}
+              >
+                <div className="font-semibold text-brand-900">{a.label}</div>
+                <div className="text-muted">{a.hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

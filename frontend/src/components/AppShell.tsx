@@ -1,15 +1,72 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LogOut, MonitorSmartphone } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { ChevronDown, LogOut, MonitorSmartphone } from "lucide-react";
 import { DemstaLogo } from "./DemstaLogo";
 import { OfflineBanner } from "./OfflineBanner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { t, type StringKey } from "@/lib/i18n";
-import { navForRole, roleHomeLabel } from "@/lib/nav";
+import {
+  flatNavForRole,
+  isNavGroup,
+  navForRole,
+  roleHomeLabel,
+  type NavGroup,
+} from "@/lib/nav";
 import { useUiPrefs } from "@/lib/uiPrefs";
 
 type ClinicRow = { id: string; name: string; code: string };
+
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition ${
+    isActive
+      ? "bg-brand-500 text-white shadow-lg shadow-brand-500/25"
+      : "text-muted hover:bg-brand-50 hover:text-brand-700"
+  }`;
+
+function NavDropdown({ group }: { group: NavGroup }) {
+  const location = useLocation();
+  const hasActiveChild = group.children.some((c) => location.pathname.startsWith(c.to));
+  const [open, setOpen] = useState(hasActiveChild);
+
+  useEffect(() => {
+    if (hasActiveChild) setOpen(true);
+  }, [hasActiveChild]);
+
+  const Icon = group.icon;
+  return (
+    <div>
+      <button
+        type="button"
+        className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition ${
+          hasActiveChild && !open
+            ? "bg-brand-50 text-brand-700"
+            : "text-muted hover:bg-brand-50 hover:text-brand-700"
+        }`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon size={18} aria-hidden />
+        {t(group.labelKey as StringKey)}
+        <ChevronDown
+          size={14}
+          aria-hidden
+          className={`ml-auto transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-1 border-l-2 border-brand-100 pl-3 ml-4">
+          {group.children.map(({ to, labelKey, icon: ChildIcon }) => (
+            <NavLink key={to} to={to} className={navLinkClass}>
+              <ChildIcon size={16} aria-hidden />
+              {t(labelKey as StringKey)}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AppShell() {
   const { user, clear, activeClinicId, setActiveClinicId } = useAuth();
@@ -17,7 +74,7 @@ export function AppShell() {
   const chairside = useUiPrefs((s) => s.chairside);
   const toggleChairside = useUiPrefs((s) => s.toggleChairside);
   const links = navForRole(user?.role);
-  const mobileLinks = links.slice(0, 4);
+  const mobileLinks = flatNavForRole(user?.role).slice(0, 4);
   const [clinics, setClinics] = useState<ClinicRow[]>([]);
 
   useEffect(() => {
@@ -43,24 +100,22 @@ export function AppShell() {
           <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             {roleHomeLabel(user?.role)}
           </p>
-          <nav className="mt-8 flex flex-1 flex-col gap-1.5" aria-label="Main">
-            {links.map(({ to, labelKey, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === "/"}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition ${
-                    isActive
-                      ? "bg-brand-500 text-white shadow-lg shadow-brand-500/25"
-                      : "text-muted hover:bg-brand-50 hover:text-brand-700"
-                  }`
-                }
-              >
-                <Icon size={18} aria-hidden />
-                {t(labelKey as StringKey)}
-              </NavLink>
-            ))}
+          <nav className="mt-8 flex flex-1 flex-col gap-1.5 overflow-y-auto" aria-label="Main">
+            {links.map((entry) =>
+              isNavGroup(entry) ? (
+                <NavDropdown key={entry.labelKey} group={entry} />
+              ) : (
+                <NavLink
+                  key={entry.to}
+                  to={entry.to}
+                  end={entry.to === "/"}
+                  className={navLinkClass}
+                >
+                  <entry.icon size={18} aria-hidden />
+                  {t(entry.labelKey as StringKey)}
+                </NavLink>
+              ),
+            )}
           </nav>
           <div className="mt-auto space-y-2 rounded-2xl bg-brand-50 p-3">
             <div className="text-sm font-semibold text-ink">{user?.full_name}</div>

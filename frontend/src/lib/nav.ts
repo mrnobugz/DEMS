@@ -1,20 +1,25 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Baby,
   Building2,
   CalendarDays,
   ClipboardPlus,
   FlaskConical,
+  Hospital,
   LayoutDashboard,
   Package,
   Pill,
   Receipt,
   Scan,
   Settings2,
+  Slice,
+  Smile,
   Sparkles,
   Stethoscope,
   Users,
   UserRoundCog,
   BarChart3,
+  Braces,
 } from "lucide-react";
 
 export type NavItem = {
@@ -24,7 +29,55 @@ export type NavItem = {
   roles?: string[];
 };
 
-const ALL: NavItem[] = [
+export type NavGroup = {
+  labelKey: string;
+  icon: LucideIcon;
+  roles?: string[];
+  children: NavItem[];
+};
+
+export type NavEntry = NavItem | NavGroup;
+
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return "children" in entry;
+}
+
+const CLINIC_DEPARTMENT_ROLES = ["dentist", "hygienist", "clinic_admin", "super_admin"];
+
+/** The four specialty departments, grouped under the Clinic dropdown. */
+const CLINIC_GROUP: NavGroup = {
+  labelKey: "clinic",
+  icon: Hospital,
+  roles: CLINIC_DEPARTMENT_ROLES,
+  children: [
+    {
+      to: "/clinic/restorative",
+      labelKey: "restorative",
+      icon: Smile,
+      roles: CLINIC_DEPARTMENT_ROLES,
+    },
+    {
+      to: "/clinic/maxillofacial",
+      labelKey: "maxillofacial",
+      icon: Slice,
+      roles: CLINIC_DEPARTMENT_ROLES,
+    },
+    {
+      to: "/clinic/orthodontic",
+      labelKey: "orthodontic",
+      icon: Braces,
+      roles: CLINIC_DEPARTMENT_ROLES,
+    },
+    {
+      to: "/clinic/paediatric",
+      labelKey: "paediatric",
+      icon: Baby,
+      roles: CLINIC_DEPARTMENT_ROLES,
+    },
+  ],
+};
+
+const ALL: NavEntry[] = [
   {
     to: "/owner",
     labelKey: "owner",
@@ -49,6 +102,7 @@ const ALL: NavItem[] = [
     icon: Stethoscope,
     roles: ["dentist", "clinic_admin", "super_admin"],
   },
+  CLINIC_GROUP,
   {
     to: "/hygiene",
     labelKey: "hygiene",
@@ -131,9 +185,29 @@ const ALL: NavItem[] = [
   },
 ];
 
-export function navForRole(role: string | undefined | null): NavItem[] {
-  if (!role) return ALL.filter((i) => !i.roles);
-  return ALL.filter((item) => !item.roles || item.roles.includes(role));
+function roleAllows(roles: string[] | undefined, role: string | undefined | null): boolean {
+  if (!roles) return true;
+  if (!role) return false;
+  return roles.includes(role);
+}
+
+export function navForRole(role: string | undefined | null): NavEntry[] {
+  const entries: NavEntry[] = [];
+  for (const entry of ALL) {
+    if (!roleAllows(entry.roles, role)) continue;
+    if (isNavGroup(entry)) {
+      const children = entry.children.filter((c) => roleAllows(c.roles, role));
+      if (children.length > 0) entries.push({ ...entry, children });
+    } else {
+      entries.push(entry);
+    }
+  }
+  return entries;
+}
+
+/** Flat list (dropdown children inlined) — mobile tab bar and path guards. */
+export function flatNavForRole(role: string | undefined | null): NavItem[] {
+  return navForRole(role).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
 }
 
 export function roleHomePath(role: string | undefined | null): string {
@@ -187,7 +261,8 @@ export function roleHomeLabel(role: string | undefined | null): string {
 }
 
 export function canAccessPath(role: string | undefined | null, path: string): boolean {
-  const item = ALL.find((n) => n.to === path || (path.startsWith(n.to + "/") && n.to !== "/"));
+  const flat = ALL.flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
+  const item = flat.find((n) => n.to === path || (path.startsWith(n.to + "/") && n.to !== "/"));
   if (!item) return true;
   if (!item.roles) return true;
   if (!role) return false;

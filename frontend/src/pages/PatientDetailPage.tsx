@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   ClerkshipIntakeFields,
   clerkshipPayload,
@@ -16,6 +16,9 @@ import { RestorativePanel } from "@/components/RestorativePanel";
 import { EndoPanel } from "@/components/EndoPanel";
 import { ToothHistoryPanel } from "@/components/ToothHistoryPanel";
 import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
+import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
+import { ObjectsPanel, type ObjectLayerKey } from "@/components/viz/ObjectsPanel";
+import { PERMANENT_LOWER, PERMANENT_UPPER, TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/i18n";
@@ -26,6 +29,7 @@ type Dentist = { id: string; full_name: string; role: string };
 
 export function PatientDetailPage() {
   const { id = "" } = useParams();
+  const [params] = useSearchParams();
   const user = useAuth((s) => s.user);
   const currency = useUiPrefs((s) => s.currency);
   const locale = useUiPrefs((s) => s.locale);
@@ -39,7 +43,14 @@ export function PatientDetailPage() {
   const [notes, setNotes] = useState<ClinicalNote[]>([]);
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
   const [perioExams, setPerioExams] = useState<PerioExam[]>([]);
-  const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
+  const [selectedTooth, setSelectedTooth] = useState<string | null>(params.get("tooth"));
+  const [objectLayers, setObjectLayers] = useState<Record<ObjectLayerKey, boolean>>({
+    teeth: true,
+    nerves: true,
+    implants: true,
+    endo: true,
+    wire: false,
+  });
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [intakeForm, setIntakeForm] = useState<ClerkshipFormState | null>(null);
   const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
@@ -68,6 +79,37 @@ export function PatientDetailPage() {
     },
   ]);
   const [msg, setMsg] = useState("");
+
+  // Latest chart entry per tooth → 3D status colors (mirrors the 2D Odontogram)
+  const chart3dColors = useMemo(() => {
+    const latest = new Map<string, ChartEntry>();
+    for (const e of chart) {
+      const prev = latest.get(e.tooth_number);
+      if (!prev || new Date(e.created_at) > new Date(prev.created_at)) {
+        latest.set(e.tooth_number, e);
+      }
+    }
+    const colors: Record<string, string | undefined> = {};
+    for (const [tooth, e] of latest) {
+      colors[tooth] =
+        (e.status && TOOTH_STATUS_COLORS[e.status]) ||
+        TOOTH_STATUS_COLORS[e.condition_code] ||
+        (e.entry_kind === "planned" ? TOOTH_STATUS_COLORS.planned : "#bfdbfe");
+    }
+    return colors;
+  }, [chart]);
+
+  const chartAnatomy = useMemo(() => {
+    const missing: string[] = [];
+    const endo: string[] = [];
+    const implants: string[] = [];
+    for (const e of chart) {
+      if (e.condition_code === "missing") missing.push(e.tooth_number);
+      if (e.condition_code === "rct") endo.push(e.tooth_number);
+      if ((e.condition_label || "").toLowerCase().includes("implant")) implants.push(e.tooth_number);
+    }
+    return { missing, endo, implants };
+  }, [chart]);
 
   async function reload() {
     const [p, c, n, t, pe, d] = await Promise.all([
@@ -406,7 +448,37 @@ export function PatientDetailPage() {
         selected={selectedTooth}
         onSelect={setSelectedTooth}
         onMark={markTooth}
+        patientId={id}
       />
+
+      <section className="glass-panel rounded-3xl p-5">
+        <h3 className="font-display text-lg font-bold text-brand-900">3D odontogram + objects</h3>
+        <p className="mb-2 text-sm text-muted">
+          Mapped anatomy — tap a tooth to select it across all panels · toggle nerve / implant / endo objects
+        </p>
+        <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+          <Mouth3DLazy
+            title="Patient 3D odontogram"
+            colors={chart3dColors}
+            selected={selectedTooth}
+            onSelect={setSelectedTooth}
+            height={360}
+            layers={{
+              nerves: objectLayers.nerves,
+              implants: objectLayers.implants ? chartAnatomy.implants : [],
+              missing: objectLayers.teeth
+                ? chartAnatomy.missing
+                : [...PERMANENT_UPPER, ...PERMANENT_LOWER],
+              endo: objectLayers.endo ? chartAnatomy.endo : [],
+            }}
+            wire={objectLayers.wire ? "both" : null}
+          />
+          <ObjectsPanel
+            layers={objectLayers}
+            onToggle={(key) => setObjectLayers((o) => ({ ...o, [key]: !o[key] }))}
+          />
+        </div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ToothHistoryPanel patientId={id} toothNumber={selectedTooth} />

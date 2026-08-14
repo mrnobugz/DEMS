@@ -39,7 +39,7 @@ REQUIRED_PATIENT_COLUMNS = {
     "portal_enabled",
     "primary_dentist_id",
 }
-HEAD_REVISION = "011_portal_notifications"
+HEAD_REVISION = "012_specialty_departments"
 
 
 def _use_database(db_path: pathlib.Path) -> None:

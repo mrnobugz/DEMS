@@ -249,10 +249,10 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 ### 5.1 Imaging / PACS-lite
 - [x] Study metadata registry + stub storage keys (imaging department shell)
 - [~] Encrypted object storage for X-rays, OPG, CBCT, photos (local Fernet store + upload/view)
-- [ ] DICOM import/export/view
-- [~] In-browser viewer (basic image view; zoom/contrast/annotate later)
-- [~] Link images to visit/tooth/procedure (tooth + visit_id on study)
-- [ ] Before/after comparison UI
+- [ ] DICOM import/export/view (upload accepts `.dcm`; pixels still treated as a generic blob)
+- [~] In-browser viewer (zoom, window/level, invert, darkroom, drawings — **not persisted**)
+- [~] Link images to visit/tooth/procedure (tooth + visit_id on study; dental arch filter)
+- [~] Before/after comparison UI (side-by-side done; overlay slider still todo)
 
 ### 5.2 Lab Case Management
 - [x] Case pipeline: Sent → In Progress → Received → Fitted (department shell)
@@ -289,10 +289,10 @@ Older dental systems (on-prem Dentrix/Eaglesoft-style stacks, bolted-on “cloud
 
 **Outcome:** DSO-ready visibility + Visual Case Studio. Solves P2, P6, P9 at scale.
 
-- [ ] Multi-clinic rollout UX (switcher, chain admin)
+- [x] Multi-clinic rollout UX (owner switcher, chain seed MAIN + EAST)
 - [ ] Cross-clinic dashboards (revenue, utilization, retention)
 - [ ] Optional patient share across clinics in a chain
-- [ ] 3D tooth/mouth visualization (Three.js) for case acceptance
+- [~] 3D tooth/mouth visualization (Three.js, lazy) — session-only; persist maps + plan walkthrough still todo
 - [ ] Growth analytics: acquisition, recall compliance, chair ROI
 - [ ] WhatsApp channel productionization
 - [ ] Horizontal scale playbook (K8s, blue/green, autoscaling)
@@ -371,15 +371,22 @@ Work in **vertical slices**, not horizontal “finish all models then UI”.
 6. [x] Reports v1
 
 ### Sprint track C — Phase 3 engagement & revenue
-1. [~] Imaging storage + basic viewer (DICOM/annotate later)
+1. [~] Imaging storage + viewer (drawings/darkroom/arch filter done; persist + DICOM parse later)
 2. [x] Lab Journey (overdue + restoration hard-link)
 3. [~] Insurance estimates (claims status later)
 4. [~] Portal + Recall & Reach notifications (portal login/home + outbox reminders; SMS provider later)
 
 ### Sprint track D — Scale & intelligence
-1. [ ] Multi-clinic dashboards + 3D Visual Case Studio
+1. [~] 3D Visual Case Studio (mouth + MPR + objects; persist + walkthrough later)
 2. [ ] AI Gateway production features
 3. [ ] Offline + EDI + pen-test
+
+### Sprint track E–I — sequenced next (see §13)
+1. [ ] E Visual Case Studio close-out
+2. [ ] F Revenue cycle
+3. [ ] G Production channels
+4. [ ] H Advisory AI Gateway
+5. [ ] I Interop & harden
 
 ---
 
@@ -409,14 +416,76 @@ A feature is done only when **all** are true:
 | Phase 2 clinical depth (restorative/endo/perio/plans/e-Rx/inventory/reports) | Done |
 | AI stubs | Present |
 | PWA installability | Baseline |
-| DICOM / lab polish / insurance / portal / workers | Not yet |
+| Specialty clinic depts (restorative / maxfax / ortho / paediatric) | Done |
+| Carestream-style mapping (arch, surfaces, 3D, MPR, darkroom, drawings) | Session-only — persist in Sprint E |
+| DICOM / lab polish / insurance / portal / workers | Partial (lab + portal + viewer; DICOM parse / claims / workers not yet) |
 | Dentist↔patient assignment + scoped list/get | Done |
 | E2E happy path (service-layer) | Done |
 | Lab overdue + restoration hard-link | Done |
-| Imaging encrypted local upload/view | Done (PACS/DICOM later) |
+| Imaging encrypted local upload/view | Done (PACS/DICOM parse later) |
 | Insurance plans + co-pay estimate | Done (claims later) |
-| Portal / recall / claims / HTTP E2E | Portal + recall outbox done; claims / HTTP E2E next |
+| Portal / recall / claims / HTTP E2E | Portal + recall outbox done; claims / HTTP E2E in F / A |
 
 ---
 
-*This list is the single source of truth for implementation sequencing. Next action: **insurance claims draft**, Track A polish (HTTP E2E / security review), or live SMS/WhatsApp providers.*
+## 13. Sequenced TODOs — next work (Sprint E → I)
+
+**Do E first.** Mapping and drawings currently live only in the browser session. Persisting them unblocks overlay compare, case-acceptance walkthroughs, and Phase 5 AI overlays.
+
+A feature is not done until §11 Definition of Done is met.
+
+### Sprint E — Visual Case Studio close-out (next)
+
+- [ ] **E1** Persist imaging annotations (length, angle, arrow, circle, tooth tags) on the study; restore on open; `write_audit` on create/update
+- [ ] **E2** Overlay before/after compare (clip-path slider + opacity), in addition to side-by-side
+- [ ] **E3** Parse real DICOM (`.dcm`) in the PWA — pixels + window/level from metadata, not a generic image blob
+- [ ] **E4** Persist anatomy maps as tenant-scoped records: arch curve, nerve paths, implant sites, endo markers
+- [ ] **E5** 3D treatment-plan walkthrough — highlight planned teeth visit-by-visit for case acceptance
+- [ ] **E6** Restore last Darkroom window/level + invert on the study
+- [ ] **E7** Migration `013` + specialty/imaging tests for annotation + map round-trip
+
+### Sprint F — Revenue cycle
+
+- [ ] **F1** Insurance claim draft / submit / status / denial / resubmit (pre-EDI)
+- [ ] **F2** Payment plans: installment schedule, reminders, overdue
+- [ ] **F3** Bad-debt aging 30 / 60 / 90+
+- [ ] **F4** Doctor commission rules + statements
+- [ ] **F5** Patient portal: pay outstanding invoice
+- [ ] **F6** Patient portal: self-book within clinic rules
+
+### Sprint G — Production channels
+
+- [ ] **G1** ARQ/Celery workers for reminders, reports, AI jobs
+- [ ] **G2** Live SMS provider on the notification outbox
+- [ ] **G3** WhatsApp Business channel (production)
+- [ ] **G4** MFA (TOTP) required for clinic admin + dentist
+- [ ] **G5** Structured JSON logging + Sentry
+- [ ] **G6** CI: lint → tests → dependency/SAST scan → image build
+
+### Sprint H — Advisory AI Gateway
+
+- [ ] **H1** Persist all AI outputs as `is_ai_suggested` annotations (uses E1 store)
+- [ ] **H2** Dentist confirm / override required before chart commit; audit trail
+- [ ] **H3** Radiograph pre-screen (caries / bone loss / periapical) → overlay on study
+- [ ] **H4** Restoration-failure prediction → recall feed
+- [ ] **H5** Smart scheduling from duration + specialty + no-show history
+- [ ] **H6** Clinical note STT + summarization (draft only, never auto-finalized)
+- [ ] **H7** Constrained patient FAQ / booking chatbot (no unsupervised medical advice)
+- [ ] **H8** Inventory demand forecasting
+- [ ] **H9** PHI egress controls + audit for every model call (prefer self-hosted / BAA)
+
+### Sprint I — Interop & harden
+
+- [ ] **I1** EDI 837/835 adapter interface
+- [ ] **I2** S3-compatible encrypted object storage for imaging / consents
+- [ ] **I3** PWA offline sync hardening
+- [ ] **I4** Security headers, CORS lock, upload MIME/size/antivirus hook
+- [ ] **I5** Column-level encryption for national ID / sensitive history
+- [ ] **I6** Pen-test + backup restore drill documented
+- [ ] **I7** Cross-clinic growth dashboards (acquisition, recall compliance, chair ROI)
+
+**Do not start next:** third-party X-ray AI API, or EDI, before E and F schemas exist.
+
+---
+
+*This list is the single source of truth for implementation sequencing. **Next action: Sprint E1 — persist imaging annotations.***

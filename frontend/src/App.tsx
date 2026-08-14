@@ -19,6 +19,10 @@ import {
   FrontDeskPage,
 } from "@/pages/department/FrontClinicalPages";
 import { HygienePage } from "@/pages/department/HygienePage";
+import { MaxillofacialPage } from "@/pages/department/clinic/MaxillofacialPage";
+import { OrthodonticPage } from "@/pages/department/clinic/OrthodonticPage";
+import { PaediatricPage } from "@/pages/department/clinic/PaediatricPage";
+import { RestorativeDeptPage } from "@/pages/department/clinic/RestorativeDeptPage";
 import { ImagingPage } from "@/pages/department/ImagingPage";
 import { InventoryPage } from "@/pages/department/InventoryPage";
 import { LabPage } from "@/pages/department/LabPage";
@@ -74,6 +78,38 @@ export default function App() {
           element={
             <RequireRole path="/clinical">
               <ClinicalHomePage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/clinic/restorative"
+          element={
+            <RequireRole path="/clinic/restorative">
+              <RestorativeDeptPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/clinic/maxillofacial"
+          element={
+            <RequireRole path="/clinic/maxillofacial">
+              <MaxillofacialPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/clinic/orthodontic"
+          element={
+            <RequireRole path="/clinic/orthodontic">
+              <OrthodonticPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/clinic/paediatric"
+          element={
+            <RequireRole path="/clinic/paediatric">
+              <PaediatricPage />
             </RequireRole>
           }
         />

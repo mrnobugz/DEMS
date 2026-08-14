@@ -18,6 +18,7 @@ from app.api.v1 import (
     pharmacy,
     phase2_ops,
     portal,
+    specialty,
     staff,
 )
 
@@ -37,6 +38,7 @@ api_router.include_router(lab.router)
 api_router.include_router(imaging.router)
 api_router.include_router(pharmacy.router)
 api_router.include_router(departments.router)
+api_router.include_router(specialty.router)
 api_router.include_router(phase2_ops.router)
 api_router.include_router(notifications.router)
 api_router.include_router(portal.router)

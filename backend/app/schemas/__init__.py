@@ -1242,6 +1242,7 @@ class RestorationOut(ORMModel):
 class RestorationCaseOut(ORMModel):
     id: str
     patient_id: str
+    patient_name: Optional[str] = None
     primary_tooth: str
     case_type: str
     status: str
@@ -1301,6 +1302,7 @@ class EndoObturationOut(ORMModel):
 class EndoCaseOut(ORMModel):
     id: str
     patient_id: str
+    patient_name: Optional[str] = None
     tooth_number: str
     procedure_type: str
     tooth_length_mm: Optional[float] = None
@@ -1399,3 +1401,217 @@ class RxWarnRequest(BaseModel):
 class RxWarnOut(BaseModel):
     warnings: list[str]
     severity: str = "advisory"
+
+
+# ── Specialty clinic departments ──────────────────────
+class SurgicalCaseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patient_id: str
+    procedure_type: str = "extraction"
+    site: Optional[str] = None
+    diagnosis: Optional[str] = None
+    anaesthesia: str = "local"
+    asa_class: Optional[str] = None
+    status: str = "planned"
+    scheduled_at: Optional[datetime] = None
+    surgeon_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SurgicalCaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    procedure_type: Optional[str] = None
+    site: Optional[str] = None
+    diagnosis: Optional[str] = None
+    anaesthesia: Optional[str] = None
+    asa_class: Optional[str] = None
+    status: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    performed_at: Optional[datetime] = None
+    surgeon_id: Optional[str] = None
+    operative_notes: Optional[str] = None
+    complications: Optional[str] = None
+    histopathology: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SurgicalFollowUpIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    visit_date: Optional[date] = None
+    pain_score: Optional[int] = Field(None, ge=0, le=10)
+    swelling: Optional[str] = None
+    healing: str = "normal"
+    sutures_removed: bool = False
+    notes: Optional[str] = None
+
+
+class SurgicalFollowUpOut(ORMModel):
+    id: str
+    visit_date: date
+    pain_score: Optional[int] = None
+    swelling: Optional[str] = None
+    healing: str
+    sutures_removed: bool
+    notes: Optional[str] = None
+
+
+class SurgicalCaseOut(ORMModel):
+    id: str
+    patient_id: str
+    patient_name: Optional[str] = None
+    surgeon_id: Optional[str] = None
+    procedure_type: str
+    site: Optional[str] = None
+    diagnosis: Optional[str] = None
+    anaesthesia: str
+    asa_class: Optional[str] = None
+    status: str
+    scheduled_at: Optional[datetime] = None
+    performed_at: Optional[datetime] = None
+    operative_notes: Optional[str] = None
+    complications: Optional[str] = None
+    histopathology: Optional[str] = None
+    notes: Optional[str] = None
+    follow_ups: list[SurgicalFollowUpOut] = []
+    created_at: datetime
+
+
+class OrthoCaseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patient_id: str
+    angle_class: Optional[str] = None
+    malocclusion_summary: Optional[str] = None
+    appliance_type: str = "fixed_metal"
+    arch: str = "both"
+    bracket_system: Optional[str] = None
+    oral_hygiene: Optional[str] = None
+    status: str = "assessment"
+    started_on: Optional[date] = None
+    planned_months: int = Field(18, ge=1, le=72)
+    next_review_due: Optional[date] = None
+    clinician_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class OrthoCaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    angle_class: Optional[str] = None
+    malocclusion_summary: Optional[str] = None
+    appliance_type: Optional[str] = None
+    arch: Optional[str] = None
+    bracket_system: Optional[str] = None
+    oral_hygiene: Optional[str] = None
+    status: Optional[str] = None
+    started_on: Optional[date] = None
+    debonded_on: Optional[date] = None
+    planned_months: Optional[int] = Field(None, ge=1, le=72)
+    next_review_due: Optional[date] = None
+    clinician_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class OrthoAdjustmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    visit_date: Optional[date] = None
+    archwire: Optional[str] = None
+    procedures: Optional[str] = None
+    elastics: Optional[str] = None
+    next_visit_weeks: int = Field(4, ge=1, le=26)
+    notes: Optional[str] = None
+
+
+class OrthoAdjustmentOut(ORMModel):
+    id: str
+    visit_date: date
+    archwire: Optional[str] = None
+    procedures: Optional[str] = None
+    elastics: Optional[str] = None
+    next_visit_weeks: int
+    notes: Optional[str] = None
+
+
+class OrthoCaseOut(ORMModel):
+    id: str
+    patient_id: str
+    patient_name: Optional[str] = None
+    clinician_id: Optional[str] = None
+    angle_class: Optional[str] = None
+    malocclusion_summary: Optional[str] = None
+    appliance_type: str
+    arch: str
+    bracket_system: Optional[str] = None
+    oral_hygiene: Optional[str] = None
+    status: str
+    started_on: Optional[date] = None
+    debonded_on: Optional[date] = None
+    planned_months: int
+    next_review_due: Optional[date] = None
+    notes: Optional[str] = None
+    adjustments: list[OrthoAdjustmentOut] = []
+    created_at: datetime
+
+
+class PaediatricProfileIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    guardian_relation: Optional[str] = None
+    behaviour_rating: Optional[int] = Field(None, ge=1, le=4)  # Frankl scale
+    dentition_stage: str = "primary"
+    caries_risk: str = "moderate"
+    oral_habits: Optional[str] = None
+    medical_alerts: Optional[str] = None
+    fluoride_last: Optional[date] = None
+    fluoride_next: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class PaediatricTreatmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    treatment_type: str = "fluoride_varnish"
+    tooth: Optional[str] = None
+    performed_on: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class PaediatricTreatmentOut(ORMModel):
+    id: str
+    treatment_type: str
+    tooth: Optional[str] = None
+    performed_on: date
+    performed_by_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PaediatricProfileOut(ORMModel):
+    id: str
+    patient_id: str
+    patient_name: Optional[str] = None
+    patient_age: Optional[int] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    guardian_relation: Optional[str] = None
+    behaviour_rating: Optional[int] = None
+    dentition_stage: str
+    caries_risk: str
+    oral_habits: Optional[str] = None
+    medical_alerts: Optional[str] = None
+    fluoride_last: Optional[date] = None
+    fluoride_next: Optional[date] = None
+    notes: Optional[str] = None
+    treatments: list[PaediatricTreatmentOut] = []
+    created_at: datetime
+
+
+class DepartmentOverviewOut(BaseModel):
+    """Counts backing the Clinic dropdown landing cards."""
+
+    restorative_open_cases: int = 0
+    restorative_planned: int = 0
+    endo_in_progress: int = 0
+    surgical_open: int = 0
+    surgical_scheduled_week: int = 0
+    ortho_active: int = 0
+    ortho_reviews_due: int = 0
+    paediatric_profiles: int = 0
+    paediatric_fluoride_due: int = 0

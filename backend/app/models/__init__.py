@@ -840,6 +840,168 @@ class NotificationStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+# ── Specialty clinic departments ──────────────────────────────────────────────
+
+
+class ClinicDepartment(StrEnum):
+    """The four specialty departments surfaced under Clinic in navigation."""
+
+    RESTORATIVE = "restorative"
+    MAXILLOFACIAL = "maxillofacial"
+    ORTHODONTIC = "orthodontic"
+    PAEDIATRIC = "paediatric"
+
+
+class SurgicalCaseStatus(StrEnum):
+    PLANNED = "planned"
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    FOLLOW_UP = "follow_up"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class SurgicalCase(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Oral & maxillofacial surgery case: extraction → orthognathic, with follow-up."""
+
+    __tablename__ = "surgical_cases"
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    surgeon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), index=True)
+    # extraction | surgical_extraction | impacted_third_molar | biopsy | cyst_enucleation
+    # | fracture_reduction | implant_placement | orthognathic | other
+    procedure_type: Mapped[str] = mapped_column(String(80), default="extraction")
+    site: Mapped[Optional[str]] = mapped_column(String(80))  # tooth number or region
+    diagnosis: Mapped[Optional[str]] = mapped_column(Text)
+    anaesthesia: Mapped[str] = mapped_column(String(32), default="local")  # local|sedation|general
+    asa_class: Mapped[Optional[str]] = mapped_column(String(8))  # ASA I-IV
+    status: Mapped[str] = mapped_column(String(32), default=SurgicalCaseStatus.PLANNED, index=True)
+    scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    performed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    operative_notes: Mapped[Optional[str]] = mapped_column(Text)
+    complications: Mapped[Optional[str]] = mapped_column(Text)
+    histopathology: Mapped[Optional[str]] = mapped_column(Text)  # biopsy result
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
+    surgeon: Mapped[Optional["User"]] = relationship()
+    follow_ups: Mapped[list["SurgicalFollowUp"]] = relationship(
+        back_populates="surgical_case", cascade="all, delete-orphan"
+    )
+
+
+class SurgicalFollowUp(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "surgical_follow_ups"
+
+    surgical_case_id: Mapped[str] = mapped_column(
+        ForeignKey("surgical_cases.id", ondelete="CASCADE"), index=True
+    )
+    visit_date: Mapped[date] = mapped_column(Date, nullable=False)
+    pain_score: Mapped[Optional[int]] = mapped_column(Integer)  # 0-10
+    swelling: Mapped[Optional[str]] = mapped_column(String(32))  # none|mild|moderate|severe
+    healing: Mapped[str] = mapped_column(String(32), default="normal")  # normal|delayed|infected|dry_socket
+    sutures_removed: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    surgical_case: Mapped["SurgicalCase"] = relationship(back_populates="follow_ups")
+
+
+class OrthoCaseStatus(StrEnum):
+    ASSESSMENT = "assessment"
+    ACTIVE = "active"
+    RETENTION = "retention"
+    COMPLETED = "completed"
+    DISCONTINUED = "discontinued"
+
+
+class OrthoCase(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Orthodontic case: Angle classification, appliance, adjustment cadence."""
+
+    __tablename__ = "ortho_cases"
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    clinician_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), index=True)
+    angle_class: Mapped[Optional[str]] = mapped_column(String(16))  # I | II_div1 | II_div2 | III
+    malocclusion_summary: Mapped[Optional[str]] = mapped_column(Text)
+    # fixed_metal | fixed_ceramic | removable | functional | clear_aligner
+    appliance_type: Mapped[str] = mapped_column(String(40), default="fixed_metal")
+    arch: Mapped[str] = mapped_column(String(16), default="both")  # upper|lower|both
+    bracket_system: Mapped[Optional[str]] = mapped_column(String(80))
+    oral_hygiene: Mapped[Optional[str]] = mapped_column(String(16))  # good|fair|poor
+    status: Mapped[str] = mapped_column(String(32), default=OrthoCaseStatus.ASSESSMENT, index=True)
+    started_on: Mapped[Optional[date]] = mapped_column(Date)
+    debonded_on: Mapped[Optional[date]] = mapped_column(Date)
+    planned_months: Mapped[int] = mapped_column(Integer, default=18)
+    next_review_due: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
+    clinician: Mapped[Optional["User"]] = relationship()
+    adjustments: Mapped[list["OrthoAdjustment"]] = relationship(
+        back_populates="ortho_case", cascade="all, delete-orphan"
+    )
+
+
+class OrthoAdjustment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "ortho_adjustments"
+
+    ortho_case_id: Mapped[str] = mapped_column(
+        ForeignKey("ortho_cases.id", ondelete="CASCADE"), index=True
+    )
+    visit_date: Mapped[date] = mapped_column(Date, nullable=False)
+    archwire: Mapped[Optional[str]] = mapped_column(String(80))  # wire or aligner stage
+    procedures: Mapped[Optional[str]] = mapped_column(Text)
+    elastics: Mapped[Optional[str]] = mapped_column(String(80))
+    next_visit_weeks: Mapped[int] = mapped_column(Integer, default=4)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    ortho_case: Mapped["OrthoCase"] = relationship(back_populates="adjustments")
+
+
+class PaediatricProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Paediatric dentistry profile: behaviour, dentition stage, caries risk, guardian."""
+
+    __tablename__ = "paediatric_profiles"
+    __table_args__ = (UniqueConstraint("patient_id", name="uq_paediatric_profiles_patient"),)
+
+    patient_id: Mapped[str] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"), index=True
+    )
+    guardian_name: Mapped[Optional[str]] = mapped_column(String(200))
+    guardian_phone: Mapped[Optional[str]] = mapped_column(String(40))
+    guardian_relation: Mapped[Optional[str]] = mapped_column(String(40))
+    behaviour_rating: Mapped[Optional[int]] = mapped_column(Integer)  # Frankl scale 1-4
+    dentition_stage: Mapped[str] = mapped_column(String(16), default="primary")  # primary|mixed|permanent
+    caries_risk: Mapped[str] = mapped_column(String(16), default="moderate", index=True)  # low|moderate|high
+    oral_habits: Mapped[Optional[str]] = mapped_column(Text)  # thumb sucking, bruxism, ...
+    medical_alerts: Mapped[Optional[str]] = mapped_column(Text)
+    fluoride_last: Mapped[Optional[date]] = mapped_column(Date)
+    fluoride_next: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
+    treatments: Mapped[list["PaediatricTreatment"]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class PaediatricTreatment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "paediatric_treatments"
+
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("paediatric_profiles.id", ondelete="CASCADE"), index=True
+    )
+    # fluoride_varnish | fissure_sealant | pulpotomy | pulpectomy | stainless_steel_crown
+    # | restoration | extraction | space_maintainer | other
+    treatment_type: Mapped[str] = mapped_column(String(40), default="fluoride_varnish")
+    tooth: Mapped[Optional[str]] = mapped_column(String(8))
+    performed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    performed_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    profile: Mapped["PaediatricProfile"] = relationship(back_populates="treatments")
+
+
 class NotificationOutbox(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     """Unified Recall & Reach outbox — providers swap without touching domain logic."""
 
