@@ -17,15 +17,23 @@ type Props = {
   patientId: string;
   patientName?: string;
   onMessage?: (msg: string) => void;
+  defaultGuardian?: boolean;
+  defaultProcedure?: string;
 };
 
-export function ConsentPad({ patientId, patientName, onMessage }: Props) {
+export function ConsentPad({
+  patientId,
+  patientName,
+  onMessage,
+  defaultGuardian = false,
+  defaultProcedure = "General treatment consent",
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [consents, setConsents] = useState<Consent[]>([]);
-  const [procedure, setProcedure] = useState("General treatment consent");
+  const [procedure, setProcedure] = useState(defaultProcedure);
   const [signer, setSigner] = useState(patientName || "");
-  const [guardian, setGuardian] = useState(false);
+  const [guardian, setGuardian] = useState(defaultGuardian);
   const [error, setError] = useState("");
 
   async function load() {
@@ -40,6 +48,14 @@ export function ConsentPad({ patientId, patientName, onMessage }: Props) {
   useEffect(() => {
     if (patientName && !signer) setSigner(patientName);
   }, [patientName]);
+
+  useEffect(() => {
+    setGuardian(defaultGuardian);
+  }, [defaultGuardian, patientId]);
+
+  useEffect(() => {
+    setProcedure(defaultProcedure);
+  }, [defaultProcedure, patientId]);
 
   function ctx() {
     const canvas = canvasRef.current;

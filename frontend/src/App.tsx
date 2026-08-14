@@ -14,10 +14,7 @@ import { PortalLoginPage } from "@/pages/PortalLoginPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { ClinicAdminPage } from "@/pages/department/ClinicAdminPage";
-import {
-  ClinicalHomePage,
-  FrontDeskPage,
-} from "@/pages/department/FrontClinicalPages";
+import { FrontDeskPage } from "@/pages/department/FrontClinicalPages";
 import { HygienePage } from "@/pages/department/HygienePage";
 import { MaxillofacialPage } from "@/pages/department/clinic/MaxillofacialPage";
 import { OrthodonticPage } from "@/pages/department/clinic/OrthodonticPage";
@@ -73,42 +70,39 @@ export default function App() {
             </RequireRole>
           }
         />
+        <Route path="/clinical" element={<Navigate to="/clinical/restorative" replace />} />
+        <Route path="/clinic/restorative" element={<Navigate to="/clinical/restorative" replace />} />
+        <Route path="/clinic/maxillofacial" element={<Navigate to="/clinical/maxillofacial" replace />} />
+        <Route path="/clinic/orthodontic" element={<Navigate to="/clinical/orthodontic" replace />} />
+        <Route path="/clinic/paediatric" element={<Navigate to="/clinical/paediatric" replace />} />
         <Route
-          path="/clinical"
+          path="/clinical/restorative"
           element={
-            <RequireRole path="/clinical">
-              <ClinicalHomePage />
-            </RequireRole>
-          }
-        />
-        <Route
-          path="/clinic/restorative"
-          element={
-            <RequireRole path="/clinic/restorative">
+            <RequireRole path="/clinical/restorative">
               <RestorativeDeptPage />
             </RequireRole>
           }
         />
         <Route
-          path="/clinic/maxillofacial"
+          path="/clinical/maxillofacial"
           element={
-            <RequireRole path="/clinic/maxillofacial">
+            <RequireRole path="/clinical/maxillofacial">
               <MaxillofacialPage />
             </RequireRole>
           }
         />
         <Route
-          path="/clinic/orthodontic"
+          path="/clinical/orthodontic"
           element={
-            <RequireRole path="/clinic/orthodontic">
+            <RequireRole path="/clinical/orthodontic">
               <OrthodonticPage />
             </RequireRole>
           }
         />
         <Route
-          path="/clinic/paediatric"
+          path="/clinical/paediatric"
           element={
-            <RequireRole path="/clinic/paediatric">
+            <RequireRole path="/clinical/paediatric">
               <PaediatricPage />
             </RequireRole>
           }

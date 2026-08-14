@@ -14,6 +14,7 @@ import {
   usePatientOptions,
   useQueryPrefill,
 } from "./shared";
+import { DepartmentChairwork } from "./DepartmentChairwork";
 
 type Treatment = {
   id: string;
@@ -171,6 +172,12 @@ export function PaediatricPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      <DepartmentChairwork
+        dept="paediatric"
+        patientId={form.patient_id || treatFor || undefined}
+        selectedTooth={tx.tooth || null}
+      />
+
       <Clinical3DImaging
         mode="paediatric"
         dentition={form.dentition_stage === "permanent" ? "permanent" : "primary"}
@@ -195,13 +202,13 @@ export function PaediatricPage() {
                 ? "fluoride_varnish"
                 : actionId === "sealant"
                   ? "fissure_sealant"
-                  : actionId === "ssc"
+                  : actionId === "ssc" || actionId === "auto-crown"
                     ? "stainless_steel_crown"
                     : t.treatment_type,
           }));
           const pid = form.patient_id || treatFor;
           if (pid && profiles.some((p) => p.patient_id === pid)) {
-            if (actionId !== "profile") setTreatFor(pid);
+            if (actionId !== "profile" && actionId !== "fov0") setTreatFor(pid);
           }
         }}
       />

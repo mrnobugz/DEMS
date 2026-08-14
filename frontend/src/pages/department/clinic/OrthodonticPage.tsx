@@ -14,6 +14,7 @@ import {
   usePatientOptions,
   useQueryPrefill,
 } from "./shared";
+import { DepartmentChairwork } from "./DepartmentChairwork";
 
 type Adjustment = {
   id: string;
@@ -193,6 +194,12 @@ export function OrthodonticPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      <DepartmentChairwork
+        dept="orthodontic"
+        patientId={form.patient_id || undefined}
+        selectedTooth={selectedTooth}
+      />
+
       <Clinical3DImaging
         mode="ortho"
         patientId={form.patient_id || undefined}
@@ -206,16 +213,18 @@ export function OrthodonticPage() {
         }}
         colors={archColors}
         wire={wireArches}
-        onAction={(actionId, tooth) => {
+        onAction={(actionId, tooth, meta) => {
           setSelectedTooth(tooth);
           const arch = PERMANENT_UPPER.includes(tooth) ? "upper" : "lower";
           setForm((f) => ({
             ...f,
             arch: actionId === "arch" || actionId === "tad" ? arch : f.arch,
             malocclusion_summary:
-              actionId === "tad"
-                ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
-                : f.malocclusion_summary,
+              actionId === "ceph" && meta?.angleDeg != null
+                ? `${f.malocclusion_summary ? f.malocclusion_summary + " · " : ""}Angle ${meta.angleDeg}° at ${tooth}`
+                : actionId === "tad"
+                  ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
+                  : f.malocclusion_summary,
           }));
           if (actionId === "adjust") {
             const match =

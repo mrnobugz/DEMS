@@ -15,6 +15,7 @@ import {
   usePatientOptions,
   useQueryPrefill,
 } from "./shared";
+import { DepartmentChairwork } from "./DepartmentChairwork";
 
 type FollowUp = {
   id: string;
@@ -199,6 +200,12 @@ export function MaxillofacialPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      <DepartmentChairwork
+        dept="maxillofacial"
+        patientId={form.patient_id || undefined}
+        selectedTooth={/^\d{2}$/.test(form.site) ? form.site : null}
+      />
+
       <Clinical3DImaging
         mode="surgical"
         patientId={form.patient_id || undefined}
@@ -207,16 +214,27 @@ export function MaxillofacialPage() {
         colors={surgicalViz.colors}
         implants={surgicalViz.implants}
         missing={surgicalViz.missing}
-        onAction={(actionId, tooth) => {
+        onAction={(actionId, tooth, meta) => {
           setForm((f) => ({
             ...f,
             site: tooth,
             procedure_type:
               actionId === "extract"
                 ? "extraction"
-                : actionId === "implant"
+                : actionId === "implant" || actionId === "pdip" || actionId === "auto-crown-implant"
                   ? "implant_placement"
                   : f.procedure_type,
+            diagnosis:
+              actionId === "auto-crown" && meta?.crown
+                ? f.diagnosis ||
+                  `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl} mm · ${Math.round(meta.crown.confidence * 100)}%`
+                : actionId === "auto-crown-implant" && meta?.crown && meta.implant
+                  ? `PDIP AI crown+implant Ø${meta.implant.diameter}×${meta.implant.length} + ${meta.crown.md}×${meta.crown.bl} mm crown`
+                  : actionId === "implant" && meta?.implant
+                    ? f.diagnosis ||
+                      `PDIP Ø${meta.implant.diameter} × ${meta.implant.length} mm` +
+                        (meta.clearanceMm != null ? ` · IAN ${meta.clearanceMm} mm` : "")
+                    : f.diagnosis,
           }));
           if (actionId === "followup") {
             const match = cases.find((c) => c.site === tooth);

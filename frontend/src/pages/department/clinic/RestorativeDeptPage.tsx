@@ -14,6 +14,7 @@ import {
   usePatientOptions,
   useQueryPrefill,
 } from "./shared";
+import { DepartmentChairwork } from "./DepartmentChairwork";
 
 type Restoration = {
   id: string;
@@ -138,6 +139,12 @@ export function RestorativeDeptPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      <DepartmentChairwork
+        dept="restorative"
+        patientId={form.patient_id || undefined}
+        selectedTooth={form.primary_tooth || null}
+      />
+
       <Clinical3DImaging
         mode="restorative"
         patientId={form.patient_id || undefined}
@@ -146,20 +153,26 @@ export function RestorativeDeptPage() {
         colors={toothColors}
         endo={endoCases.map((e) => e.tooth_number)}
         missing={cases.filter((c) => c.status === "failed").map((c) => c.primary_tooth)}
-        onAction={(actionId, tooth) => {
+        onAction={(actionId, tooth, meta) => {
           setForm((f) => ({
             ...f,
             primary_tooth: tooth,
             case_type:
-              actionId === "crown"
+              actionId === "crown" || actionId === "auto-crown"
                 ? "crown"
-                : actionId === "endo" || actionId === "case"
+                : actionId === "endo" || actionId === "case" || actionId === "canal"
                   ? "restorative"
                   : f.case_type,
             notes:
-              actionId === "endo"
-                ? f.notes || "Endo / RCT from 3D workspace"
-                : f.notes,
+              actionId === "working-length" && meta?.lengthMm != null
+                ? `Working length ${meta.lengthMm} mm (indicative, 3D MPR)`
+                : actionId === "auto-crown" && meta?.crown
+                  ? `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl}×${meta.crown.height} mm · ${Math.round(meta.crown.confidence * 100)}% — review before accepting`
+                  : actionId === "canal"
+                    ? f.notes || "Root canal traced in 3D MPR"
+                    : actionId === "endo"
+                      ? f.notes || "Endo / RCT from 3D workspace"
+                      : f.notes,
           }));
         }}
       />

@@ -14,6 +14,9 @@ type Props = {
   patientId: string;
   chiefComplaint?: string | null;
   onMessage: (msg: string) => void;
+  /** Clinical department this exam is being recorded in. */
+  department?: string;
+  defaultOpen?: boolean;
 };
 
 const emptyVitals = (): VisitVitals => ({
@@ -115,9 +118,15 @@ function cleanStr(v: string | null | undefined): string | null {
   return t || null;
 }
 
-export function ClinicalExamPanel({ patientId, chiefComplaint, onMessage }: Props) {
+export function ClinicalExamPanel({
+  patientId,
+  chiefComplaint,
+  onMessage,
+  department,
+  defaultOpen = false,
+}: Props) {
   const [visits, setVisits] = useState<ClinicalVisit[]>([]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [complaint, setComplaint] = useState(chiefComplaint || "");
   const [status, setStatus] = useState("in_progress");
@@ -256,6 +265,7 @@ export function ClinicalExamPanel({ patientId, chiefComplaint, onMessage }: Prop
           <h3 className="font-display text-lg font-bold">Clinical examination</h3>
           <p className="text-sm text-muted">
             Vitals · extra-oral · intra-oral · investigations · diagnosis
+            {department ? ` · ${department}` : ""}
           </p>
         </div>
         <button

@@ -1,11 +1,36 @@
 /** CS 3D Imaging-style Objects toolbox: show/hide mapped anatomy. */
 
-export type ObjectLayerKey = "teeth" | "nerves" | "implants" | "endo" | "wire";
+export type ObjectLayerKey =
+  | "teeth"
+  | "maxilla"
+  | "mandible"
+  | "canalArch"
+  | "nerves"
+  | "implants"
+  | "crowns"
+  | "endo"
+  | "wire";
+
+export const DEFAULT_OBJECT_LAYERS: Record<ObjectLayerKey, boolean> = {
+  teeth: true,
+  maxilla: false,
+  mandible: false,
+  canalArch: false,
+  nerves: false,
+  implants: false,
+  crowns: false,
+  endo: false,
+  wire: false,
+};
 
 const LABELS: { key: ObjectLayerKey; label: string; swatch: string }[] = [
   { key: "teeth", label: "Teeth", swatch: "#f5f2e9" },
+  { key: "maxilla", label: "Maxilla arch", swatch: "#ef4444" },
+  { key: "mandible", label: "Mandible arch", swatch: "#f97316" },
+  { key: "canalArch", label: "Canal arch", swatch: "#eab308" },
   { key: "nerves", label: "Nerve canals", swatch: "#facc15" },
   { key: "implants", label: "Implants", swatch: "#9ca3af" },
+  { key: "crowns", label: "Virtual crowns", swatch: "#f59e0b" },
   { key: "endo", label: "Endo canals", swatch: "#7c3aed" },
   { key: "wire", label: "Archwire", swatch: "#c9ced6" },
 ];

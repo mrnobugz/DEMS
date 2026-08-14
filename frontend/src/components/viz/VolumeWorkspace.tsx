@@ -167,8 +167,12 @@ export function VolumeWorkspace({
   const [sagittal, setSagittal] = useState(50);
   const [objects, setObjects] = useState<Record<ObjectLayerKey, boolean>>({
     teeth: true,
+    maxilla: true,
+    mandible: true,
+    canalArch: false,
     nerves: true,
     implants: true,
+    crowns: false,
     endo: true,
     wire: false,
   });
@@ -209,6 +213,9 @@ export function VolumeWorkspace({
                 implants: objects.implants ? implants : [],
                 missing: objects.teeth ? missing : [...PERMANENT_UPPER, ...PERMANENT_LOWER],
                 endo: objects.endo ? endo : [],
+                maxillaArch: objects.maxilla,
+                mandibleArch: objects.mandible,
+                canalArch: objects.canalArch,
               }}
               wire={objects.wire ? "both" : null}
             />

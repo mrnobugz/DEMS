@@ -5,7 +5,6 @@ import {
   CalendarDays,
   ClipboardPlus,
   FlaskConical,
-  Hospital,
   LayoutDashboard,
   Package,
   Pill,
@@ -42,37 +41,37 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
   return "children" in entry;
 }
 
-const CLINIC_DEPARTMENT_ROLES = ["dentist", "hygienist", "clinic_admin", "super_admin"];
+const CLINICAL_ROLES = ["dentist", "hygienist", "clinic_admin", "super_admin"];
 
-/** The four specialty departments, grouped under the Clinic dropdown. */
-const CLINIC_GROUP: NavGroup = {
-  labelKey: "clinic",
-  icon: Hospital,
-  roles: CLINIC_DEPARTMENT_ROLES,
+/** One Clinical dropdown — four departments, each with full clerkship + specialty work. */
+const CLINICAL_GROUP: NavGroup = {
+  labelKey: "clinical",
+  icon: Stethoscope,
+  roles: CLINICAL_ROLES,
   children: [
     {
-      to: "/clinic/restorative",
+      to: "/clinical/restorative",
       labelKey: "restorative",
       icon: Smile,
-      roles: CLINIC_DEPARTMENT_ROLES,
+      roles: CLINICAL_ROLES,
     },
     {
-      to: "/clinic/maxillofacial",
+      to: "/clinical/maxillofacial",
       labelKey: "maxillofacial",
       icon: Slice,
-      roles: CLINIC_DEPARTMENT_ROLES,
+      roles: CLINICAL_ROLES,
     },
     {
-      to: "/clinic/orthodontic",
+      to: "/clinical/orthodontic",
       labelKey: "orthodontic",
       icon: Braces,
-      roles: CLINIC_DEPARTMENT_ROLES,
+      roles: CLINICAL_ROLES,
     },
     {
-      to: "/clinic/paediatric",
+      to: "/clinical/paediatric",
       labelKey: "paediatric",
       icon: Baby,
-      roles: CLINIC_DEPARTMENT_ROLES,
+      roles: CLINICAL_ROLES,
     },
   ],
 };
@@ -96,13 +95,7 @@ const ALL: NavEntry[] = [
     icon: ClipboardPlus,
     roles: ["receptionist", "clinic_admin", "super_admin"],
   },
-  {
-    to: "/clinical",
-    labelKey: "clinical",
-    icon: Stethoscope,
-    roles: ["dentist", "clinic_admin", "super_admin"],
-  },
-  CLINIC_GROUP,
+  CLINICAL_GROUP,
   {
     to: "/hygiene",
     labelKey: "hygiene",
@@ -219,7 +212,7 @@ export function roleHomePath(role: string | undefined | null): string {
     case "receptionist":
       return "/front-desk";
     case "dentist":
-      return "/clinical";
+      return "/clinical/restorative";
     case "hygienist":
       return "/hygiene";
     case "imaging_tech":
@@ -238,7 +231,7 @@ export function roleHomePath(role: string | undefined | null): string {
 export function roleHomeLabel(role: string | undefined | null): string {
   switch (role) {
     case "dentist":
-      return "Clinical chair";
+      return "Clinical";
     case "hygienist":
       return "Hygiene bay";
     case "receptionist":

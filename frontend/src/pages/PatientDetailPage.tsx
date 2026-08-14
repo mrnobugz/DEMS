@@ -46,8 +46,12 @@ export function PatientDetailPage() {
   const [selectedTooth, setSelectedTooth] = useState<string | null>(params.get("tooth"));
   const [objectLayers, setObjectLayers] = useState<Record<ObjectLayerKey, boolean>>({
     teeth: true,
+    maxilla: false,
+    mandible: false,
+    canalArch: false,
     nerves: true,
     implants: true,
+    crowns: false,
     endo: true,
     wire: false,
   });
@@ -470,6 +474,9 @@ export function PatientDetailPage() {
                 ? chartAnatomy.missing
                 : [...PERMANENT_UPPER, ...PERMANENT_LOWER],
               endo: objectLayers.endo ? chartAnatomy.endo : [],
+              maxillaArch: objectLayers.maxilla,
+              mandibleArch: objectLayers.mandible,
+              canalArch: objectLayers.canalArch,
             }}
             wire={objectLayers.wire ? "both" : null}
           />

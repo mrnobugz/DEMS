@@ -54,7 +54,7 @@ export const TOOTH_ACTIONS: ToothAction[] = [
     id: "restorative",
     label: "Open restorative case",
     hint: "Surface-true filling, crown, or warranty case",
-    href: (patientId, tooth) => `/clinic/restorative?patient=${patientId}&tooth=${tooth}`,
+    href: (patientId, tooth) => `/clinical/restorative?patient=${patientId}&tooth=${tooth}`,
   },
   {
     id: "endo",
@@ -66,19 +66,19 @@ export const TOOTH_ACTIONS: ToothAction[] = [
     id: "surgery",
     label: "Open surgical case",
     hint: "Extraction, impaction, implant, biopsy",
-    href: (patientId, tooth) => `/clinic/maxillofacial?patient=${patientId}&site=${tooth}`,
+    href: (patientId, tooth) => `/clinical/maxillofacial?patient=${patientId}&site=${tooth}`,
   },
   {
     id: "ortho",
     label: "Orthodontic arch",
     hint: "Assign this arch to an ortho case",
-    href: (patientId, tooth) => `/clinic/orthodontic?patient=${patientId}&tooth=${tooth}`,
+    href: (patientId, tooth) => `/clinical/orthodontic?patient=${patientId}&tooth=${tooth}`,
   },
   {
     id: "paediatric",
     label: "Paediatric treatment",
     hint: "Fluoride, sealant, SSC on primary teeth",
-    href: (patientId, tooth) => `/clinic/paediatric?patient=${patientId}&tooth=${tooth}`,
+    href: (patientId, tooth) => `/clinical/paediatric?patient=${patientId}&tooth=${tooth}`,
   },
   {
     id: "imaging",

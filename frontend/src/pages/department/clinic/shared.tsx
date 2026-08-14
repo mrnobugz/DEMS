@@ -1,7 +1,7 @@
-/** Shared plumbing for the four Clinic specialty department pages. */
+/** Shared plumbing for the four Clinical specialty department pages. */
 
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 
 export type PatientOption = {
@@ -52,14 +52,42 @@ export function useDepartmentOverview() {
   return overview;
 }
 
+export function ClinicalDeptSwitcher() {
+  const location = useLocation();
+  const depts = [
+    { to: "/clinical/restorative", label: "Restorative" },
+    { to: "/clinical/maxillofacial", label: "Maxillofacial" },
+    { to: "/clinical/orthodontic", label: "Orthodontic" },
+    { to: "/clinical/paediatric", label: "Paediatric" },
+  ];
+  return (
+    <div className="mt-3 flex flex-wrap gap-1">
+      {depts.map((d) => (
+        <Link
+          key={d.to}
+          to={d.to}
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+            location.pathname === d.to
+              ? "bg-brand-500 text-white"
+              : "border border-brand-100 bg-white text-muted hover:bg-brand-50"
+          }`}
+        >
+          {d.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export function DeptHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-        Clinic department
+        Clinical
       </p>
       <h2 className="font-display text-3xl font-bold text-brand-900">{title}</h2>
       <p className="text-sm text-muted">{subtitle}</p>
+      <ClinicalDeptSwitcher />
     </div>
   );
 }
