@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
-import { ArchChart } from "@/components/viz/ArchChart";
-import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
+import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
 import { PERMANENT_LOWER, PERMANENT_UPPER } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
 import {
@@ -67,6 +66,7 @@ export function OrthodonticPage() {
     planned_months: 18,
   });
   const [adj, setAdj] = useState({ archwire: "", procedures: "", elastics: "", next_visit_weeks: 4, notes: "" });
+  const [selectedTooth, setSelectedTooth] = useState<string | null>(prefill.tooth || null);
 
   useEffect(() => {
     if (!prefill.patientId && !prefill.tooth) return;
@@ -79,6 +79,7 @@ export function OrthodonticPage() {
           : "lower"
         : f.arch,
     }));
+    if (prefill.tooth) setSelectedTooth(prefill.tooth);
   }, [prefill.patientId, prefill.tooth]);
 
   async function load() {
@@ -192,37 +193,48 @@ export function OrthodonticPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section className="glass-panel grid gap-4 rounded-3xl p-5 lg:grid-cols-2">
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">Arch overview — 2D</h3>
-          <p className="mb-2 text-xs text-muted">
-            Blue tint = active treatment · green = retention · click a tooth to set the treated
-            arch on the new case
-          </p>
-          <ArchChart
-            colors={archColors}
-            highlightArch={form.arch as "upper" | "lower" | "both"}
-            onSelect={(fdi) =>
-              setForm((f) => ({
-                ...f,
-                arch: PERMANENT_UPPER.includes(fdi) ? "upper" : "lower",
-              }))
+      <Clinical3DImaging
+        mode="ortho"
+        patientId={form.patient_id || undefined}
+        selected={selectedTooth}
+        onSelect={(fdi) => {
+          setSelectedTooth(fdi);
+          setForm((f) => ({
+            ...f,
+            arch: PERMANENT_UPPER.includes(fdi) ? "upper" : "lower",
+          }));
+        }}
+        colors={archColors}
+        wire={wireArches}
+        onAction={(actionId, tooth) => {
+          setSelectedTooth(tooth);
+          const arch = PERMANENT_UPPER.includes(tooth) ? "upper" : "lower";
+          setForm((f) => ({
+            ...f,
+            arch: actionId === "arch" || actionId === "tad" ? arch : f.arch,
+            malocclusion_summary:
+              actionId === "tad"
+                ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
+                : f.malocclusion_summary,
+          }));
+          if (actionId === "adjust") {
+            const match =
+              cases.find(
+                (c) =>
+                  c.patient_id === form.patient_id &&
+                  (c.status === "active" || c.status === "retention"),
+              ) ??
+              cases.find((c) => c.status === "active" || c.status === "retention");
+            if (match) {
+              setAdjustFor(match.id);
+              setAdj((a) => ({
+                ...a,
+                procedures: a.procedures || `3D review · tooth ${tooth}`,
+              }));
             }
-            height={300}
-          />
-        </div>
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">
-            3D appliance view {wireArches ? "· archwire + brackets" : ""}
-          </h3>
-          <p className="mb-2 text-xs text-muted">
-            {wireArches
-              ? "Wire and brackets rendered on arches under active treatment"
-              : "No active cases — the wire overlay appears once a case is activated"}
-          </p>
-          <Mouth3DLazy title="Orthodontic 3D model" colors={archColors} wire={wireArches} height={300} />
-        </div>
-      </section>
+          }
+        }}
+      />
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
         <div className="md:col-span-2">

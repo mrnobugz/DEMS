@@ -8,9 +8,9 @@ import type { Mouth3DProps } from "./Mouth3D";
 
 const Mouth3D = lazy(() => import("./Mouth3D"));
 
-export function Mouth3DLazy(props: Mouth3DProps & { title?: string }) {
-  const { title, ...rest } = props;
-  const [enabled, setEnabled] = useState(false);
+export function Mouth3DLazy(props: Mouth3DProps & { title?: string; eager?: boolean }) {
+  const { title, eager = false, ...rest } = props;
+  const [enabled, setEnabled] = useState(eager);
   const height = rest.height ?? 340;
 
   if (!enabled) {

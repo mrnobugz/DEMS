@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
-import { ArchChart } from "@/components/viz/ArchChart";
+import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
 import { JawMap, jawRegionLabel } from "@/components/viz/JawMap";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
@@ -45,82 +45,6 @@ type SurgicalCase = {
 
 const OPEN_SURGICAL = new Set(["planned", "scheduled", "completed", "follow_up"]);
 
-function SurgicalSiteMap({
-  cases,
-  siteMode,
-  setSiteMode,
-  selectedSite,
-  onPickSite,
-}: {
-  cases: SurgicalCase[];
-  siteMode: "tooth" | "region";
-  setSiteMode: (m: "tooth" | "region") => void;
-  selectedSite: string;
-  onPickSite: (site: string) => void;
-}) {
-  const { toothMarks, regionMarks } = useMemo(() => {
-    const tooth: Record<string, string | undefined> = {};
-    const region: Record<string, string | undefined> = {};
-    for (const c of cases) {
-      if (!c.site) continue;
-      const color = OPEN_SURGICAL.has(c.status) ? TOOTH_STATUS_COLORS.surgical : "#cbd5e1";
-      if (/^\d{2}$/.test(c.site)) tooth[c.site] = color;
-      else region[c.site] = color;
-    }
-    return { toothMarks: tooth, regionMarks: region };
-  }, [cases]);
-
-  return (
-    <section className="glass-panel rounded-3xl p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">
-            Surgical site map — 2D
-          </h3>
-          <p className="text-xs text-muted">
-            Red = open surgical cases · grey = closed · click to set the site for a new case
-          </p>
-        </div>
-        <div className="flex gap-1 rounded-full border border-brand-100 bg-white p-1 text-xs font-semibold">
-          {(["tooth", "region"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`rounded-full px-3 py-1 ${
-                siteMode === m ? "bg-brand-500 text-white" : "text-muted"
-              }`}
-              onClick={() => setSiteMode(m)}
-            >
-              {m === "tooth" ? "Tooth (FDI)" : "Jaw region"}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mx-auto mt-2 max-w-xl">
-        {siteMode === "tooth" ? (
-          <ArchChart
-            colors={toothMarks}
-            selected={/^\d{2}$/.test(selectedSite) ? selectedSite : null}
-            onSelect={onPickSite}
-            height={300}
-          />
-        ) : (
-          <JawMap
-            marks={regionMarks}
-            selected={!/^\d{2}$/.test(selectedSite) && selectedSite ? selectedSite : null}
-            onSelect={onPickSite}
-          />
-        )}
-      </div>
-      {selectedSite && (
-        <p className="mt-1 text-center text-xs font-semibold text-brand-700">
-          Selected site: {/^\d{2}$/.test(selectedSite) ? `tooth ${selectedSite}` : jawRegionLabel(selectedSite)}
-        </p>
-      )}
-    </section>
-  );
-}
-
 const PROCEDURES = [
   "extraction",
   "surgical_extraction",
@@ -152,7 +76,6 @@ export function MaxillofacialPage() {
     scheduled_at: "",
   });
   const [fu, setFu] = useState({ pain_score: "", swelling: "", healing: "normal", sutures_removed: false, notes: "" });
-  const [siteMode, setSiteMode] = useState<"tooth" | "region">("tooth");
 
   useEffect(() => {
     if (!prefill.patientId && !prefill.site && !prefill.tooth) return;
@@ -162,7 +85,6 @@ export function MaxillofacialPage() {
       patient_id: prefill.patientId || f.patient_id,
       site: site || f.site,
     }));
-    if (site && !/^\d{2}$/.test(site)) setSiteMode("region");
   }, [prefill.patientId, prefill.site, prefill.tooth]);
 
   async function load() {
@@ -232,6 +154,30 @@ export function MaxillofacialPage() {
     }
   }
 
+  const surgicalViz = useMemo(() => {
+    const colors: Record<string, string | undefined> = {};
+    const regionMarks: Record<string, string | undefined> = {};
+    const implants: string[] = [];
+    const missing: string[] = [];
+    for (const c of cases) {
+      if (!c.site) continue;
+      const color = OPEN_SURGICAL.has(c.status) ? TOOTH_STATUS_COLORS.surgical : "#cbd5e1";
+      if (/^\d{2}$/.test(c.site)) {
+        colors[c.site] = color;
+        if (c.procedure_type === "implant_placement") implants.push(c.site);
+        if (
+          (c.procedure_type === "extraction" || c.procedure_type === "surgical_extraction") &&
+          (c.status === "completed" || c.status === "follow_up" || c.status === "closed")
+        ) {
+          missing.push(c.site);
+        }
+      } else {
+        regionMarks[c.site] = color;
+      }
+    }
+    return { colors, regionMarks, implants, missing };
+  }, [cases]);
+
   return (
     <div className="animate-rise space-y-6">
       <DeptHeader
@@ -253,13 +199,48 @@ export function MaxillofacialPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <SurgicalSiteMap
-        cases={cases}
-        siteMode={siteMode}
-        setSiteMode={setSiteMode}
-        selectedSite={form.site}
-        onPickSite={(site) => setForm((f) => ({ ...f, site }))}
+      <Clinical3DImaging
+        mode="surgical"
+        patientId={form.patient_id || undefined}
+        selected={/^\d{2}$/.test(form.site) ? form.site : null}
+        onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
+        colors={surgicalViz.colors}
+        implants={surgicalViz.implants}
+        missing={surgicalViz.missing}
+        onAction={(actionId, tooth) => {
+          setForm((f) => ({
+            ...f,
+            site: tooth,
+            procedure_type:
+              actionId === "extract"
+                ? "extraction"
+                : actionId === "implant"
+                  ? "implant_placement"
+                  : f.procedure_type,
+          }));
+          if (actionId === "followup") {
+            const match = cases.find((c) => c.site === tooth);
+            if (match) setFollowUpFor(match.id);
+          }
+        }}
       />
+
+      <section className="glass-panel rounded-3xl p-5">
+        <div>
+          <h3 className="font-display text-base font-bold text-brand-900">Non-tooth sites</h3>
+          <p className="text-xs text-muted">
+            Jaw regions for trauma, cysts, and orthognathic work — tooth-level surgery uses the 3D
+            workspace above
+          </p>
+        </div>
+        <div className="mx-auto mt-2 max-w-xl">
+          <JawMap
+            marks={surgicalViz.regionMarks}
+            selected={!/^\d{2}$/.test(form.site) && form.site ? form.site : null}
+            onSelect={(site) => setForm((f) => ({ ...f, site }))}
+          />
+        </div>
+      </section>
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
         <div className="md:col-span-2">

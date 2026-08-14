@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
-import { ArchChart } from "@/components/viz/ArchChart";
+import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
 import {
@@ -171,28 +171,51 @@ export function PaediatricPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section className="glass-panel rounded-3xl p-5">
-        <h3 className="font-display text-base font-bold text-brand-900">
-          Primary dentition map — 2D (FDI 55–85)
-        </h3>
-        <p className="text-xs text-muted">
-          Department-wide view of recorded preventive treatments on primary teeth
-        </p>
-        <div className="mx-auto max-w-xl">
-          <ArchChart dentition="primary" colors={treatmentColors} height={300} />
-        </div>
-        <div className="flex flex-wrap gap-3 text-[11px] font-semibold text-muted">
-          {legendTypes.map((t) => (
-            <span key={t} className="inline-flex items-center gap-1.5 capitalize">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
-                style={{ background: TOOTH_STATUS_COLORS[t] }}
-              />
-              {prettyLabel(t)}
-            </span>
-          ))}
-        </div>
-      </section>
+      <Clinical3DImaging
+        mode="paediatric"
+        dentition={form.dentition_stage === "permanent" ? "permanent" : "primary"}
+        patientId={form.patient_id || treatFor || undefined}
+        selected={tx.tooth || null}
+        onSelect={(fdi) => setTx((t) => ({ ...t, tooth: fdi }))}
+        colors={treatmentColors}
+        missing={profiles.flatMap((p) =>
+          p.treatments.filter((tr) => tr.treatment_type === "extraction" && tr.tooth).map((tr) => tr.tooth as string),
+        )}
+        endo={profiles.flatMap((p) =>
+          p.treatments
+            .filter((tr) => (tr.treatment_type === "pulpotomy" || tr.treatment_type === "pulpectomy") && tr.tooth)
+            .map((tr) => tr.tooth as string),
+        )}
+        onAction={(actionId, tooth) => {
+          setTx((t) => ({
+            ...t,
+            tooth,
+            treatment_type:
+              actionId === "fluoride"
+                ? "fluoride_varnish"
+                : actionId === "sealant"
+                  ? "fissure_sealant"
+                  : actionId === "ssc"
+                    ? "stainless_steel_crown"
+                    : t.treatment_type,
+          }));
+          const pid = form.patient_id || treatFor;
+          if (pid && profiles.some((p) => p.patient_id === pid)) {
+            if (actionId !== "profile") setTreatFor(pid);
+          }
+        }}
+      />
+      <div className="flex flex-wrap gap-3 px-1 text-[11px] font-semibold text-muted">
+        {legendTypes.map((t) => (
+          <span key={t} className="inline-flex items-center gap-1.5 capitalize">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
+              style={{ background: TOOTH_STATUS_COLORS[t] }}
+            />
+            {prettyLabel(t)}
+          </span>
+        ))}
+      </div>
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onUpsert}>
         <div className="md:col-span-2">
@@ -399,22 +422,11 @@ export function PaediatricPage() {
                     >
                       <div className="sm:col-span-2">
                         <p className="text-[10px] font-semibold uppercase text-muted">
-                          Pick the treated tooth (primary dentition)
+                          Treated tooth — pick on the 3D workspace above
                         </p>
-                        <ArchChart
-                          dentition="primary"
-                          height={230}
-                          selected={tx.tooth || null}
-                          colors={Object.fromEntries(
-                            p.treatments
-                              .filter((tr) => tr.tooth)
-                              .map((tr) => [
-                                tr.tooth as string,
-                                TOOTH_STATUS_COLORS[tr.treatment_type] ?? "#3b82f6",
-                              ]),
-                          )}
-                          onSelect={(fdi) => setTx((t) => ({ ...t, tooth: fdi }))}
-                        />
+                        <p className="mt-1 text-sm font-semibold text-brand-900">
+                          {tx.tooth ? `Primary tooth ${tx.tooth}` : "No tooth selected yet"}
+                        </p>
                       </div>
                       <label className="text-xs">
                         Treatment

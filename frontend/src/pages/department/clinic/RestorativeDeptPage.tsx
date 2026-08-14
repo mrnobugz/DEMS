@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
-import { ArchChart } from "@/components/viz/ArchChart";
-import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
+import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
 import {
@@ -118,15 +117,6 @@ export function RestorativeDeptPage() {
     return map;
   }, [cases, endoCases]);
 
-  const toothBadges = useMemo(() => {
-    const map: Record<string, string | undefined> = {};
-    for (const c of cases) {
-      const surfaces = c.restorations.map((r) => r.surfaces).filter(Boolean).join(" ");
-      if (surfaces) map[c.primary_tooth] = surfaces;
-    }
-    return map;
-  }, [cases]);
-
   return (
     <div className="animate-rise space-y-6">
       <DeptHeader
@@ -148,50 +138,31 @@ export function RestorativeDeptPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section className="glass-panel grid gap-4 rounded-3xl p-5 lg:grid-cols-2">
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">Department tooth map — 2D</h3>
-          <p className="mb-2 text-xs text-muted">
-            Colored by case status · badges show charted surfaces · click a tooth to start a case
-          </p>
-          <ArchChart
-            colors={toothColors}
-            badges={toothBadges}
-            selected={form.primary_tooth || null}
-            onSelect={(fdi) => setForm((f) => ({ ...f, primary_tooth: fdi }))}
-          />
-        </div>
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">3D model</h3>
-          <p className="mb-2 text-xs text-muted">
-            Rotate/zoom · same status colors · tap a tooth to select it for the case form
-          </p>
-          <Mouth3DLazy
-            title="Restorative 3D tooth map"
-            colors={toothColors}
-            selected={form.primary_tooth || null}
-            onSelect={(fdi) => setForm((f) => ({ ...f, primary_tooth: fdi }))}
-          />
-        </div>
-        <div className="flex flex-wrap gap-3 text-[11px] font-semibold text-muted lg:col-span-2">
-          {(["planned", "in_progress", "completed", "failed"] as const).map((s) => (
-            <span key={s} className="inline-flex items-center gap-1.5 capitalize">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
-                style={{ background: TOOTH_STATUS_COLORS[s] }}
-              />
-              {prettyLabel(s)}
-            </span>
-          ))}
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
-              style={{ background: TOOTH_STATUS_COLORS.rct }}
-            />
-            Endo (RCT)
-          </span>
-        </div>
-      </section>
+      <Clinical3DImaging
+        mode="restorative"
+        patientId={form.patient_id || undefined}
+        selected={form.primary_tooth || null}
+        onSelect={(fdi) => setForm((f) => ({ ...f, primary_tooth: fdi }))}
+        colors={toothColors}
+        endo={endoCases.map((e) => e.tooth_number)}
+        missing={cases.filter((c) => c.status === "failed").map((c) => c.primary_tooth)}
+        onAction={(actionId, tooth) => {
+          setForm((f) => ({
+            ...f,
+            primary_tooth: tooth,
+            case_type:
+              actionId === "crown"
+                ? "crown"
+                : actionId === "endo" || actionId === "case"
+                  ? "restorative"
+                  : f.case_type,
+            notes:
+              actionId === "endo"
+                ? f.notes || "Endo / RCT from 3D workspace"
+                : f.notes,
+          }));
+        }}
+      />
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-4" onSubmit={onCreate}>
         <div className="md:col-span-2">
