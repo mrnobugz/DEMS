@@ -119,9 +119,9 @@ export function RestorativeDeptPage() {
   }, [cases, endoCases]);
 
   return (
-    <div className="animate-rise space-y-6">
+    <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
-        title="Restorative department"
+        title="Restorative"
         subtitle="Surface-true restorations · multi-visit cases · endodontics · warranty recalls"
       />
       {overview && (

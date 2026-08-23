@@ -259,11 +259,11 @@ export function ClinicalExamPanel({
   }
 
   return (
-    <div className="glass-panel space-y-4 rounded-3xl p-5">
+    <div className="glass-panel space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-display text-lg font-bold">Clinical examination</h3>
-          <p className="text-sm text-muted">
+          <h3 className="font-display text-base font-bold">Clinical examination</h3>
+          <p className="text-xs text-muted">
             Vitals · extra-oral · intra-oral · investigations · diagnosis
             {department ? ` · ${department}` : ""}
           </p>
@@ -545,10 +545,11 @@ export function ClinicalExamPanel({
                   <option value="malocclusion">Malocclusion</option>
                 </select>
               </div>
-              <div className="md:col-span-2">
+              <div>
                 <label className="label">Hard tissue notes</label>
                 <textarea
-                  className="input min-h-16"
+                  className="input"
+                  rows={2}
                   value={intra.hard_tissue_notes || ""}
                   onChange={(e) => setIntra({ ...intra, hard_tissue_notes: e.target.value })}
                 />
@@ -692,10 +693,11 @@ export function ClinicalExamPanel({
               multiple
             />
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="md:col-span-2">
+              <div>
                 <label className="label">Problem list</label>
                 <textarea
-                  className="input min-h-16"
+                  className="input"
+                  rows={2}
                   value={dx.problem_list || ""}
                   onChange={(e) => setDx({ ...dx, problem_list: e.target.value })}
                 />
@@ -739,7 +741,8 @@ export function ClinicalExamPanel({
           <div>
             <label className="label">Visit notes</label>
             <textarea
-              className="input min-h-16"
+              className="input"
+              rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />

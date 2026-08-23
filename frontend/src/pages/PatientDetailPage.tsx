@@ -19,8 +19,11 @@ import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
 import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
 import { ObjectsPanel, type ObjectLayerKey } from "@/components/viz/ObjectsPanel";
 import { PERMANENT_LOWER, PERMANENT_UPPER, TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
+import { PatientIdentityPhoto } from "@/components/PatientIdentityPhoto";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { fetchPatientPhotoDataUrl, uploadPatientPhoto } from "@/lib/patientPhoto";
+import { printPatientCard, registrationPrintData } from "@/lib/printRegistration";
 import { formatMoney } from "@/lib/i18n";
 import { useUiPrefs } from "@/lib/uiPrefs";
 import type { ChartEntry, ClinicalNote, Patient, PerioExam, TreatmentPlan } from "@/lib/types";
@@ -83,6 +86,8 @@ export function PatientDetailPage() {
     },
   ]);
   const [msg, setMsg] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   // Latest chart entry per tooth → 3D status colors (mirrors the 2D Odontogram)
   const chart3dColors = useMemo(() => {
@@ -127,6 +132,12 @@ export function PatientDetailPage() {
         : Promise.resolve([] as Dentist[]),
     ]);
     setPatient(p);
+    if (p.has_photo) {
+      const url = await fetchPatientPhotoDataUrl(p.id);
+      setPhotoDataUrl(url || "");
+    } else {
+      setPhotoDataUrl("");
+    }
     setDentists(d);
     setIntakeForm(formFromPatient(p));
     setChart(c);
@@ -351,15 +362,22 @@ export function PatientDetailPage() {
   if (!patient) return <div className="text-muted">Loading patient…</div>;
 
   return (
-    <div className="space-y-5 animate-rise">
-      <div className="glass-panel rounded-3xl p-5">
+    <div className="clin-shell space-y-4 animate-rise">
+      <div className="glass-panel">
         <div className="flex flex-wrap items-start justify-between gap-3">
+          {photoDataUrl && (
+            <img
+              src={photoDataUrl}
+              alt={`${patient.first_name} ${patient.last_name}`}
+              className="h-24 w-[4.5rem] rounded-lg object-cover border border-brand-100"
+            />
+          )}
           <div>
             <p className="font-mono text-xs text-brand-600">
               {patient.patient_code}
               {patient.hospital_reg_number ? ` · ${patient.hospital_reg_number}` : ""}
             </p>
-            <h2 className="font-display text-3xl font-bold text-brand-900">
+            <h2 className="font-display text-xl font-bold text-brand-900">
               {patient.first_name} {patient.last_name}
             </h2>
             <p className="mt-1 text-sm text-muted">
@@ -413,9 +431,33 @@ export function PatientDetailPage() {
             <button
               type="button"
               className="btn-ghost text-xs"
+              onClick={() => {
+                try {
+                  printPatientCard(
+                    registrationPrintData({
+                      patient,
+                      photoDataUrl,
+                      department: patient.destination_department,
+                      staffName: patient.primary_dentist_name,
+                    }),
+                  );
+                } catch (err) {
+                  setMsg(err instanceof Error ? err.message : "Could not print the patient card");
+                }
+              }}
+            >
+              Print card
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
               onClick={() => setIntakeOpen((v) => !v)}
             >
-              {intakeOpen ? "Hide intake" : "Edit clerkship intake"}
+              {intakeOpen
+                ? "Hide intake"
+                : user?.role === "receptionist"
+                  ? "Edit particulars"
+                  : "Edit clerkship intake"}
             </button>
             <button
               type="button"
@@ -429,12 +471,41 @@ export function PatientDetailPage() {
       </div>
 
       {intakeOpen && intakeForm && (
-        <form className="glass-panel space-y-4 rounded-3xl p-5" onSubmit={saveIntake}>
+        <form className="glass-panel space-y-3" onSubmit={saveIntake}>
           <div>
-            <h3 className="font-display text-lg font-bold">Digital Clerkship intake</h3>
-            <p className="text-sm text-muted">Demographics, medical history, pain & symptoms</p>
+            <h3 className="font-display text-lg font-bold">
+              {user?.role === "receptionist" ? "Reception particulars" : "Digital clerkship intake"}
+            </h3>
+            <p className="text-sm text-muted">
+              {user?.role === "receptionist"
+                ? "File-opening fields only. The dentist completes history after consultation fees."
+                : "Particulars plus clinical anamnesis, pain, and symptoms"}
+            </p>
           </div>
-          <ClerkshipIntakeFields form={intakeForm} onChange={setIntakeForm} mode="edit" />
+          <PatientIdentityPhoto
+            value={photoDataUrl}
+            onChange={(url, file) => {
+              setPhotoDataUrl(url);
+              if (!file) return;
+              setPhotoBusy(true);
+              uploadPatientPhoto(patient.id, file)
+                .then((updated) => {
+                  setPatient(updated);
+                  setMsg("Identity photo saved");
+                })
+                .catch((err) => {
+                  setMsg(err instanceof ApiError ? err.message : "Could not save photo");
+                })
+                .finally(() => setPhotoBusy(false));
+            }}
+          />
+          {photoBusy && <p className="text-xs text-muted">Saving identity photo…</p>}
+          <ClerkshipIntakeFields
+            form={intakeForm}
+            onChange={setIntakeForm}
+            mode="edit"
+            variant={user?.role === "receptionist" ? "reception" : "all"}
+          />
           <button className="btn-primary">Save intake</button>
         </form>
       )}
@@ -455,7 +526,7 @@ export function PatientDetailPage() {
         patientId={id}
       />
 
-      <section className="glass-panel rounded-3xl p-5">
+      <section className="glass-panel">
         <h3 className="font-display text-lg font-bold text-brand-900">3D odontogram + objects</h3>
         <p className="mb-2 text-sm text-muted">
           Mapped anatomy — tap a tooth to select it across all panels · toggle nerve / implant / endo objects
@@ -512,27 +583,30 @@ export function PatientDetailPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <form className="glass-panel space-y-3 rounded-3xl p-5" onSubmit={saveNote}>
+        <form className="glass-panel space-y-2" onSubmit={saveNote}>
           <div className="flex items-center justify-between">
             <h3 className="font-display text-lg font-bold">SOAP clinical note</h3>
             <button type="button" className="btn-ghost text-xs" onClick={() => void draftSoap()}>
               AI draft
             </button>
           </div>
+          <div className="grid gap-2 sm:grid-cols-2">
           {(["subjective", "objective", "assessment", "plan"] as const).map((field) => (
             <div key={field}>
               <label className="label capitalize">{field}</label>
               <textarea
-                className="input min-h-16"
+                className="input"
+                rows={2}
                 value={note[field]}
                 onChange={(e) => setNote({ ...note, [field]: e.target.value })}
               />
             </div>
           ))}
+          </div>
           <button className="btn-primary">Save note</button>
         </form>
 
-        <div className="glass-panel rounded-3xl p-5">
+        <div className="glass-panel">
           <h3 className="font-display text-lg font-bold">Recent notes & chart history</h3>
           <div className="mt-3 space-y-3">
             {notes.map((n) => (
@@ -557,7 +631,7 @@ export function PatientDetailPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <form className="glass-panel space-y-4 rounded-3xl p-5" onSubmit={saveTreatmentPlan}>
+        <form className="glass-panel space-y-3" onSubmit={saveTreatmentPlan}>
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-display text-lg font-bold">Treatment planning</h3>
@@ -807,7 +881,8 @@ export function PatientDetailPage() {
                   />
                 </div>
                 <textarea
-                  className="input mt-3 min-h-16"
+                  className="input mt-2"
+                  rows={2}
                   value={item.description}
                   onChange={(e) =>
                     setPlanItems((current) =>
@@ -827,7 +902,7 @@ export function PatientDetailPage() {
 
         <TreatmentPlanTimeline plans={plans} />
 
-        <div className="glass-panel rounded-3xl p-5">
+        <div className="glass-panel">
           <h3 className="font-display text-lg font-bold">Plan tracker</h3>
           <div className="mt-3 space-y-4">
             {plans.map((plan) => {

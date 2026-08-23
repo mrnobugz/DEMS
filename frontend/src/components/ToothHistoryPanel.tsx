@@ -42,7 +42,7 @@ export function ToothHistoryPanel({ patientId, toothNumber }: Props) {
 
   if (!toothNumber) {
     return (
-      <div className="glass-panel rounded-3xl p-5">
+      <div className="glass-panel">
         <h3 className="font-display text-lg font-bold">Tooth timeline</h3>
         <p className="mt-2 text-sm text-muted">Select a tooth on the odontogram to see its history.</p>
       </div>
@@ -50,7 +50,7 @@ export function ToothHistoryPanel({ patientId, toothNumber }: Props) {
   }
 
   return (
-    <div className="glass-panel rounded-3xl p-5">
+    <div className="glass-panel">
       <h3 className="font-display text-lg font-bold">Tooth {toothNumber} timeline</h3>
       <p className="text-sm text-muted">Chart · restorations · endo for this tooth</p>
       {loading ? (

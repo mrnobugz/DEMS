@@ -142,11 +142,11 @@ export function RestorativePanel({
   }
 
   return (
-    <section className="glass-panel space-y-4 rounded-3xl p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section className="glass-panel space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h3 className="font-display text-lg font-bold text-brand-900">Surface-True Restorative</h3>
-          <p className="text-sm text-muted">Cases · surfaces · lifecycle · quality rubrics</p>
+          <h3 className="font-display text-base font-bold text-brand-900">Restorative</h3>
+          <p className="text-xs text-muted">Cases · surfaces · lifecycle · quality</p>
         </div>
         <button type="button" className="btn-ghost text-sm" onClick={() => void createCase()}>
           New case for tooth {form.tooth_number}

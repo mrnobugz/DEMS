@@ -14,7 +14,7 @@ import { PortalLoginPage } from "@/pages/PortalLoginPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { ClinicAdminPage } from "@/pages/department/ClinicAdminPage";
-import { FrontDeskPage } from "@/pages/department/FrontClinicalPages";
+import { FrontDeskPage, FrontDeskRegisterPage } from "@/pages/department/FrontClinicalPages";
 import { HygienePage } from "@/pages/department/HygienePage";
 import { MaxillofacialPage } from "@/pages/department/clinic/MaxillofacialPage";
 import { OrthodonticPage } from "@/pages/department/clinic/OrthodonticPage";
@@ -67,6 +67,14 @@ export default function App() {
           element={
             <RequireRole path="/front-desk">
               <FrontDeskPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/front-desk/register"
+          element={
+            <RequireRole path="/front-desk">
+              <FrontDeskRegisterPage />
             </RequireRole>
           }
         />

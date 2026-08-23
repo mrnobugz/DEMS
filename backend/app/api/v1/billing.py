@@ -13,6 +13,7 @@ from app.schemas import (
     FeeScheduleItemOut,
     FeeScheduleItemUpdate,
     InvoiceCreate,
+    InvoiceFromProceduresRequest,
     InvoiceOut,
     OutstandingInvoiceOut,
     PaymentCreate,
@@ -27,9 +28,11 @@ async def list_fees(
     db: DbSession,
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("billing:read"))],
+    billable: bool | None = Query(None),
+    active: bool | None = Query(None),
 ):
     _ = user
-    return await svc.list_fee_schedule(db, clinic_id)
+    return await svc.list_fee_schedule(db, clinic_id, billable=billable, active=active)
 
 
 @router.post("/fee-schedule", response_model=FeeScheduleItemOut, status_code=201)
@@ -111,6 +114,17 @@ async def cash_up(
 ):
     _ = user
     return await svc.daily_cash_up(db, clinic_id, on_date)
+
+
+@router.post("/invoices/from-procedures", response_model=InvoiceOut, status_code=201)
+async def invoice_from_procedures(
+    body: InvoiceFromProceduresRequest,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("billing:create"))],
+):
+    """Specialist invoice: line items and prices come from the admin procedure catalog."""
+    return await svc.invoice_from_procedures(db, clinic_id, user.id, body)
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)

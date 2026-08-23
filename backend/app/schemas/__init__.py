@@ -72,14 +72,39 @@ class UserOut(ORMModel):
     specialty: Optional[str] = None
     mfa_enabled: bool = False
     is_active: bool = True
+    extra_permissions: list[str] = []
+    denied_permissions: list[str] = []
+    effective_permissions: list[str] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _hydrate_permissions(cls, data):
+        from app.core.rbac import user_access_payload
+
+        if hasattr(data, "id") and hasattr(data, "role"):
+            return {
+                "id": data.id,
+                "email": data.email,
+                "full_name": data.full_name,
+                "role": data.role,
+                "clinic_id": data.clinic_id,
+                "phone": data.phone,
+                "specialty": data.specialty,
+                "mfa_enabled": getattr(data, "mfa_enabled", False),
+                "is_active": data.is_active,
+                **user_access_payload(data),
+            }
+        return data
 
 
 # ── Patients (Digital Clerkship + demographics) ───────
 class PatientCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     first_name: str = Field(min_length=1, max_length=100)
+    middle_name: Optional[str] = Field(default=None, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     hospital_reg_number: Optional[str] = Field(default=None, max_length=64)
+    national_id: Optional[str] = Field(default=None, max_length=64)
     date_of_birth: Optional[date] = None
     sex: Optional[str] = None
     marital_status: Optional[str] = None
@@ -96,9 +121,18 @@ class PatientCreate(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     next_of_kin: Optional[str] = None
+    next_of_kin_relationship: Optional[str] = None
+    next_of_kin_phone: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_relationship: Optional[str] = None
+    guardian_phone: Optional[str] = None
     referral_source: Optional[str] = None
     insurance_number: Optional[str] = None
     chief_complaint: Optional[str] = None
+    history_of_presenting_complaint: Optional[str] = None
+    last_dental_visit: Optional[str] = None
+    smoking_status: Optional[str] = None
+    alcohol_use: Optional[str] = None
     allergies: Optional[str] = None
     chronic_conditions: Optional[str] = None
     current_medications: Optional[str] = None
@@ -115,8 +149,10 @@ class PatientCreate(BaseModel):
 class PatientUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    middle_name: Optional[str] = Field(default=None, max_length=100)
     last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     hospital_reg_number: Optional[str] = Field(default=None, max_length=64)
+    national_id: Optional[str] = Field(default=None, max_length=64)
     date_of_birth: Optional[date] = None
     sex: Optional[str] = None
     marital_status: Optional[str] = None
@@ -133,9 +169,18 @@ class PatientUpdate(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     next_of_kin: Optional[str] = None
+    next_of_kin_relationship: Optional[str] = None
+    next_of_kin_phone: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_relationship: Optional[str] = None
+    guardian_phone: Optional[str] = None
     referral_source: Optional[str] = None
     insurance_number: Optional[str] = None
     chief_complaint: Optional[str] = None
+    history_of_presenting_complaint: Optional[str] = None
+    last_dental_visit: Optional[str] = None
+    smoking_status: Optional[str] = None
+    alcohol_use: Optional[str] = None
     allergies: Optional[str] = None
     chronic_conditions: Optional[str] = None
     current_medications: Optional[str] = None
@@ -156,7 +201,9 @@ class PatientOut(ORMModel):
     patient_code: str
     hospital_reg_number: Optional[str] = None
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
+    national_id: Optional[str] = None
     date_of_birth: Optional[date] = None
     sex: Optional[str] = None
     marital_status: Optional[str] = None
@@ -173,9 +220,18 @@ class PatientOut(ORMModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     next_of_kin: Optional[str] = None
+    next_of_kin_relationship: Optional[str] = None
+    next_of_kin_phone: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_relationship: Optional[str] = None
+    guardian_phone: Optional[str] = None
     referral_source: Optional[str] = None
     insurance_number: Optional[str] = None
     chief_complaint: Optional[str] = None
+    history_of_presenting_complaint: Optional[str] = None
+    last_dental_visit: Optional[str] = None
+    smoking_status: Optional[str] = None
+    alcohol_use: Optional[str] = None
     allergies: Optional[str] = None
     chronic_conditions: Optional[str] = None
     current_medications: Optional[str] = None
@@ -194,7 +250,18 @@ class PatientOut(ORMModel):
     clinic_id: str
     primary_dentist_id: Optional[str] = None
     primary_dentist_name: Optional[str] = None
+    registration_status: str = "draft"
+    destination_department: Optional[str] = None
+    registration_finalized_at: Optional[datetime] = None
+    has_outstanding: bool = False
+    photo_storage_key: Optional[str] = Field(default=None, exclude=True)
+    photo_content_type: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_photo(self) -> bool:
+        return bool(self.photo_storage_key)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -281,6 +348,10 @@ class AppointmentOut(ORMModel):
     color: Optional[str] = None
     waitlist: bool
     no_show: bool
+    queue_number: Optional[int] = None
+    service_name: Optional[str] = None
+    department: Optional[str] = None
+    is_appointment: bool = True
     clinic_id: str
     patient: Optional[PatientOut] = None
 
@@ -570,6 +641,8 @@ class PaymentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     amount: float = Field(gt=0)
     method: str = "cash"
+    payer_type: str = "self"
+    insurer: Optional[str] = None
     reference: Optional[str] = None
     idempotency_key: Optional[str] = None
 
@@ -589,6 +662,8 @@ class PaymentOut(ORMModel):
     id: str
     amount: float
     method: str
+    payer_type: str = "self"
+    insurer: Optional[str] = None
     paid_at: datetime
     reference: Optional[str] = None
 
@@ -608,6 +683,13 @@ class InvoiceOut(ORMModel):
     issued_at: Optional[datetime] = None
     line_items: list[InvoiceLineOut] = []
     payments: list[PaymentOut] = []
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def outstanding(self) -> bool:
+        if self.status in ("void", "refunded", "paid"):
+            return False
+        return self.amount_paid + 0.001 < self.total
 
 
 class FeeScheduleItemCreate(BaseModel):
@@ -652,6 +734,23 @@ class ChartToCashRequest(BaseModel):
     chart_entry_ids: Optional[list[str]] = None  # None = all unbilled billable
     tax: float = 0.0
     discount: float = 0.0
+    notes: Optional[str] = None
+    idempotency_key: Optional[str] = None
+
+
+class ProcedureInvoiceLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fee_item_id: str
+    quantity: int = Field(default=1, ge=1, le=20)
+    tooth_number: Optional[str] = None
+
+
+class InvoiceFromProceduresRequest(BaseModel):
+    """Specialist invoice from admin-managed procedural items."""
+
+    model_config = ConfigDict(extra="forbid")
+    patient_id: str
+    items: list[ProcedureInvoiceLine] = Field(min_length=1)
     notes: Optional[str] = None
     idempotency_key: Optional[str] = None
 
@@ -823,6 +922,28 @@ class StaffCreate(BaseModel):
     specialty: Optional[str] = None
     title: Optional[str] = None
     department: Optional[str] = None
+    extra_permissions: list[str] = Field(default_factory=list)
+    denied_permissions: list[str] = Field(default_factory=list)
+
+
+class StaffUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    role: Optional[str] = None
+    phone: Optional[str] = None
+    specialty: Optional[str] = None
+    title: Optional[str] = None
+    department: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+    extra_permissions: Optional[list[str]] = None
+    denied_permissions: Optional[list[str]] = None
+
+
+class StaffPasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(min_length=8, max_length=128)
 
 
 class StaffProfileOut(ORMModel):
@@ -844,7 +965,25 @@ class StaffOut(ORMModel):
     phone: Optional[str] = None
     specialty: Optional[str] = None
     is_active: bool
+    extra_permissions: list[str] = []
+    denied_permissions: list[str] = []
+    effective_permissions: list[str] = []
     profile: Optional[StaffProfileOut] = None
+
+
+class RoleCatalogOut(BaseModel):
+    id: str
+    label: str
+    assignable: bool
+    permissions: list[str]
+
+
+class PermissionCatalogOut(BaseModel):
+    id: str
+    resource: str
+    action: str
+    label: str
+    description: str
 
 
 class InventoryItemCreate(BaseModel):
@@ -856,8 +995,20 @@ class InventoryItemCreate(BaseModel):
     reorder_level: float = 0
     unit: str = "unit"
     unit_cost: float = 0
+    sale_price: float = 0
+    item_kind: str = "stock"
+    billable_at_registration: bool = False
+    target_department: Optional[str] = None
     notes: Optional[str] = None
     expiry_date: Optional[date] = None
+
+    @field_validator("item_kind")
+    @classmethod
+    def _kind(cls, v: str) -> str:
+        allowed = {"stock", "service"}
+        if v not in allowed:
+            raise ValueError("item_kind must be stock or service")
+        return v
 
 
 class InventoryItemUpdate(BaseModel):
@@ -868,6 +1019,10 @@ class InventoryItemUpdate(BaseModel):
     reorder_level: Optional[float] = None
     unit: Optional[str] = None
     unit_cost: Optional[float] = None
+    sale_price: Optional[float] = None
+    item_kind: Optional[str] = None
+    billable_at_registration: Optional[bool] = None
+    target_department: Optional[str] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None
 
@@ -887,11 +1042,144 @@ class InventoryItemOut(ORMModel):
     reorder_level: float
     unit: str
     unit_cost: float
+    sale_price: float = 0
+    item_kind: str = "stock"
+    billable_at_registration: bool = False
+    target_department: Optional[str] = None
     is_active: bool
     notes: Optional[str] = None
     expiry_date: Optional[date] = None
     supplier_id: Optional[str] = None
     created_at: datetime
+
+
+CLINICAL_DEPARTMENTS = ("restorative", "maxillofacial", "orthodontic", "paediatric")
+
+
+class RegistrationLineItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: int = Field(default=1, ge=1, le=20)
+
+
+class RegistrationPayment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: float = Field(ge=0)
+    payer_type: str = "self"
+    method: str = "cash"
+    insurer: Optional[str] = None
+    insurer_name: Optional[str] = None
+    reference: Optional[str] = None
+    outstanding: bool = False
+
+    @field_validator("payer_type")
+    @classmethod
+    def _payer(cls, v: str) -> str:
+        if v not in ("self", "insurance", "other"):
+            raise ValueError("payer_type must be self, insurance, or other")
+        return v
+
+    @model_validator(mode="after")
+    def _payer_details(self):
+        if self.payer_type == "insurance" and not (self.insurer or "").strip():
+            raise ValueError("Select a health benefit / insurer (Jubilee, NHIF, or other)")
+        if self.payer_type == "other" and not (self.insurer_name or self.reference or "").strip():
+            raise ValueError("Describe the other payment type")
+        if self.payer_type == "insurance" and (self.insurer or "").lower() == "other":
+            if not (self.insurer_name or "").strip():
+                raise ValueError("Name the other insurer / health benefit")
+        return self
+
+
+class RegistrationAppointment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    service_name: str = Field(min_length=1, max_length=200)
+    dentist_id: str = Field(min_length=1, description="Medical staff for this visit")
+    is_appointment: bool = True
+    starts_at: Optional[datetime] = None
+    duration_minutes: int = Field(default=30, ge=15, le=180)
+
+    @model_validator(mode="after")
+    def _slot_when_booked(self):
+        if self.is_appointment and self.starts_at is None:
+            raise ValueError("Choose a time slot when this visit is an appointment")
+        return self
+
+
+class RegistrationSlotOut(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    available: bool
+
+
+class RegistrationSlotsOut(BaseModel):
+    slots: list[RegistrationSlotOut]
+    next_queue_number: int
+    date: date
+
+
+class RegistrationConsent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    procedure_name: str = "Registration and examination consent"
+    signature_data: str = Field(min_length=20)
+    signed_by_name: str = Field(min_length=1, max_length=200)
+    guardian: bool = False
+
+
+class PatientRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patient_id: Optional[str] = None
+    patient: PatientCreate
+    items: list[RegistrationLineItem] = Field(min_length=1)
+    payment: RegistrationPayment
+    appointment: RegistrationAppointment
+    consent: RegistrationConsent
+    destination_department: str
+
+    @field_validator("destination_department")
+    @classmethod
+    def _dept(cls, v: str) -> str:
+        if v not in CLINICAL_DEPARTMENTS:
+            raise ValueError(
+                "destination_department must be restorative, maxillofacial, orthodontic, or paediatric"
+            )
+        return v
+
+
+class PatientRegisterOut(BaseModel):
+    patient: PatientOut
+    invoice: InvoiceOut
+    consent_id: str
+    destination_department: str
+    clinical_path: str
+    outstanding: bool
+    queue_number: Optional[int] = None
+    appointment_id: Optional[str] = None
+    service_name: Optional[str] = None
+    slot_starts_at: Optional[datetime] = None
+    is_appointment: bool = True
+    medical_staff_id: Optional[str] = None
+    medical_staff_name: Optional[str] = None
+
+
+class ChairQueueItem(BaseModel):
+    """Today's chair visit for a department or assigned clinician."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    patient_id: str
+    patient_code: Optional[str] = None
+    patient_name: Optional[str] = None
+    dentist_id: str
+    dentist_name: Optional[str] = None
+    queue_number: Optional[int] = None
+    service_name: Optional[str] = None
+    department: Optional[str] = None
+    status: str
+    starts_at: datetime
+    is_appointment: bool = True
+    reason: Optional[str] = None
+    chair_number: Optional[int] = None
 
 
 class LabCaseCreate(BaseModel):

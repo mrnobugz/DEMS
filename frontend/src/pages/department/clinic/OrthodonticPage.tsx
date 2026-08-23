@@ -174,9 +174,9 @@ export function OrthodonticPage() {
   }, [cases]);
 
   return (
-    <div className="animate-rise space-y-6">
+    <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
-        title="Orthodontic department"
+        title="Orthodontic"
         subtitle="Angle classification · appliances · adjustment cadence · retention"
       />
       {overview && (

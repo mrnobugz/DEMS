@@ -3,12 +3,21 @@ export type MedicalHistoryFlags = {
   hypertension: boolean;
   asthma: boolean;
   heart_disease: boolean;
+  bleeding_disorder: boolean;
+  epilepsy: boolean;
+  hepatitis: boolean;
+  thyroid: boolean;
+  kidney_disease: boolean;
+  anaemia: boolean;
+  cancer_radiation: boolean;
   major_surgery: boolean;
   hiv_aids: boolean;
   allergies_flag: boolean;
+  latex_allergy: boolean;
 };
 
 export type PainAssessment = {
+  site?: string | null;
   onset?: string | null;
   severity?: string | null;
   character?: string | null;
@@ -20,11 +29,16 @@ export type PainAssessment = {
 };
 
 export type ReportedSymptoms = {
+  toothache: boolean;
   cavities: boolean;
   swelling: boolean;
   pus_discharge_fistula: boolean;
   halitosis: boolean;
   bleeding_gums: boolean;
+  tooth_mobility: boolean;
+  sensitivity: boolean;
+  tmj_click: boolean;
+  dry_mouth: boolean;
   loose_dentures: boolean;
   ulceration: boolean;
 };
@@ -154,12 +168,21 @@ export const emptyMedicalHistory = (): MedicalHistoryFlags => ({
   hypertension: false,
   asthma: false,
   heart_disease: false,
+  bleeding_disorder: false,
+  epilepsy: false,
+  hepatitis: false,
+  thyroid: false,
+  kidney_disease: false,
+  anaemia: false,
+  cancer_radiation: false,
   major_surgery: false,
   hiv_aids: false,
   allergies_flag: false,
+  latex_allergy: false,
 });
 
 export const emptyPain = (): PainAssessment => ({
+  site: "",
   onset: "",
   severity: "",
   character: "",
@@ -171,11 +194,16 @@ export const emptyPain = (): PainAssessment => ({
 });
 
 export const emptySymptoms = (): ReportedSymptoms => ({
+  toothache: false,
   cavities: false,
   swelling: false,
   pus_discharge_fistula: false,
   halitosis: false,
   bleeding_gums: false,
+  tooth_mobility: false,
+  sensitivity: false,
+  tmj_click: false,
+  dry_mouth: false,
   loose_dentures: false,
   ulceration: false,
 });
@@ -190,6 +218,43 @@ export type User = {
   specialty?: string | null;
   mfa_enabled: boolean;
   is_active: boolean;
+  extra_permissions?: string[];
+  denied_permissions?: string[];
+  effective_permissions?: string[];
+};
+
+export type StaffMember = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  clinic_id?: string | null;
+  phone?: string | null;
+  specialty?: string | null;
+  is_active: boolean;
+  extra_permissions: string[];
+  denied_permissions: string[];
+  effective_permissions: string[];
+  profile?: {
+    department?: string | null;
+    title?: string | null;
+    notes?: string | null;
+  } | null;
+};
+
+export type RoleCatalogItem = {
+  id: string;
+  label: string;
+  assignable: boolean;
+  permissions: string[];
+};
+
+export type PermissionCatalogItem = {
+  id: string;
+  resource: string;
+  action: string;
+  label: string;
+  description: string;
 };
 
 export type Patient = {
@@ -197,7 +262,9 @@ export type Patient = {
   patient_code: string;
   hospital_reg_number?: string | null;
   first_name: string;
+  middle_name?: string | null;
   last_name: string;
+  national_id?: string | null;
   date_of_birth?: string | null;
   sex?: string | null;
   marital_status?: string | null;
@@ -214,9 +281,18 @@ export type Patient = {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   next_of_kin?: string | null;
+  next_of_kin_relationship?: string | null;
+  next_of_kin_phone?: string | null;
+  guardian_name?: string | null;
+  guardian_relationship?: string | null;
+  guardian_phone?: string | null;
   referral_source?: string | null;
   insurance_number?: string | null;
   chief_complaint?: string | null;
+  history_of_presenting_complaint?: string | null;
+  last_dental_visit?: string | null;
+  smoking_status?: string | null;
+  alcohol_use?: string | null;
   allergies?: string | null;
   chronic_conditions?: string | null;
   current_medications?: string | null;
@@ -235,7 +311,30 @@ export type Patient = {
   clinic_id: string;
   primary_dentist_id?: string | null;
   primary_dentist_name?: string | null;
+  registration_status?: string;
+  destination_department?: string | null;
+  registration_finalized_at?: string | null;
+  has_outstanding?: boolean;
+  has_photo?: boolean;
   created_at: string;
+};
+
+export type InventoryItem = {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  quantity: number;
+  reorder_level: number;
+  unit: string;
+  unit_cost: number;
+  sale_price: number;
+  item_kind: "stock" | "service" | string;
+  billable_at_registration: boolean;
+  target_department?: string | null;
+  is_active: boolean;
+  notes?: string | null;
+  expiry_date?: string | null;
 };
 
 export type Appointment = {
@@ -252,6 +351,10 @@ export type Appointment = {
   color?: string | null;
   waitlist: boolean;
   no_show: boolean;
+  queue_number?: number | null;
+  service_name?: string | null;
+  department?: string | null;
+  is_appointment?: boolean;
   clinic_id: string;
   patient?: Patient | null;
 };
@@ -384,6 +487,7 @@ export type Invoice = {
   discount: number;
   total: number;
   amount_paid: number;
+  outstanding?: boolean;
   currency: string;
   notes?: string | null;
   issued_at?: string | null;
@@ -403,6 +507,45 @@ export type Invoice = {
     method: string;
     paid_at: string;
   }>;
+};
+
+export type PatientRegisterResult = {
+  patient: Patient;
+  invoice: Invoice;
+  consent_id: string;
+  destination_department: string;
+  clinical_path: string;
+  outstanding: boolean;
+  queue_number?: number | null;
+  appointment_id?: string | null;
+  service_name?: string | null;
+  slot_starts_at?: string | null;
+  is_appointment?: boolean;
+  medical_staff_id?: string | null;
+  medical_staff_name?: string | null;
+};
+
+export type ChairQueueItem = {
+  id: string;
+  patient_id: string;
+  patient_code?: string | null;
+  patient_name?: string | null;
+  dentist_id: string;
+  dentist_name?: string | null;
+  queue_number?: number | null;
+  service_name?: string | null;
+  department?: string | null;
+  status: string;
+  starts_at: string;
+  is_appointment?: boolean;
+  reason?: string | null;
+  chair_number?: number | null;
+};
+
+export type RegistrationSlot = {
+  starts_at: string;
+  ends_at: string;
+  available: boolean;
 };
 
 export type DashboardStats = {

@@ -1,10 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import Response
 
 from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
 from app.models import User
-from app.schemas import Page, PatientAssignDentist, PatientCreate, PatientOut, PatientUpdate
+from app.schemas import (
+    Page,
+    PatientAssignDentist,
+    PatientCreate,
+    PatientOut,
+    PatientRegisterOut,
+    PatientRegisterRequest,
+    PatientUpdate,
+)
 from app.services import domain as svc
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -33,6 +42,16 @@ async def create_patient(
     user: Annotated[User, Depends(require_permission("patients:*"))],
 ):
     return await svc.create_patient(db, clinic_id, user.id, body)
+
+
+@router.post("/register", response_model=PatientRegisterOut, status_code=201)
+async def register_patient(
+    body: PatientRegisterRequest,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("patients:*"))],
+):
+    return await svc.register_patient(db, clinic_id, user.id, body)
 
 
 @router.get("/{patient_id}", response_model=PatientOut)
@@ -70,4 +89,40 @@ async def assign_primary_dentist(
 ):
     return await svc.assign_primary_dentist(
         db, clinic_id, user.id, patient_id, body.dentist_id
+    )
+
+
+@router.post("/{patient_id}/photo", response_model=PatientOut)
+async def upload_patient_photo(
+    patient_id: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_any_permission("patients:update", "patients:*"))],
+    file: UploadFile = File(...),
+):
+    data = await file.read()
+    return await svc.save_patient_photo(
+        db,
+        clinic_id,
+        user.id,
+        patient_id,
+        filename=file.filename or "identity.jpg",
+        content_type=file.content_type or "image/jpeg",
+        data=data,
+        actor=user,
+    )
+
+
+@router.get("/{patient_id}/photo")
+async def get_patient_photo(
+    patient_id: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("patients:read"))],
+):
+    patient, data = await svc.read_patient_photo(db, clinic_id, patient_id, actor=user)
+    return Response(
+        content=data,
+        media_type=patient.photo_content_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=120"},
     )

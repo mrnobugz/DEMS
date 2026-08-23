@@ -82,10 +82,10 @@ export function EndoPanel({
   }
 
   return (
-    <section className="glass-panel space-y-4 rounded-3xl p-5">
+    <section className="glass-panel space-y-3">
       <div>
-        <h3 className="font-display text-lg font-bold text-brand-900">Endodontics</h3>
-        <p className="text-sm text-muted">Pulpotomy / pulpectomy / RCT · lengths · obturations</p>
+        <h3 className="font-display text-base font-bold text-brand-900">Endodontics</h3>
+        <p className="text-xs text-muted">Pulpotomy / pulpectomy / RCT · lengths · obturation</p>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <form className="grid gap-2 md:grid-cols-3" onSubmit={onCreate}>

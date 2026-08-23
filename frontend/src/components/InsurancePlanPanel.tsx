@@ -90,7 +90,7 @@ export function InsurancePlanPanel({ patientId, onMessage }: Props) {
   }
 
   return (
-    <div className="glass-panel space-y-4 rounded-3xl p-5">
+    <div className="glass-panel space-y-3">
       <div>
         <h3 className="font-display text-lg font-bold">Insurance plan</h3>
         <p className="text-sm text-muted">Coverage % · annual max · co-pay estimate at invoicing</p>

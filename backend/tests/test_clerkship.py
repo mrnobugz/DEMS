@@ -2,8 +2,16 @@
 
 import unittest
 
+from datetime import date
+
 from app.schemas import PatientCreate, PatientOut
-from app.schemas.clerkship import MedicalHistoryFlags, PainAssessment, ReportedSymptoms, dumps_block
+from app.schemas.clerkship import (
+    MedicalHistoryFlags,
+    PainAssessment,
+    ReportedSymptoms,
+    clerkship_registration_gaps,
+    dumps_block,
+)
 
 
 class ClerkshipSchemaTests(unittest.TestCase):
@@ -48,6 +56,50 @@ class ClerkshipSchemaTests(unittest.TestCase):
         payload = out.model_dump(mode="json")
         self.assertIn("medical_history", payload)
         self.assertNotIn("medical_history_json", payload)
+
+    def test_clerkship_gaps_require_standard_particulars(self) -> None:
+        incomplete = PatientCreate(first_name="Asha", last_name="Mwamba")
+        gaps = clerkship_registration_gaps(incomplete)
+        self.assertIn("Date of birth", gaps)
+        self.assertIn("Sex", gaps)
+        self.assertIn("Telephone", gaps)
+        self.assertNotIn("Chief complaint", gaps)
+
+        complete = PatientCreate(
+            first_name="Asha",
+            last_name="Mwamba",
+            date_of_birth=date(1992, 1, 1),
+            sex="female",
+            phone="0711",
+            town_city="Arusha",
+            chief_complaint="Broken tooth",
+            next_of_kin="Mama Asha",
+        )
+        self.assertEqual(clerkship_registration_gaps(complete), [])
+        without_cc = complete.model_copy(update={"chief_complaint": None})
+        self.assertEqual(clerkship_registration_gaps(without_cc), [])
+
+    def test_minor_requires_guardian(self) -> None:
+        child = PatientCreate(
+            first_name="Neema",
+            last_name="Kid",
+            date_of_birth=date(2018, 5, 1),
+            sex="female",
+            phone="0711",
+            town_city="Dodoma",
+            chief_complaint="Pain",
+            next_of_kin="Mama",
+        )
+        gaps = clerkship_registration_gaps(child)
+        self.assertTrue(any("Guardian" in g for g in gaps))
+        child_ok = child.model_copy(
+            update={
+                "guardian_name": "Mama Kid",
+                "guardian_relationship": "Mother",
+                "guardian_phone": "0755000000",
+            }
+        )
+        self.assertEqual(clerkship_registration_gaps(child_ok), [])
 
 
 if __name__ == "__main__":

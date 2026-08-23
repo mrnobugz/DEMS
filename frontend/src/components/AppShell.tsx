@@ -24,9 +24,16 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       : "text-muted hover:bg-brand-50 hover:text-brand-700"
   }`;
 
+function navTargetActive(to: string, location: { pathname: string; search: string }) {
+  const [path, qs] = to.split("?");
+  if (location.pathname !== path) return false;
+  if (!qs) return !location.search.startsWith("?step=");
+  return location.search === `?${qs}` || (qs === "step=0" && !location.search);
+}
+
 function NavDropdown({ group }: { group: NavGroup }) {
   const location = useLocation();
-  const hasActiveChild = group.children.some((c) => location.pathname.startsWith(c.to));
+  const hasActiveChild = group.children.some((c) => navTargetActive(c.to, location));
   const [open, setOpen] = useState(hasActiveChild);
 
   useEffect(() => {
@@ -57,7 +64,11 @@ function NavDropdown({ group }: { group: NavGroup }) {
       {open && (
         <div className="mt-1 flex flex-col gap-1 border-l-2 border-brand-100 pl-3 ml-4">
           {group.children.map(({ to, labelKey, icon: ChildIcon }) => (
-            <NavLink key={to} to={to} className={navLinkClass}>
+            <NavLink
+              key={to}
+              to={to}
+              className={() => navLinkClass({ isActive: navTargetActive(to, location) })}
+            >
               <ChildIcon size={16} aria-hidden />
               {t(labelKey as StringKey)}
             </NavLink>
@@ -71,10 +82,18 @@ function NavDropdown({ group }: { group: NavGroup }) {
 export function AppShell() {
   const { user, clear, activeClinicId, setActiveClinicId } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const compactWorkspace =
+    location.pathname.startsWith("/front-desk/register") ||
+    location.pathname.startsWith("/clinical/") ||
+    location.pathname.startsWith("/patients/") ||
+    location.pathname.startsWith("/admin") ||
+    location.pathname.startsWith("/inventory") ||
+    location.pathname.startsWith("/billing");
   const chairside = useUiPrefs((s) => s.chairside);
   const toggleChairside = useUiPrefs((s) => s.toggleChairside);
-  const links = navForRole(user?.role);
-  const mobileLinks = flatNavForRole(user?.role).slice(0, 4);
+  const links = navForRole(user?.role, user?.effective_permissions);
+  const mobileLinks = flatNavForRole(user?.role, user?.effective_permissions).slice(0, 4);
   const [clinics, setClinics] = useState<ClinicRow[]>([]);
 
   useEffect(() => {
@@ -163,16 +182,18 @@ export function AppShell() {
         </aside>
 
         <div className="flex min-h-screen flex-col">
-          <header className="flex items-center justify-between gap-3 px-4 py-4 lg:px-8">
+          <header className={`flex items-center justify-between gap-3 px-4 lg:px-8 ${compactWorkspace ? "py-2" : "py-4"}`}>
             <div className="lg:hidden">
               <DemstaLogo withWordmark size={36} />
             </div>
+            {!compactWorkspace && (
             <div className="app-shell__header-title hidden lg:block">
               <p className="text-sm text-muted">{t("clinicOps")}</p>
               <h1 className="font-display text-2xl font-bold text-brand-900">
                 {roleHomeLabel(user?.role)}
               </h1>
             </div>
+            )}
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -196,7 +217,7 @@ export function AppShell() {
 
           <main
             id="main-content"
-            className="app-shell__main flex-1 px-4 pb-24 lg:px-8 lg:pb-8"
+            className={`app-shell__main flex-1 px-4 pb-24 lg:pb-6 ${compactWorkspace ? "lg:px-6" : "lg:px-8 lg:pb-8"}`}
             tabIndex={-1}
           >
             <Outlet />

@@ -95,11 +95,11 @@ export function Odontogram({
   }
 
   return (
-    <div className="glass-panel rounded-3xl p-5">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+    <div className="glass-panel">
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-display text-lg font-bold text-brand-900">Interactive odontogram</h3>
-          <p className="text-sm text-muted">
+          <h3 className="font-display text-base font-bold text-brand-900">Odontogram</h3>
+          <p className="text-xs text-muted">
             Pick a procedure, then click a tooth — surface-true charting · FDI
             {tool.id !== "select" ? ` · armed: ${tool.label}` : " · select a tooth for department actions"}
           </p>

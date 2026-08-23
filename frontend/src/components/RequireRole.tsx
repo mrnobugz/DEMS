@@ -14,10 +14,13 @@ export function RequireRole({
   const user = useAuth((s) => s.user);
   if (!user) return <Navigate to="/login" replace />;
 
-  if (path && !canAccessPath(user.role, path)) {
+  if (path && !canAccessPath(user.role, path, user.effective_permissions)) {
     return <Navigate to={roleHomePath(user.role)} replace />;
   }
   if (roles && !roles.includes(user.role)) {
+    if (path && canAccessPath(user.role, path, user.effective_permissions)) {
+      return <>{children}</>;
+    }
     return <Navigate to={roleHomePath(user.role)} replace />;
   }
   return <>{children}</>;

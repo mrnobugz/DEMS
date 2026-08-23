@@ -108,6 +108,25 @@ export async function apiUpload<T>(path: string, formData: FormData, retry = tru
   return res.json() as Promise<T>;
 }
 
+export async function apiBlob(path: string, retry = true): Promise<Blob> {
+  const headers = new Headers();
+  const token = useAuth.getState().accessToken;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const { user, activeClinicId } = useAuth.getState();
+  if (user?.role === "super_admin" && activeClinicId) {
+    headers.set("X-Clinic-Id", activeClinicId);
+  }
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (res.status === 401 && retry) {
+    const next = await refreshAccess();
+    if (next) return apiBlob(path, false);
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, "HTTP_ERROR", res.statusText);
+  }
+  return res.blob();
+}
+
 export function imagingContentUrl(studyId: string): string {
   const token = useAuth.getState().accessToken;
   const base = `${API_BASE}/api/v1/imaging/studies/${studyId}/content`;

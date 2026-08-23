@@ -1,9 +1,12 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/i18n";
 import { useUiPrefs } from "@/lib/uiPrefs";
 import { EmptyState } from "@/components/EmptyState";
+import { ProcedureCatalogAdmin } from "@/components/ProcedureCatalogAdmin";
+import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import type { FeeScheduleItem, Invoice, Page, Patient } from "@/lib/types";
 
 type BillableChart = {
@@ -107,11 +110,10 @@ export function BillingPage() {
   const currency = useUiPrefs((s) => s.currency);
   const locale = useUiPrefs((s) => s.locale);
   const money = (n: number) => formatMoney(n, currency, locale);
+  const role = useAuth((s) => s.user?.role);
+  const canManageCatalog = role === "clinic_admin" || role === "super_admin" || role === "accountant";
   const [form, setForm] = useState({
     patient_id: "",
-    description: "Clinical procedure",
-    unit_price: "150",
-    tooth_number: "",
   });
 
   const patientMap = useMemo(() => {
@@ -170,33 +172,6 @@ export function BillingPage() {
     setEstimate(est);
   }
 
-  async function createInvoice(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    try {
-      await api("/api/v1/billing/invoices", {
-        method: "POST",
-        body: JSON.stringify({
-          patient_id: form.patient_id,
-          tax: 0,
-          discount: 0,
-          line_items: [
-            {
-              description: form.description,
-              tooth_number: form.tooth_number || null,
-              quantity: 1,
-              unit_price: Number(form.unit_price),
-            },
-          ],
-          idempotency_key: crypto.randomUUID(),
-        }),
-      });
-      await load(form.patient_id);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Invoice failed");
-    }
-  }
-
   async function chartToCash() {
     setError("");
     try {
@@ -249,17 +224,29 @@ export function BillingPage() {
   );
 
   return (
-    <div className="space-y-5 animate-rise">
-      <div>
-        <h2 className="font-display text-2xl font-bold text-brand-900">Billing</h2>
-        <p className="text-sm text-muted">
-          Chart-to-Cash · outstanding aging · daily cash-up · printable receipts
-        </p>
+    <div className="clin-shell space-y-3 animate-rise">
+      <div className="clin-head">
+        <div>
+          <h2 className="font-display text-xl font-bold leading-tight text-brand-900">Billing</h2>
+          <p className="text-xs text-muted">
+            Chart-to-cash, aging, cash-up, and receipts
+          </p>
+        </div>
+        <div className="admin-counts">
+          <span className="admin-count">
+            <strong>{outstanding.length}</strong> open
+          </span>
+          {cashUp && (
+            <span className="admin-count">
+              <strong>{cashUp.payment_count}</strong> payments today
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="glass-panel space-y-3 rounded-3xl p-5">
-          <h3 className="font-display text-lg font-bold">Outstanding balances</h3>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="glass-panel space-y-2">
+          <h3 className="reg-section__title">Outstanding balances</h3>
           <div className="grid grid-cols-4 gap-2 text-xs">
             {(["0_30", "31_60", "61_90", "90_plus"] as const).map((bucket) => (
               <div key={bucket} className="rounded-xl bg-brand-50 p-2">
@@ -299,14 +286,14 @@ export function BillingPage() {
           )}
         </div>
 
-        <div className="glass-panel space-y-3 rounded-3xl p-5">
-          <h3 className="font-display text-lg font-bold">Daily cash-up</h3>
+        <div className="glass-panel space-y-2">
+          <h3 className="reg-section__title">Daily cash-up</h3>
           {cashUp ? (
             <>
               <p className="text-sm text-muted">
                 {cashUp.date} · {cashUp.payment_count} payments
               </p>
-              <div className="font-display text-2xl font-bold text-brand-800">
+              <div className="font-display text-xl font-bold text-brand-800">
                 {money(cashUp.total)}
               </div>
               <ul className="space-y-1 text-sm">
@@ -327,9 +314,9 @@ export function BillingPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1.1fr]">
-        <div className="glass-panel space-y-3 rounded-3xl p-5">
-          <h3 className="font-display text-lg font-bold">Chart-to-Cash</h3>
+      <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1.1fr]">
+        <div className="glass-panel space-y-2">
+          <h3 className="reg-section__title">Chart-to-Cash</h3>
           <p className="text-xs text-muted">
             Invoice completed odontogram work without re-typing procedures.
           </p>
@@ -404,59 +391,17 @@ export function BillingPage() {
           </button>
         </div>
 
-        <form className="glass-panel space-y-3 rounded-3xl p-5" onSubmit={createInvoice}>
-          <h3 className="font-display text-lg font-bold">Manual invoice</h3>
-          <div>
-            <label className="label">Patient</label>
-            <select
-              className="input"
-              value={form.patient_id}
-              onChange={(e) => setForm({ ...form, patient_id: e.target.value })}
-            >
-              {patients.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.first_name} {p.last_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Description</label>
-            <input
-              className="input"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Amount</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.unit_price}
-                onChange={(e) => setForm({ ...form, unit_price: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="label">Tooth</label>
-              <input
-                className="input"
-                value={form.tooth_number}
-                onChange={(e) => setForm({ ...form, tooth_number: e.target.value })}
-                placeholder="e.g. 36"
-              />
-            </div>
-          </div>
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <button className="btn-primary">Create invoice</button>
-        </form>
+        <ProcedureInvoicePanel
+          patientId={form.patient_id || undefined}
+          onDone={() => void load(form.patient_id)}
+        />
 
-        <div className="glass-panel space-y-3 rounded-3xl p-5">
-          <h3 className="font-display text-lg font-bold">Fee schedule</h3>
-          <p className="text-xs text-muted">Clinic prices mapped to odontogram codes</p>
+        {canManageCatalog ? (
+          <ProcedureCatalogAdmin />
+        ) : (
+        <div className="glass-panel space-y-3">
+          <h3 className="font-display text-base font-bold">Procedure catalog</h3>
+          <p className="text-xs text-muted">Admin-managed prices used on specialist invoices</p>
           <div className="max-h-80 overflow-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-muted">
@@ -468,7 +413,7 @@ export function BillingPage() {
               </thead>
               <tbody>
                 {fees
-                  .filter((f) => f.billable)
+                  .filter((f) => f.billable && f.is_active)
                   .map((f) => (
                     <tr key={f.id} className="border-t border-brand-50">
                       <td className="py-1.5 font-mono text-brand-700">{f.code}</td>
@@ -482,17 +427,18 @@ export function BillingPage() {
             </table>
           </div>
         </div>
+        )}
       </div>
 
-      <div className="glass-panel overflow-hidden rounded-3xl">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-brand-50 text-xs uppercase tracking-wide text-muted">
+      <div className="glass-panel overflow-hidden">
+        <table className="admin-table">
+          <thead>
             <tr>
-              <th className="px-4 py-3">Invoice</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Total</th>
-              <th className="px-4 py-3">Paid</th>
-              <th className="px-4 py-3" />
+              <th>Invoice</th>
+              <th>Status</th>
+              <th>Total</th>
+              <th>Paid</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -501,12 +447,12 @@ export function BillingPage() {
               const p = patientMap.get(inv.patient_id);
               const label = p ? `${p.first_name} ${p.last_name}` : inv.patient_id;
               return (
-                <tr key={inv.id} className="border-t border-brand-50">
-                  <td className="px-4 py-3 font-mono text-xs">{inv.invoice_number}</td>
-                  <td className="px-4 py-3 capitalize">{inv.status.replace("_", " ")}</td>
-                  <td className="px-4 py-3">{money(inv.total)}</td>
-                  <td className="px-4 py-3">{money(inv.amount_paid)}</td>
-                  <td className="px-4 py-3 text-right">
+                <tr key={inv.id}>
+                  <td className="font-mono text-xs">{inv.invoice_number}</td>
+                  <td className="capitalize">{inv.status.replace("_", " ")}</td>
+                  <td>{money(inv.total)}</td>
+                  <td>{money(inv.amount_paid)}</td>
+                  <td className="text-right">
                     <div className="flex justify-end gap-2">
                       <button
                         className="btn-ghost text-xs"

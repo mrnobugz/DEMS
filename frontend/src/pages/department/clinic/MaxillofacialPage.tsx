@@ -180,9 +180,9 @@ export function MaxillofacialPage() {
   }, [cases]);
 
   return (
-    <div className="animate-rise space-y-6">
+    <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
-        title="Maxillofacial surgery"
+        title="Maxillofacial"
         subtitle="Extractions · impactions · biopsies · trauma · implants · post-op follow-up"
       />
       {overview && (

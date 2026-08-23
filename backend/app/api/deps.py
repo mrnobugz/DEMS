@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError, ValidationAppError
-from app.core.rbac import Role, has_any_permission, has_permission
+from app.core.rbac import Role, user_has_any_permission, user_has_permission
 from app.core.security import safe_decode
 from app.core.tenant import set_tenant
 from app.db.session import apply_tenant_rls, get_db
@@ -92,7 +92,7 @@ async def require_clinic_context(
 
 def require_permission(permission: str) -> Callable:
     async def _checker(user: Annotated[User, Depends(get_current_user)]) -> User:
-        if not has_permission(user.role, permission):
+        if not user_has_permission(user, permission):
             raise ForbiddenError(f"Missing permission: {permission}")
         return user
 
@@ -101,7 +101,7 @@ def require_permission(permission: str) -> Callable:
 
 def require_any_permission(*permissions: str) -> Callable:
     async def _checker(user: Annotated[User, Depends(get_current_user)]) -> User:
-        if not has_any_permission(user.role, *permissions):
+        if not user_has_any_permission(user, *permissions):
             raise ForbiddenError(f"Missing permission (need one of): {', '.join(permissions)}")
         return user
 

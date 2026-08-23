@@ -3,28 +3,34 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.api.deps import ClinicId, DbSession, require_permission
+from app.core.rbac import catalog_payload, roles_payload
 from app.models import User
-from app.schemas import StaffCreate, StaffOut, StaffProfileOut
+from app.schemas import (
+    PermissionCatalogOut,
+    RoleCatalogOut,
+    StaffCreate,
+    StaffOut,
+    StaffPasswordReset,
+    StaffUpdate,
+)
 from app.services import departments as dept
 
 router = APIRouter(prefix="/staff", tags=["staff"])
 
 
-def _staff_out(u: User) -> StaffOut:
-    profile = None
-    if u.staff_profile:
-        profile = StaffProfileOut.model_validate(u.staff_profile)
-    return StaffOut(
-        id=u.id,
-        email=u.email,
-        full_name=u.full_name,
-        role=u.role,
-        clinic_id=u.clinic_id,
-        phone=u.phone,
-        specialty=u.specialty,
-        is_active=u.is_active,
-        profile=profile,
-    )
+@router.get("/roles", response_model=list[RoleCatalogOut])
+async def list_roles(
+    user: Annotated[User, Depends(require_permission("staff:*"))],
+):
+    return roles_payload(user.role)
+
+
+@router.get("/permissions", response_model=list[PermissionCatalogOut])
+async def list_permissions(
+    user: Annotated[User, Depends(require_permission("staff:*"))],
+):
+    _ = user
+    return catalog_payload()
 
 
 @router.get("", response_model=list[StaffOut])
@@ -35,7 +41,7 @@ async def list_staff(
 ):
     _ = user
     users = await dept.list_clinic_staff(db, clinic_id)
-    return [_staff_out(u) for u in users]
+    return [dept.to_staff_out(u) for u in users]
 
 
 @router.post("", response_model=StaffOut, status_code=201)
@@ -46,7 +52,41 @@ async def invite_staff(
     user: Annotated[User, Depends(require_permission("staff:*"))],
 ):
     created = await dept.create_staff(db, clinic_id, user, body)
-    # reload with profile
-    users = await dept.list_clinic_staff(db, clinic_id)
-    match = next(u for u in users if u.id == created.id)
-    return _staff_out(match)
+    loaded = await dept.get_clinic_staff(db, clinic_id, created.id)
+    return dept.to_staff_out(loaded)
+
+
+@router.get("/{staff_id}", response_model=StaffOut)
+async def get_staff(
+    staff_id: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("staff:*"))],
+):
+    _ = user
+    loaded = await dept.get_clinic_staff(db, clinic_id, staff_id)
+    return dept.to_staff_out(loaded)
+
+
+@router.patch("/{staff_id}", response_model=StaffOut)
+async def patch_staff(
+    staff_id: str,
+    body: StaffUpdate,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("staff:*"))],
+):
+    updated = await dept.update_staff(db, clinic_id, user, staff_id, body)
+    return dept.to_staff_out(updated)
+
+
+@router.post("/{staff_id}/password", response_model=StaffOut)
+async def reset_password(
+    staff_id: str,
+    body: StaffPasswordReset,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("staff:*"))],
+):
+    updated = await dept.reset_staff_password(db, clinic_id, user, staff_id, body.password)
+    return dept.to_staff_out(updated)

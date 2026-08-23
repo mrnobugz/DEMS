@@ -38,9 +38,11 @@ class PatientRepository(TenantRepository[Patient]):
             stmt = stmt.where(
                 or_(
                     Patient.first_name.ilike(like),
+                    Patient.middle_name.ilike(like),
                     Patient.last_name.ilike(like),
                     Patient.patient_code.ilike(like),
                     Patient.hospital_reg_number.ilike(like),
+                    Patient.national_id.ilike(like),
                     Patient.phone.ilike(like),
                     Patient.insurance_number.ilike(like),
                     Patient.email.ilike(like),

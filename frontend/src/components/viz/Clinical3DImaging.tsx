@@ -806,7 +806,7 @@ export function Clinical3DImaging({
   );
 
   const body = (
-    <section className={`space-y-3 ${darkroom ? "" : "glass-panel rounded-3xl p-5"}`}>
+    <section className={`space-y-3 ${darkroom ? "" : "glass-panel"}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted">

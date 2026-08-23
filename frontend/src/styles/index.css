@@ -269,6 +269,15 @@ a:focus:not(:focus-visible) {
   color: var(--demsta-muted);
 }
 
+textarea.input {
+  min-height: 2.4rem;
+  max-height: 4.75rem;
+  padding-block: 0.4rem;
+  line-height: 1.35;
+  resize: vertical;
+  field-sizing: content;
+}
+
 .label {
   display: block;
   font-size: var(--text-sm);
@@ -392,6 +401,649 @@ html.chairside .odontogram-tooth {
   width: 2.75rem !important;
   height: 3.5rem !important;
   font-size: 0.8rem !important;
+}
+
+/* ── Registration workspace ───────────────────────── */
+@keyframes reg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reg-shell {
+  max-width: 72rem;
+}
+
+.reg-stage {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--demsta-surface-raised);
+  border: 1px solid var(--demsta-border);
+}
+
+.reg-stage__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  padding: 0.55rem 0.85rem 0.5rem;
+  border-bottom: 1px solid var(--demsta-border);
+}
+
+.reg-progress {
+  flex: 1 1 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--demsta-brand-100);
+  overflow: hidden;
+}
+
+.reg-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--demsta-brand-400), var(--demsta-brand-600));
+  transition: width var(--motion-med) ease;
+}
+
+.reg-stage__body {
+  padding: 0.7rem 0.85rem 0.8rem;
+  animation: reg-in 0.22s ease both;
+}
+
+.reg-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--demsta-border);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.reg-error {
+  margin: 0 0.85rem 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+}
+
+.reg-section {
+  padding: 0.55rem 0.65rem 0.6rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--demsta-border);
+}
+
+.reg-lookup {
+  position: relative;
+}
+
+.reg-lookup__list {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 14rem;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--demsta-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(11, 47, 148, 0.1);
+}
+
+.reg-lookup__hit {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reg-lookup__hit:hover,
+.reg-lookup__hit:focus-visible {
+  background: var(--demsta-brand-50);
+}
+
+.reg-section__title {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--demsta-brand-700);
+  margin: 0 0 0.45rem;
+}
+
+.reg-fields {
+  display: grid;
+  gap: 0.4rem 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1100px) {
+  .reg-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1400px) {
+  .reg-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.reg-stage .input {
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  border-radius: 10px;
+}
+
+.reg-stage .label {
+  margin-bottom: 0.18rem;
+  font-size: 0.72rem;
+}
+
+.reg-stage .btn-primary,
+.reg-stage .btn-ghost {
+  min-height: 36px;
+  padding: 0.4rem 0.85rem;
+}
+
+.reg-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(11, 95, 255, 0.12);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.reg-choice > input[type="radio"],
+.reg-choice > input[type="checkbox"],
+.reg-sku > input[type="checkbox"] {
+  accent-color: var(--demsta-brand-600);
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.reg-choice:hover {
+  border-color: var(--demsta-brand-300);
+}
+
+.reg-gaps {
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 0.75rem;
+}
+
+.reg-choice--on {
+  border-color: var(--demsta-brand-500);
+  background: var(--demsta-brand-50);
+  box-shadow: 0 0 0 2px var(--demsta-focus);
+  font-weight: 650;
+}
+
+.reg-sku {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--demsta-border);
+  background: #fff;
+}
+
+.reg-sku--on {
+  border-color: var(--demsta-brand-400);
+  background: var(--demsta-brand-50);
+}
+
+.reg-slot {
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(11, 95, 255, 0.12);
+  background: #fff;
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.reg-slot:hover:not(:disabled) {
+  border-color: var(--demsta-brand-300);
+}
+
+.reg-slot--on {
+  border-color: var(--demsta-brand-600);
+  background: var(--demsta-brand-50);
+  color: var(--demsta-brand-900);
+}
+
+.reg-queue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--demsta-brand-700), var(--demsta-brand-500));
+  color: #fff;
+}
+
+.reg-queue strong {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+}
+
+.reg-done {
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--demsta-border);
+  background: #fff;
+}
+
+.reg-done__banner {
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, var(--demsta-brand-700), var(--demsta-brand-500));
+  color: #fff;
+}
+
+.reg-print {
+  position: relative;
+  border-top: 1px solid var(--demsta-border);
+  background: #f4f7fb;
+}
+
+.reg-print__pack {
+  position: absolute;
+  width: 210mm;
+  height: 297mm;
+  left: -120vw;
+  top: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reg-print__head {
+  padding: 0.7rem 1rem 0.2rem;
+}
+
+.reg-print__previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: center;
+  padding: 0.55rem 1rem 0.75rem;
+}
+
+.reg-print__item {
+  margin: 0;
+}
+
+.reg-print__item figcaption {
+  margin-top: 0.3rem;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--demsta-muted);
+}
+
+.reg-print__frame {
+  display: block;
+  width: 80mm;
+  max-width: calc(100vw - 3rem);
+  height: 128mm;
+  border: 1px solid var(--demsta-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reg-print__frame.is-card {
+  width: 85.6mm;
+  height: 58mm;
+}
+
+.reg-print__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0 1rem 0.85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reg-stage__body,
+  .reg-choice,
+  .reg-slot {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.clin-shell {
+  max-width: 80rem;
+}
+
+.clin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.clin-shell .glass-panel {
+  border-radius: 16px;
+  padding: 0.7rem 0.85rem;
+  box-shadow: none;
+}
+
+.clin-shell .input {
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  border-radius: 10px;
+}
+
+.clin-shell textarea.input,
+.reg-stage textarea.input {
+  min-height: 2.4rem;
+  max-height: 4.75rem;
+  padding-block: 0.35rem;
+}
+
+.clin-shell .label {
+  margin-bottom: 0.18rem;
+  font-size: 0.72rem;
+}
+
+.clin-shell .btn-primary,
+.clin-shell .btn-ghost {
+  min-height: 36px;
+  padding: 0.4rem 0.85rem;
+}
+
+.clin-shell .empty-state {
+  padding: 1.25rem 1rem;
+  border-radius: 14px;
+}
+
+.clin-shell .empty-state__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.clin-stat {
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--demsta-border);
+}
+
+html.chairside .clin-shell .input,
+html.chairside .clin-shell .btn-primary,
+html.chairside .clin-shell .btn-ghost {
+  min-height: var(--touch-min);
+  padding: 0.85rem 1.2rem;
+}
+
+html.chairside textarea.input {
+  min-height: 3.25rem;
+  max-height: 8rem;
+}
+
+.id-photo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.85rem;
+  align-items: flex-start;
+}
+
+.id-photo__frame {
+  position: relative;
+  width: 7.25rem;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--demsta-border);
+  background: #0b1220;
+}
+
+.id-photo__frame.is-live {
+  width: min(14rem, 100%);
+}
+
+.id-photo__media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #0b1220;
+}
+
+.id-photo__frame.is-live .id-photo__empty {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 18, 32, 0.55);
+  color: #fff;
+}
+
+.id-photo__empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--demsta-muted);
+}
+
+.id-photo__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.id-photo__actions .btn-ghost,
+.id-photo__actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--demsta-border);
+}
+
+.admin-tab {
+  min-height: 32px;
+  padding: 0.28rem 0.7rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--demsta-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-tab--on {
+  background: var(--demsta-brand-500);
+  color: #fff;
+}
+
+.admin-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  min-height: 28px;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--demsta-border);
+  background: #fff;
+  color: var(--demsta-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-count strong {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  color: var(--demsta-brand-900);
+}
+
+.admin-count--on {
+  border-color: var(--demsta-brand-400);
+  background: var(--demsta-brand-50);
+}
+
+.admin-count--alert {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.admin-count--alert strong {
+  color: #b91c1c;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+}
+
+.admin-toolbar .input {
+  min-width: 10rem;
+  flex: 1 1 12rem;
+}
+
+.admin-toolbar select.input {
+  flex: 0 1 10rem;
+  min-width: 8rem;
+}
+
+.admin-scroll {
+  max-height: min(32rem, 64vh);
+  overflow: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.admin-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--demsta-muted);
+  background: #fff;
+  border-bottom: 1px solid var(--demsta-border);
+}
+
+.admin-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid rgba(11, 95, 255, 0.06);
+  vertical-align: middle;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--demsta-brand-50);
+}
+
+.admin-table .input {
+  min-height: 30px;
+  padding: 0.2rem 0.45rem;
+}
+
+.admin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.admin-chip {
+  min-height: 28px;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--demsta-border);
+  background: #fff;
+  color: var(--demsta-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.admin-chip--on {
+  border-color: var(--demsta-brand-400);
+  background: var(--demsta-brand-500);
+  color: #fff;
+}
+
+.admin-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(11, 95, 255, 0.06);
+  font-size: 0.8rem;
 }
 
 .sr-only {

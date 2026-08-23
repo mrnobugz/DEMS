@@ -5,7 +5,7 @@ export function TreatmentPlanTimeline({ plans }: { plans: TreatmentPlan[] }) {
   if (!plans.length) return null;
 
   return (
-    <section className="glass-panel rounded-3xl p-5">
+    <section className="glass-panel">
       <h3 className="font-display text-lg font-bold text-brand-900">Plan timeline</h3>
       <p className="mb-4 text-sm text-muted">Phases by target date · dependency hints</p>
       <div className="space-y-6">

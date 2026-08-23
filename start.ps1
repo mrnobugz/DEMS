@@ -60,10 +60,10 @@ if ($Docker) {
   Set-Location $Root
   docker compose up --build -d
   Write-Step "Waiting for API readiness"
-  if (Wait-Http "http://127.0.0.1:8000/ready" 120) {
+  if ((Wait-Http "http://127.0.0.1:8000/ready" 120)) {
     Write-Host "API ready at http://127.0.0.1:8000" -ForegroundColor Green
   } else {
-    Write-Host "API not ready yet — check: docker compose logs -f api" -ForegroundColor Yellow
+    Write-Host "API not ready yet - check: docker compose logs -f api" -ForegroundColor Yellow
   }
   Write-Host "Web:  http://127.0.0.1:5173" -ForegroundColor Green
   Write-Host "Docs: http://127.0.0.1:8000/docs" -ForegroundColor Green
@@ -75,7 +75,7 @@ if ($Docker) {
   exit 0
 }
 
-# ── Local (venv + npm) ─────────────────────────────────
+# --- Local (venv + npm) ---
 if (-not (Test-Command "python")) {
   throw "Python is not on PATH. Install Python 3.11+ and retry."
 }

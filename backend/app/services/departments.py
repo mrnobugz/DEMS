@@ -4,18 +4,30 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
-from app.core.rbac import Role
+from app.core.rbac import (
+    Role,
+    assignable_roles,
+    dump_perm_list,
+    normalize_overrides,
+    parse_perm_list,
+    parse_role,
+    permission_allowed,
+    user_access_payload,
+)
+from app.core.security import hash_password
 from app.models import (
     Appointment,
+    AppointmentStatus,
     Clinic,
     DrugTemplate,
     ImagingStudy,
     InventoryItem,
+    InventoryItemKind,
     Invoice,
     InvoiceStatus,
     LabCase,
@@ -24,10 +36,12 @@ from app.models import (
     Prescription,
     PrescriptionItem,
     PrescriptionStatus,
+    RefreshToken,
     StaffProfile,
     User,
 )
 from app.schemas import (
+    ChairQueueItem,
     ClinicCreate,
     ClinicUpdate,
     DrugTemplateCreate,
@@ -39,6 +53,9 @@ from app.schemas import (
     LabCaseUpdate,
     PrescriptionCreate,
     StaffCreate,
+    StaffOut,
+    StaffProfileOut,
+    StaffUpdate,
 )
 from app.services.domain import create_user, write_audit
 
@@ -143,20 +160,71 @@ async def list_all_staff(db: AsyncSession) -> list[User]:
 async def list_clinic_staff(db: AsyncSession, clinic_id: str) -> list[User]:
     result = await db.execute(
         select(User)
-        .where(User.clinic_id == clinic_id)
+        .where(User.clinic_id == clinic_id, User.role != Role.PATIENT)
         .options(selectinload(User.staff_profile))
         .order_by(User.full_name)
     )
     return list(result.scalars().all())
 
 
+def to_staff_out(user: User) -> StaffOut:
+    profile = None
+    if user.staff_profile:
+        profile = StaffProfileOut.model_validate(user.staff_profile)
+    access = user_access_payload(user)
+    return StaffOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        clinic_id=user.clinic_id,
+        phone=user.phone,
+        specialty=user.specialty,
+        is_active=user.is_active,
+        extra_permissions=access["extra_permissions"],
+        denied_permissions=access["denied_permissions"],
+        effective_permissions=access["effective_permissions"],
+        profile=profile,
+    )
+
+
+def _assert_assignable_role(actor: User, role: str) -> Role:
+    parsed = parse_role(role)
+    if parsed is None or parsed == Role.PATIENT:
+        raise ValidationAppError(f"Invalid role: {role}")
+    if parsed not in assignable_roles(actor.role):
+        raise ForbiddenError(f"Cannot assign role: {role}")
+    return parsed
+
+
+async def _active_admin_count(db: AsyncSession, clinic_id: str, exclude_id: str | None = None) -> int:
+    stmt = select(func.count()).select_from(User).where(
+        User.clinic_id == clinic_id,
+        User.role == Role.CLINIC_ADMIN,
+        User.is_active.is_(True),
+    )
+    if exclude_id:
+        stmt = stmt.where(User.id != exclude_id)
+    return int((await db.execute(stmt)).scalar_one())
+
+
+async def get_clinic_staff(db: AsyncSession, clinic_id: str, staff_id: str) -> User:
+    user = (
+        await db.execute(
+            select(User)
+            .where(User.id == staff_id, User.clinic_id == clinic_id, User.role != Role.PATIENT)
+            .options(selectinload(User.staff_profile))
+        )
+    ).scalar_one_or_none()
+    if not user:
+        raise NotFoundError("Staff")
+    return user
+
+
 async def create_staff(db: AsyncSession, clinic_id: str, actor: User, data: StaffCreate) -> User:
-    try:
-        Role(data.role)
-    except ValueError as exc:
-        raise ValidationAppError(f"Invalid role: {data.role}") from exc
-    if data.role == Role.SUPER_ADMIN and actor.role != Role.SUPER_ADMIN:
-        raise ForbiddenError("Cannot create platform owner from clinic admin")
+    role = _assert_assignable_role(actor, data.role)
+    extras = normalize_overrides(data.extra_permissions, "extra_permissions")
+    denies = normalize_overrides(data.denied_permissions, "denied_permissions")
 
     exists = (
         await db.execute(
@@ -171,10 +239,12 @@ async def create_staff(db: AsyncSession, clinic_id: str, actor: User, data: Staf
         email=str(data.email),
         password=data.password,
         full_name=data.full_name,
-        role=data.role,
+        role=role.value,
         phone=data.phone,
         specialty=data.specialty,
     )
+    user.extra_permissions = dump_perm_list(extras)
+    user.denied_permissions = dump_perm_list(denies)
     db.add(user)
     await db.flush()
     profile = StaffProfile(
@@ -199,11 +269,258 @@ async def create_staff(db: AsyncSession, clinic_id: str, actor: User, data: Staf
     return user
 
 
+async def update_staff(
+    db: AsyncSession,
+    clinic_id: str,
+    actor: User,
+    staff_id: str,
+    data: StaffUpdate,
+) -> User:
+    user = await get_clinic_staff(db, clinic_id, staff_id)
+    if user.role == Role.SUPER_ADMIN and actor.role != Role.SUPER_ADMIN:
+        raise ForbiddenError("Cannot edit a platform owner")
+
+    payload = data.model_dump(exclude_unset=True)
+    next_role = user.role
+    next_active = user.is_active
+    next_extras = parse_perm_list(user.extra_permissions)
+    next_denies = parse_perm_list(user.denied_permissions)
+
+    if "role" in payload and payload["role"] is not None:
+        next_role = _assert_assignable_role(actor, payload["role"]).value
+    if "is_active" in payload and payload["is_active"] is not None:
+        next_active = bool(payload["is_active"])
+    if "extra_permissions" in payload:
+        next_extras = normalize_overrides(payload["extra_permissions"], "extra_permissions")
+    if "denied_permissions" in payload:
+        next_denies = normalize_overrides(payload["denied_permissions"], "denied_permissions")
+
+    if staff_id == actor.id:
+        if next_role != actor.role:
+            raise ForbiddenError("You cannot change your own role")
+        if not next_active:
+            raise ForbiddenError("You cannot deactivate your own account")
+        if not permission_allowed(next_role, next_extras, next_denies, "staff:*"):
+            raise ForbiddenError("You cannot remove your own staff management access")
+
+    was_admin = user.role == Role.CLINIC_ADMIN and user.is_active
+    still_admin = next_role == Role.CLINIC_ADMIN and next_active
+    if was_admin and not still_admin:
+        remaining = await _active_admin_count(db, clinic_id, exclude_id=user.id)
+        if remaining < 1:
+            raise ValidationAppError("The clinic must keep at least one active clinic admin")
+
+    if "email" in payload and payload["email"]:
+        email = str(payload["email"]).lower()
+        clash = (
+            await db.execute(
+                select(User).where(
+                    User.clinic_id == clinic_id,
+                    User.email == email,
+                    User.id != user.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if clash:
+            raise ConflictError("Staff email already exists in this clinic")
+        user.email = email
+    if "full_name" in payload and payload["full_name"]:
+        user.full_name = payload["full_name"]
+    if "phone" in payload:
+        user.phone = payload["phone"]
+    if "specialty" in payload:
+        user.specialty = payload["specialty"]
+    user.role = next_role
+    user.is_active = next_active
+    if "extra_permissions" in payload:
+        user.extra_permissions = dump_perm_list(next_extras)
+    if "denied_permissions" in payload:
+        user.denied_permissions = dump_perm_list(next_denies)
+
+    profile = user.staff_profile
+    if profile is None:
+        profile = StaffProfile(clinic_id=clinic_id, user_id=user.id)
+        db.add(profile)
+        user.staff_profile = profile
+    if "title" in payload:
+        profile.title = payload["title"]
+    if "specialty" in payload:
+        profile.specialty = payload["specialty"]
+    if "department" in payload:
+        profile.department = payload["department"]
+    if "notes" in payload:
+        profile.notes = payload["notes"]
+
+    await db.flush()
+    await db.refresh(user, attribute_names=["staff_profile"])
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor.id,
+        action="update",
+        resource_type="staff",
+        resource_id=user.id,
+        after={"email": user.email, "role": user.role, "is_active": user.is_active},
+    )
+    return user
+
+
+async def reset_staff_password(
+    db: AsyncSession,
+    clinic_id: str,
+    actor: User,
+    staff_id: str,
+    password: str,
+) -> User:
+    user = await get_clinic_staff(db, clinic_id, staff_id)
+    if user.role == Role.SUPER_ADMIN and actor.role != Role.SUPER_ADMIN:
+        raise ForbiddenError("Cannot reset a platform owner's password")
+    user.hashed_password = hash_password(password)
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    await db.execute(update(RefreshToken).where(RefreshToken.user_id == user.id).values(revoked=True))
+    await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor.id,
+        action="password_reset",
+        resource_type="staff",
+        resource_id=user.id,
+        after={"reset": True},
+    )
+    return user
+
+
+DEFAULT_REGISTRATION_CATALOG = (
+    {
+        "sku": "FEE-CONSULT",
+        "name": "Consultation fee",
+        "category": "registration",
+        "sale_price": 30000,
+        "target_department": "general",
+    },
+    {
+        "sku": "FEE-REG",
+        "name": "Registration / file opening",
+        "category": "registration",
+        "sale_price": 15000,
+        "target_department": "general",
+    },
+    {
+        "sku": "FEE-RESTOR",
+        "name": "Restorative consultation",
+        "category": "registration",
+        "sale_price": 30000,
+        "target_department": "restorative",
+    },
+    {
+        "sku": "FEE-SURG",
+        "name": "Maxillofacial consultation",
+        "category": "registration",
+        "sale_price": 40000,
+        "target_department": "maxillofacial",
+    },
+    {
+        "sku": "FEE-ORTHO",
+        "name": "Orthodontic assessment",
+        "category": "registration",
+        "sale_price": 40000,
+        "target_department": "orthodontic",
+    },
+    {
+        "sku": "FEE-PAED",
+        "name": "Paediatric consultation",
+        "category": "registration",
+        "sale_price": 25000,
+        "target_department": "paediatric",
+    },
+    {
+        "sku": "FEE-EMERG",
+        "name": "Emergency consultation",
+        "category": "registration",
+        "sale_price": 45000,
+        "target_department": "general",
+    },
+)
+
+
+async def ensure_registration_catalog(db: AsyncSession, clinic_id: str) -> list[InventoryItem]:
+    """Seed admin-managed registration fees when a clinic has none yet."""
+    existing = (
+        await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.clinic_id == clinic_id,
+                InventoryItem.billable_at_registration.is_(True),
+            )
+        )
+    ).scalars().all()
+    if existing:
+        return list(existing)
+    created: list[InventoryItem] = []
+    for row in DEFAULT_REGISTRATION_CATALOG:
+        clash = (
+            await db.execute(
+                select(InventoryItem).where(
+                    InventoryItem.clinic_id == clinic_id, InventoryItem.sku == row["sku"]
+                )
+            )
+        ).scalar_one_or_none()
+        if clash:
+            clash.billable_at_registration = True
+            clash.item_kind = InventoryItemKind.SERVICE
+            if not clash.sale_price:
+                clash.sale_price = float(row["sale_price"])
+            if not clash.target_department:
+                clash.target_department = row["target_department"]
+            created.append(clash)
+            continue
+        item = InventoryItem(
+            clinic_id=clinic_id,
+            sku=row["sku"],
+            name=row["name"],
+            category=row["category"],
+            quantity=0,
+            reorder_level=0,
+            unit="visit",
+            unit_cost=0,
+            sale_price=float(row["sale_price"]),
+            item_kind=InventoryItemKind.SERVICE,
+            billable_at_registration=True,
+            target_department=row["target_department"],
+            notes="Billable at patient registration — managed in Warehouse",
+        )
+        db.add(item)
+        created.append(item)
+    await db.flush()
+    return created
+
+
 # ── Inventory ─────────────────────────────────────────
-async def list_inventory(db: AsyncSession, clinic_id: str, *, low_only: bool = False) -> list[InventoryItem]:
-    q = select(InventoryItem).where(InventoryItem.clinic_id == clinic_id, InventoryItem.is_active.is_(True))
+async def list_inventory(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    low_only: bool = False,
+    include_inactive: bool = False,
+    billable_at_registration: bool | None = None,
+    item_kind: str | None = None,
+    seed_registration: bool = False,
+) -> list[InventoryItem]:
+    if seed_registration or billable_at_registration:
+        await ensure_registration_catalog(db, clinic_id)
+    q = select(InventoryItem).where(InventoryItem.clinic_id == clinic_id)
+    if not include_inactive:
+        q = q.where(InventoryItem.is_active.is_(True))
     if low_only:
-        q = q.where(InventoryItem.quantity <= InventoryItem.reorder_level)
+        q = q.where(
+            InventoryItem.item_kind == InventoryItemKind.STOCK,
+            InventoryItem.quantity <= InventoryItem.reorder_level,
+        )
+    if billable_at_registration is not None:
+        q = q.where(InventoryItem.billable_at_registration.is_(billable_at_registration))
+    if item_kind:
+        q = q.where(InventoryItem.item_kind == item_kind)
     result = await db.execute(q.order_by(InventoryItem.name))
     return list(result.scalars().all())
 
@@ -264,6 +581,8 @@ async def adjust_inventory(
     ).scalar_one_or_none()
     if not item:
         raise NotFoundError("Inventory item not found")
+    if item.item_kind == InventoryItemKind.SERVICE:
+        raise ValidationAppError("Service items do not hold stock — edit the sale price instead")
     item.quantity = float(item.quantity) + float(data.delta)
     await db.flush()
     await write_audit(
@@ -696,6 +1015,7 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
             .where(
                 InventoryItem.clinic_id == clinic_id,
                 InventoryItem.is_active.is_(True),
+                InventoryItem.item_kind == InventoryItemKind.STOCK,
                 InventoryItem.quantity <= InventoryItem.reorder_level,
             )
         )
@@ -750,16 +1070,62 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
     }
 
 
-async def list_today_appointments(db: AsyncSession, clinic_id: str) -> list[Appointment]:
-    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-    result = await db.execute(
+async def list_today_appointments(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    department: str | None = None,
+    dentist_id: str | None = None,
+) -> list[ChairQueueItem]:
+    from app.services.domain import clinic_local_day_bounds
+
+    start, end, _tz = await clinic_local_day_bounds(db, clinic_id)
+    stmt = (
         select(Appointment)
+        .options(selectinload(Appointment.patient), selectinload(Appointment.dentist))
         .where(
             Appointment.clinic_id == clinic_id,
             Appointment.starts_at >= start,
             Appointment.starts_at < end,
+            Appointment.status != AppointmentStatus.CANCELLED,
         )
-        .order_by(Appointment.starts_at)
     )
-    return list(result.scalars().all())
+    if department:
+        stmt = stmt.outerjoin(Patient, Patient.id == Appointment.patient_id).where(
+            or_(
+                Appointment.department == department,
+                and_(
+                    Appointment.department.is_(None),
+                    Patient.destination_department == department,
+                ),
+            )
+        )
+    if dentist_id:
+        stmt = stmt.where(Appointment.dentist_id == dentist_id)
+    stmt = stmt.order_by(func.coalesce(Appointment.queue_number, 9999), Appointment.starts_at)
+    rows = (await db.execute(stmt)).scalars().unique().all()
+    items: list[ChairQueueItem] = []
+    for row in rows:
+        person = row.patient
+        staff = row.dentist
+        items.append(
+            ChairQueueItem(
+                id=row.id,
+                patient_id=row.patient_id,
+                patient_code=person.patient_code if person else None,
+                patient_name=(
+                    f"{person.first_name} {person.last_name}".strip() if person else None
+                ),
+                dentist_id=row.dentist_id,
+                dentist_name=staff.full_name if staff else None,
+                queue_number=row.queue_number,
+                service_name=row.service_name,
+                department=row.department,
+                status=row.status,
+                starts_at=row.starts_at,
+                is_appointment=bool(getattr(row, "is_appointment", True)),
+                reason=row.reason,
+                chair_number=row.chair_number,
+            )
+        )
+    return items

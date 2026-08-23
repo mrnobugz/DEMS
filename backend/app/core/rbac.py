@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import json
 from enum import StrEnum
+from typing import Any
 
 
 class Role(StrEnum):
@@ -12,6 +16,74 @@ class Role(StrEnum):
     PHARMACY = "pharmacy"
     IMAGING_TECH = "imaging_tech"
     PATIENT = "patient"
+
+
+ROLE_LABELS: dict[Role, str] = {
+    Role.SUPER_ADMIN: "System owner",
+    Role.CLINIC_ADMIN: "Clinic admin",
+    Role.DENTIST: "Dentist",
+    Role.HYGIENIST: "Hygienist",
+    Role.RECEPTIONIST: "Receptionist",
+    Role.ACCOUNTANT: "Accountant",
+    Role.LAB_TECH: "Lab technician",
+    Role.PHARMACY: "Pharmacy",
+    Role.IMAGING_TECH: "Imaging technician",
+    Role.PATIENT: "Patient portal",
+}
+
+
+class PermissionDef:
+    __slots__ = ("id", "resource", "action", "label", "description")
+
+    def __init__(self, id: str, label: str, description: str) -> None:
+        resource, _, action = id.partition(":")
+        self.id = id
+        self.resource = resource
+        self.action = action or "*"
+        self.label = label
+        self.description = description
+
+
+PERMISSION_CATALOG: tuple[PermissionDef, ...] = (
+    PermissionDef("patients:read", "Read patients", "View the patient list and records"),
+    PermissionDef("patients:update", "Update patients", "Edit demographics and clerkship particulars"),
+    PermissionDef("patients:*", "Full patients", "Create, update, and manage all patient records"),
+    PermissionDef("patients:assign", "Assign clinician", "Set a patient's primary dentist"),
+    PermissionDef("patients:own", "Own caseload", "See assigned patients plus the unassigned pool"),
+    PermissionDef("appointments:read", "Read schedule", "View the appointment book"),
+    PermissionDef("appointments:*", "Full schedule", "Book, move, and cancel any appointment"),
+    PermissionDef("appointments:update_own", "Own appointments", "Update appointments assigned to you"),
+    PermissionDef("appointments:own", "Own bookings", "See your own booked visits (portal)"),
+    PermissionDef("clinical:read", "Read clinical", "View charts, notes, and specialty work"),
+    PermissionDef("clinical:*", "Full clinical", "Chart, diagnose, and complete clinical work"),
+    PermissionDef("clinical:limited", "Limited clinical", "Hygiene-scoped charting only"),
+    PermissionDef("clinical:own_read", "Own clinical read", "Portal view of own chart"),
+    PermissionDef("billing:read", "Read billing", "View invoices, aging, and the fee catalog"),
+    PermissionDef("billing:create", "Create invoices", "Generate invoices and record payments"),
+    PermissionDef("billing:*", "Full billing", "Catalog, invoices, payments, and write-offs"),
+    PermissionDef("billing:own_read", "Own bills", "Portal view of own invoices"),
+    PermissionDef("inventory:read", "Read warehouse", "View stock and registration fees"),
+    PermissionDef("inventory:*", "Full warehouse", "Create and adjust warehouse items"),
+    PermissionDef("lab:read", "Read lab", "View lab cases"),
+    PermissionDef("lab:*", "Full lab", "Create and progress lab cases"),
+    PermissionDef("pharmacy:read", "Read pharmacy", "View prescriptions"),
+    PermissionDef("pharmacy:*", "Full pharmacy", "Dispense and warn on prescriptions"),
+    PermissionDef("imaging:read", "Read imaging", "View imaging studies"),
+    PermissionDef("imaging:*", "Full imaging", "Capture and attach imaging"),
+    PermissionDef("staff:*", "Manage staff", "Invite, edit, deactivate users and permissions"),
+    PermissionDef("reports:own", "Own reports", "Clinical productivity for your own work"),
+    PermissionDef("reports:financial", "Financial reports", "Aging, cash-up, and revenue"),
+    PermissionDef("reports:*", "Full reports", "Clinic-wide operational and financial reports"),
+    PermissionDef("config:clinic", "Clinic settings", "Clinic-level configuration"),
+    PermissionDef("ai:suggest", "AI suggestions", "Use assistive drafts and suggestions"),
+    PermissionDef("ai:*", "Full AI", "Configure and use all AI assist features"),
+    PermissionDef("departments:read", "Read departments", "See department queues and overviews"),
+    PermissionDef("notifications:send", "Send notifications", "Queue patient or staff messages"),
+    PermissionDef("notifications:read", "Read notifications", "View outbound notification history"),
+    PermissionDef("portal:read", "Patient portal", "Sign in to the patient portal"),
+)
+
+KNOWN_PERMISSIONS: frozenset[str] = frozenset(p.id for p in PERMISSION_CATALOG)
 
 
 # Resource actions used by dependency checks
@@ -38,11 +110,12 @@ PERMISSIONS: dict[Role, set[str]] = {
     Role.DENTIST: {
         "patients:read",
         "patients:update",
-        "patients:own",  # scoped to assigned (+ unassigned pool)
+        "patients:own",
         "appointments:read",
         "appointments:update_own",
         "clinical:*",
         "billing:read",
+        "billing:create",
         "inventory:read",
         "lab:*",
         "pharmacy:*",
@@ -108,30 +181,155 @@ PERMISSIONS: dict[Role, set[str]] = {
 }
 
 
-def has_permission(role: Role | str, permission: str) -> bool:
+def parse_role(role: Role | str) -> Role | None:
     try:
-        role_enum = Role(role) if isinstance(role, str) else role
+        return Role(role) if isinstance(role, str) else role
     except ValueError:
-        return False
-    granted = PERMISSIONS.get(role_enum, set())
-    if "*" in granted:
-        return True
-    if permission in granted:
+        return None
+
+
+def parse_perm_list(raw: Any) -> list[str]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(item) for item in raw if item]
+    if not isinstance(raw, str):
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    if isinstance(data, list):
+        return [str(item) for item in data if item]
+    return []
+
+
+def dump_perm_list(items: list[str] | None) -> str | None:
+    cleaned = sorted({item for item in (items or []) if item})
+    return json.dumps(cleaned) if cleaned else None
+
+
+def grants_cover(granted: set[str] | list[str], permission: str) -> bool:
+    bag = set(granted)
+    if "*" in bag or permission in bag:
         return True
     resource = permission.split(":")[0]
-    if f"{resource}:*" in granted:
-        return True
-    return False
+    return f"{resource}:*" in bag
+
+
+def has_permission(role: Role | str, permission: str) -> bool:
+    role_enum = parse_role(role)
+    if role_enum is None:
+        return False
+    return grants_cover(PERMISSIONS.get(role_enum, set()), permission)
 
 
 def has_any_permission(role: Role | str, *permissions: str) -> bool:
     return any(has_permission(role, p) for p in permissions)
 
 
+def permission_allowed(
+    role: Role | str,
+    extra: list[str] | None,
+    denied: list[str] | None,
+    permission: str,
+) -> bool:
+    role_enum = parse_role(role)
+    if role_enum is None:
+        return False
+    if role_enum == Role.SUPER_ADMIN:
+        return True
+    if grants_cover(denied or [], permission):
+        return False
+    if has_permission(role_enum, permission):
+        return True
+    return grants_cover(extra or [], permission)
+
+
+def user_has_permission(user: Any, permission: str) -> bool:
+    return permission_allowed(
+        getattr(user, "role", ""),
+        parse_perm_list(getattr(user, "extra_permissions", None)),
+        parse_perm_list(getattr(user, "denied_permissions", None)),
+        permission,
+    )
+
+
+def user_has_any_permission(user: Any, *permissions: str) -> bool:
+    return any(user_has_permission(user, p) for p in permissions)
+
+
+def effective_permissions(role: Role | str, extra: list[str] | None, denied: list[str] | None) -> list[str]:
+    role_enum = parse_role(role)
+    if role_enum == Role.SUPER_ADMIN:
+        return ["*"]
+    return [item.id for item in PERMISSION_CATALOG if permission_allowed(role_enum or "", extra, denied, item.id)]
+
+
+def user_access_payload(user: Any) -> dict[str, list[str]]:
+    extras = parse_perm_list(getattr(user, "extra_permissions", None))
+    denies = parse_perm_list(getattr(user, "denied_permissions", None))
+    return {
+        "extra_permissions": extras,
+        "denied_permissions": denies,
+        "effective_permissions": effective_permissions(getattr(user, "role", ""), extras, denies),
+    }
+
+
+def assignable_roles(actor_role: Role | str) -> list[Role]:
+    actor = parse_role(actor_role)
+    roles = [role for role in Role if role not in {Role.PATIENT}]
+    if actor != Role.SUPER_ADMIN:
+        roles = [role for role in roles if role != Role.SUPER_ADMIN]
+    return roles
+
+
 def is_assignment_scoped_role(role: Role | str) -> bool:
     """Dentists/hygienists only see assigned patients (plus unassigned pool)."""
-    try:
-        role_enum = Role(role) if isinstance(role, str) else role
-    except ValueError:
-        return False
+    role_enum = parse_role(role)
     return role_enum in {Role.DENTIST, Role.HYGIENIST}
+
+
+def normalize_overrides(items: list[str] | None, field: str) -> list[str]:
+    from app.core.exceptions import ValidationAppError
+
+    if not items:
+        return []
+    cleaned: list[str] = []
+    for item in items:
+        if item == "*":
+            raise ValidationAppError(f"{field} cannot include the platform-owner wildcard")
+        if item not in KNOWN_PERMISSIONS:
+            raise ValidationAppError(f"Unknown permission in {field}: {item}")
+        cleaned.append(item)
+    return sorted(set(cleaned))
+
+
+def catalog_payload() -> list[dict[str, str]]:
+    return [
+        {
+            "id": item.id,
+            "resource": item.resource,
+            "action": item.action,
+            "label": item.label,
+            "description": item.description,
+        }
+        for item in PERMISSION_CATALOG
+    ]
+
+
+def roles_payload(actor_role: Role | str) -> list[dict[str, object]]:
+    allowed = set(assignable_roles(actor_role))
+    rows = []
+    for role in Role:
+        if role == Role.PATIENT:
+            continue
+        rows.append(
+            {
+                "id": role.value,
+                "label": ROLE_LABELS[role],
+                "assignable": role in allowed,
+                "permissions": sorted(PERMISSIONS.get(role, set())),
+            }
+        )
+    return rows

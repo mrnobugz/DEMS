@@ -21,9 +21,20 @@ async def list_items(
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("inventory:read"))],
     low_only: bool = Query(False),
+    include_inactive: bool = Query(False),
+    billable_at_registration: bool | None = Query(None),
+    item_kind: str | None = Query(None),
 ):
     _ = user
-    return await dept.list_inventory(db, clinic_id, low_only=low_only)
+    return await dept.list_inventory(
+        db,
+        clinic_id,
+        low_only=low_only,
+        include_inactive=include_inactive,
+        billable_at_registration=billable_at_registration,
+        item_kind=item_kind,
+        seed_registration=bool(billable_at_registration),
+    )
 
 
 @router.post("", response_model=InventoryItemOut, status_code=201)

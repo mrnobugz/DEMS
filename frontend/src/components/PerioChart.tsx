@@ -168,7 +168,7 @@ export function PerioChart({ patientId, selectedTooth, exams, onSaved, onMessage
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-      <form className="glass-panel space-y-4 rounded-3xl p-5" onSubmit={saveExam}>
+      <form className="glass-panel space-y-3" onSubmit={saveExam}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="font-display text-lg font-bold">Periodontal charting</h3>
@@ -336,7 +336,7 @@ export function PerioChart({ patientId, selectedTooth, exams, onSaved, onMessage
       </form>
 
       <div className="space-y-4">
-        <div className="glass-panel rounded-3xl p-5">
+        <div className="glass-panel">
           <h3 className="font-display text-lg font-bold">Exam history</h3>
           <div className="mt-3 space-y-3">
             {exams.length === 0 && (
@@ -369,7 +369,7 @@ export function PerioChart({ patientId, selectedTooth, exams, onSaved, onMessage
           </div>
         </div>
 
-        <div className="glass-panel rounded-3xl p-5">
+        <div className="glass-panel">
           <h3 className="font-display text-lg font-bold">
             Trend{selectedTooth ? ` · tooth ${selectedTooth}` : ""}
           </h3>

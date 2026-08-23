@@ -11,30 +11,12 @@ from app.schemas import (
     ClinicOut,
     ClinicUpdate,
     StaffOut,
-    StaffProfileOut,
 )
 from app.services import departments as dept
 from app.services.bootstrap import seed_demo_fabric, wipe_demo_data
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 settings = get_settings()
-
-
-def _staff_out(u) -> StaffOut:
-    profile = None
-    if u.staff_profile:
-        profile = StaffProfileOut.model_validate(u.staff_profile)
-    return StaffOut(
-        id=u.id,
-        email=u.email,
-        full_name=u.full_name,
-        role=u.role,
-        clinic_id=u.clinic_id,
-        phone=u.phone,
-        specialty=u.specialty,
-        is_active=u.is_active,
-        profile=profile,
-    )
 
 
 @router.get("/clinics", response_model=list[ClinicOut])
@@ -87,7 +69,7 @@ async def owner_staff(db: DbSession, user: CurrentUser):
         raise ForbiddenError("System owner only")
     await apply_tenant_rls(db, None, bypass=True)
     users = await dept.list_all_staff(db)
-    return [_staff_out(u) for u in users]
+    return [dept.to_staff_out(u) for u in users]
 
 
 @router.post("/reseed-demo")

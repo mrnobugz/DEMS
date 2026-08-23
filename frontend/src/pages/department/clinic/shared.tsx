@@ -61,12 +61,12 @@ export function ClinicalDeptSwitcher() {
     { to: "/clinical/paediatric", label: "Paediatric" },
   ];
   return (
-    <div className="mt-3 flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1">
       {depts.map((d) => (
         <Link
           key={d.to}
           to={d.to}
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
             location.pathname === d.to
               ? "bg-brand-500 text-white"
               : "border border-brand-100 bg-white text-muted hover:bg-brand-50"
@@ -81,33 +81,34 @@ export function ClinicalDeptSwitcher() {
 
 export function DeptHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-        Clinical
-      </p>
-      <h2 className="font-display text-3xl font-bold text-brand-900">{title}</h2>
-      <p className="text-sm text-muted">{subtitle}</p>
-      <ClinicalDeptSwitcher />
+    <div className="clin-head">
+      <div>
+        <h2 className="font-display text-xl font-bold leading-tight text-brand-900">{title}</h2>
+        <p className="text-xs text-muted">{subtitle}</p>
+      </div>
+      <div className="lg:hidden">
+        <ClinicalDeptSwitcher />
+      </div>
     </div>
   );
 }
 
 export function StatCards({ cards }: { cards: { label: string; value: number | string; alert?: boolean }[] }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map((c) => (
         <div
           key={c.label}
-          className={`glass-panel rounded-3xl p-4 ${c.alert ? "border border-red-200" : ""}`}
+          className={`clin-stat ${c.alert ? "border-red-200" : ""}`}
         >
           <div
-            className={`font-display text-2xl font-bold ${
+            className={`font-display text-xl font-bold leading-tight ${
               c.alert ? "text-red-700" : "text-brand-900"
             }`}
           >
             {c.value}
           </div>
-          <div className="text-xs font-semibold text-muted">{c.label}</div>
+          <div className="text-[11px] font-semibold text-muted">{c.label}</div>
         </div>
       ))}
     </div>

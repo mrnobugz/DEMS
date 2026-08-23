@@ -642,6 +642,9 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             ),
         ]
     )
+    from app.services.departments import ensure_registration_catalog
+
+    await ensure_registration_catalog(db, main.id)
 
     db.add_all(
         [

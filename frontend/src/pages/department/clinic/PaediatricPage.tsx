@@ -152,9 +152,9 @@ export function PaediatricPage() {
   const legendTypes = ["fluoride_varnish", "fissure_sealant", "stainless_steel_crown", "pulpotomy", "extraction"];
 
   return (
-    <div className="animate-rise space-y-6">
+    <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
-        title="Paediatric department"
+        title="Paediatric"
         subtitle="Frankl behaviour · caries risk · fluoride recalls · primary & mixed dentition care"
       />
       {overview && (

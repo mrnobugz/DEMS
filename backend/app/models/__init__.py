@@ -58,6 +58,24 @@ class PaymentMethod(StrEnum):
     MOBILE_MONEY = "mobile_money"
     BANK_TRANSFER = "bank_transfer"
     INSURANCE = "insurance"
+    OTHER = "other"
+
+
+class PayerType(StrEnum):
+    SELF = "self"
+    INSURANCE = "insurance"
+    OTHER = "other"
+
+
+class InventoryItemKind(StrEnum):
+    STOCK = "stock"
+    SERVICE = "service"
+
+
+class RegistrationStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_PAYMENT = "pending_payment"
+    FINALIZED = "finalized"
 
 
 class LabCaseStatus(StrEnum):
@@ -116,6 +134,8 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     specialty: Mapped[Optional[str]] = mapped_column(String(120))
     license_number: Mapped[Optional[str]] = mapped_column(String(80))
+    extra_permissions: Mapped[Optional[str]] = mapped_column(Text)
+    denied_permissions: Mapped[Optional[str]] = mapped_column(Text)
 
     clinic: Mapped[Optional["Clinic"]] = relationship(back_populates="users")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
@@ -147,7 +167,9 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     patient_code: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     hospital_reg_number: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    middle_name: Mapped[Optional[str]] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    national_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date)
     sex: Mapped[Optional[str]] = mapped_column(String(20))
     marital_status: Mapped[Optional[str]] = mapped_column(String(32))
@@ -165,6 +187,15 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     emergency_contact_name: Mapped[Optional[str]] = mapped_column(String(200))
     emergency_contact_phone: Mapped[Optional[str]] = mapped_column(String(40))
     next_of_kin: Mapped[Optional[str]] = mapped_column(String(200))
+    next_of_kin_relationship: Mapped[Optional[str]] = mapped_column(String(80))
+    next_of_kin_phone: Mapped[Optional[str]] = mapped_column(String(40))
+    guardian_name: Mapped[Optional[str]] = mapped_column(String(200))
+    guardian_relationship: Mapped[Optional[str]] = mapped_column(String(80))
+    guardian_phone: Mapped[Optional[str]] = mapped_column(String(40))
+    history_of_presenting_complaint: Mapped[Optional[str]] = mapped_column(Text)
+    last_dental_visit: Mapped[Optional[str]] = mapped_column(String(120))
+    smoking_status: Mapped[Optional[str]] = mapped_column(String(40))
+    alcohol_use: Mapped[Optional[str]] = mapped_column(String(40))
     referral_source: Mapped[Optional[str]] = mapped_column(String(200))
     insurance_number: Mapped[Optional[str]] = mapped_column(String(80), index=True)
     chief_complaint: Mapped[Optional[str]] = mapped_column(Text)
@@ -188,6 +219,14 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     )
     portal_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     portal_pin_hash: Mapped[Optional[str]] = mapped_column(String(255))
+    registration_status: Mapped[str] = mapped_column(
+        String(24), default=RegistrationStatus.DRAFT, index=True
+    )
+    destination_department: Mapped[Optional[str]] = mapped_column(String(32))
+    registration_finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    has_outstanding: Mapped[bool] = mapped_column(Boolean, default=False)
+    photo_storage_key: Mapped[Optional[str]] = mapped_column(String(500))
+    photo_content_type: Mapped[Optional[str]] = mapped_column(String(80))
 
     clinic: Mapped["Clinic"] = relationship(back_populates="patients")
     primary_dentist: Mapped[Optional["User"]] = relationship(foreign_keys=[primary_dentist_id])
@@ -231,6 +270,10 @@ class Appointment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     waitlist: Mapped[bool] = mapped_column(Boolean, default=False)
     no_show: Mapped[bool] = mapped_column(Boolean, default=False)
     color: Mapped[Optional[str]] = mapped_column(String(16))
+    queue_number: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    service_name: Mapped[Optional[str]] = mapped_column(String(200))
+    department: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    is_appointment: Mapped[bool] = mapped_column(Boolean, default=True)
 
     patient: Mapped["Patient"] = relationship(back_populates="appointments")
     dentist: Mapped["User"] = relationship(foreign_keys=[dentist_id])
@@ -435,6 +478,8 @@ class Payment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.id"), index=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     method: Mapped[str] = mapped_column(String(32), default=PaymentMethod.CASH)
+    payer_type: Mapped[str] = mapped_column(String(24), default=PayerType.SELF)
+    insurer: Mapped[Optional[str]] = mapped_column(String(80))
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     reference: Mapped[Optional[str]] = mapped_column(String(120))
     received_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
@@ -526,6 +571,10 @@ class InventoryItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     reorder_level: Mapped[float] = mapped_column(Float, default=0.0)
     unit: Mapped[str] = mapped_column(String(40), default="unit")
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    sale_price: Mapped[float] = mapped_column(Float, default=0.0)
+    item_kind: Mapped[str] = mapped_column(String(20), default=InventoryItemKind.STOCK, index=True)
+    billable_at_registration: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    target_department: Mapped[Optional[str]] = mapped_column(String(32))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     expiry_date: Mapped[Optional[date]] = mapped_column(Date)

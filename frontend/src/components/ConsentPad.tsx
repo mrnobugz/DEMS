@@ -13,12 +13,22 @@ type Consent = {
   created_at?: string | null;
 };
 
+export type ConsentCapture = {
+  procedure_name: string;
+  signature_data: string;
+  signed_by_name: string;
+  guardian: boolean;
+};
+
 type Props = {
-  patientId: string;
+  patientId?: string;
   patientName?: string;
   onMessage?: (msg: string) => void;
   defaultGuardian?: boolean;
   defaultProcedure?: string;
+  /** When set, signature is returned to the parent instead of posting immediately. */
+  onCapture?: (data: ConsentCapture) => void;
+  captureLabel?: string;
 };
 
 export function ConsentPad({
@@ -27,6 +37,8 @@ export function ConsentPad({
   onMessage,
   defaultGuardian = false,
   defaultProcedure = "General treatment consent",
+  onCapture,
+  captureLabel = "Save consent",
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
@@ -37,12 +49,13 @@ export function ConsentPad({
   const [error, setError] = useState("");
 
   async function load() {
+    if (!patientId) return;
     const rows = await api<Consent[]>(`/api/v1/clinical/patients/${patientId}/consents`);
     setConsents(rows);
   }
 
   useEffect(() => {
-    void load();
+    if (patientId) void load();
   }, [patientId]);
 
   useEffect(() => {
@@ -107,6 +120,20 @@ export function ConsentPad({
     }
     try {
       const signature_data = canvasRef.current!.toDataURL("image/png");
+      if (onCapture) {
+        onCapture({
+          procedure_name: procedure,
+          signature_data,
+          signed_by_name: signer,
+          guardian,
+        });
+        onMessage?.("Consent signed");
+        return;
+      }
+      if (!patientId) {
+        setError("Patient is required to save consent");
+        return;
+      }
       await api(`/api/v1/clinical/patients/${patientId}/consents`, {
         method: "POST",
         body: JSON.stringify({
@@ -125,10 +152,14 @@ export function ConsentPad({
   }
 
   return (
-    <div className="glass-panel space-y-4 rounded-3xl p-5">
+    <div className={onCapture ? "space-y-3" : "glass-panel space-y-3"}>
       <div>
-        <h3 className="font-display text-lg font-bold">Consent capture</h3>
-        <p className="text-sm text-muted">Signature pad · hashed document trail · audit logged</p>
+        <h3 className={onCapture ? "text-sm font-semibold text-brand-800" : "font-display text-lg font-bold"}>
+          {onCapture ? "Signature" : "Consent capture"}
+        </h3>
+        {!onCapture && (
+          <p className="text-sm text-muted">Signature pad · hashed document trail · audit logged</p>
+        )}
       </div>
 
       <form className="space-y-3" onSubmit={submit}>
@@ -166,7 +197,7 @@ export function ConsentPad({
             ref={canvasRef}
             width={640}
             height={180}
-            className="h-36 w-full touch-none rounded-2xl border border-brand-200 bg-white"
+            className="h-28 w-full touch-none rounded-xl border border-dashed border-brand-300 bg-[linear-gradient(180deg,#fff,#f8fbff)] shadow-inner"
             onPointerDown={(e) => {
               drawing.current = true;
               const c = ctx();
@@ -192,7 +223,7 @@ export function ConsentPad({
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-2">
           <button type="submit" className="btn-primary">
-            Save consent
+            {captureLabel}
           </button>
           <button type="button" className="btn-ghost" onClick={clearPad}>
             Clear pad
@@ -200,6 +231,7 @@ export function ConsentPad({
         </div>
       </form>
 
+      {patientId && !onCapture && (
       <div className="space-y-2">
         <h4 className="text-sm font-semibold text-brand-800">Prior consents</h4>
         {consents.length === 0 ? (
@@ -221,6 +253,7 @@ export function ConsentPad({
           ))
         )}
       </div>
+      )}
     </div>
   );
 }

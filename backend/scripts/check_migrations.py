@@ -38,8 +38,34 @@ REQUIRED_PATIENT_COLUMNS = {
     "perio_risk_band",
     "portal_enabled",
     "primary_dentist_id",
+    "registration_status",
+    "destination_department",
+    "registration_finalized_at",
+    "has_outstanding",
+    "middle_name",
+    "national_id",
+    "guardian_name",
+    "history_of_presenting_complaint",
+    "photo_storage_key",
+    "photo_content_type",
 }
-HEAD_REVISION = "012_specialty_departments"
+REQUIRED_APPOINTMENT_COLUMNS = {
+    "queue_number",
+    "service_name",
+    "department",
+    "is_appointment",
+}
+REQUIRED_INVENTORY_COLUMNS = {
+    "sale_price",
+    "item_kind",
+    "billable_at_registration",
+    "target_department",
+}
+REQUIRED_USER_COLUMNS = {
+    "extra_permissions",
+    "denied_permissions",
+}
+HEAD_REVISION = "018_patient_identity_photo"
 
 
 def _use_database(db_path: pathlib.Path) -> None:
@@ -61,6 +87,9 @@ def _check_at_head(label: str, db_path: pathlib.Path) -> None:
     inspector = sa.inspect(engine)
     tables = set(inspector.get_table_names())
     patient_columns = {col["name"] for col in inspector.get_columns("patients")}
+    inventory_columns = {col["name"] for col in inspector.get_columns("inventory_items")}
+    appointment_columns = {col["name"] for col in inspector.get_columns("appointments")}
+    user_columns = {col["name"] for col in inspector.get_columns("users")}
     patient_indexes = {ix["name"] for ix in inspector.get_indexes("patients")}
     with engine.connect() as conn:
         revision = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
@@ -69,6 +98,15 @@ def _check_at_head(label: str, db_path: pathlib.Path) -> None:
     assert REQUIRED_TABLES <= tables, f"{label}: missing tables {sorted(REQUIRED_TABLES - tables)}"
     assert REQUIRED_PATIENT_COLUMNS <= patient_columns, (
         f"{label}: missing patient columns {sorted(REQUIRED_PATIENT_COLUMNS - patient_columns)}"
+    )
+    assert REQUIRED_INVENTORY_COLUMNS <= inventory_columns, (
+        f"{label}: missing inventory columns {sorted(REQUIRED_INVENTORY_COLUMNS - inventory_columns)}"
+    )
+    assert REQUIRED_APPOINTMENT_COLUMNS <= appointment_columns, (
+        f"{label}: missing appointment columns {sorted(REQUIRED_APPOINTMENT_COLUMNS - appointment_columns)}"
+    )
+    assert REQUIRED_USER_COLUMNS <= user_columns, (
+        f"{label}: missing user columns {sorted(REQUIRED_USER_COLUMNS - user_columns)}"
     )
     assert "ix_patients_clinic_name" in patient_indexes, f"{label}: missing composite index"
     assert revision == HEAD_REVISION, f"{label}: at revision {revision}, expected {HEAD_REVISION}"

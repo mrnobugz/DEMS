@@ -1,6 +1,7 @@
 import hashlib
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ from app.core.exceptions import (
     UnauthorizedError,
     ValidationAppError,
 )
-from app.core.rbac import Role, has_permission, is_assignment_scoped_role
+from app.core.rbac import Role, has_permission, is_assignment_scoped_role, user_has_permission
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -34,10 +35,15 @@ from app.models import (
     DentalChartEntry,
     EndoCase,
     FeeScheduleItem,
+    InventoryItem,
+    InventoryItemKind,
     Invoice,
     InvoiceLineItem,
     InvoiceStatus,
     Patient,
+    PayerType,
+    PaymentMethod,
+    RegistrationStatus,
     PatientInsurancePlan,
     Payment,
     PerioExam,
@@ -56,13 +62,19 @@ from app.schemas import (
     ClinicalNoteCreate,
     ClinicalVisitCreate,
     ClinicalVisitUpdate,
-    ConsentCreate,
     FeeScheduleItemCreate,
     FeeScheduleItemUpdate,
+    ConsentCreate,
     InvoiceCreate,
+    InvoiceFromProceduresRequest,
+    InvoiceLineCreate,
     PatientInsurancePlanCreate,
     PatientInsurancePlanUpdate,
     PatientCreate,
+    PatientRegisterOut,
+    PatientRegisterRequest,
+    RegistrationSlotsOut,
+    RegistrationSlotOut,
     PatientUpdate,
     PaymentCreate,
     PerioExamCreate,
@@ -295,6 +307,378 @@ async def create_patient(db: AsyncSession, clinic_id: str, actor_id: str, data: 
     return patient
 
 
+RETURNING_PARTICULAR_FIELDS = (
+    "first_name",
+    "middle_name",
+    "last_name",
+    "hospital_reg_number",
+    "national_id",
+    "date_of_birth",
+    "sex",
+    "marital_status",
+    "occupation",
+    "tribe_nation",
+    "phone",
+    "email",
+    "po_box",
+    "street",
+    "house_number",
+    "area_ward",
+    "town_city",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "next_of_kin",
+    "next_of_kin_relationship",
+    "next_of_kin_phone",
+    "guardian_name",
+    "guardian_relationship",
+    "guardian_phone",
+    "referral_source",
+    "insurance_number",
+    "chief_complaint",
+)
+
+
+async def _patient_for_registration(
+    db: AsyncSession, clinic_id: str, actor_id: str, data: PatientRegisterRequest
+) -> Patient:
+    """Reuse an existing file for a returning visit; only reception particulars are updated."""
+    if not data.patient_id:
+        return await create_patient(db, clinic_id, actor_id, data.patient)
+    patch = {key: getattr(data.patient, key) for key in RETURNING_PARTICULAR_FIELDS}
+    return await update_patient(
+        db, clinic_id, actor_id, data.patient_id, PatientUpdate.model_validate(patch)
+    )
+
+
+async def register_patient(
+    db: AsyncSession, clinic_id: str, actor_id: str, data: PatientRegisterRequest
+) -> PatientRegisterOut:
+    """Open a new file or a returning visit: bill items, take payment + consent, route to Clinical."""
+    from app.schemas.clerkship import clerkship_registration_gaps
+
+    gaps = clerkship_registration_gaps(data.patient)
+    if gaps:
+        raise ValidationAppError(
+            "Clerkship registration is incomplete: " + "; ".join(gaps)
+        )
+    years = None
+    if data.patient.date_of_birth:
+        from app.schemas.clerkship import age_years
+
+        years = age_years(data.patient.date_of_birth)
+    if years is not None and years < 18 and not data.consent.guardian:
+        raise ValidationAppError("Guardian consent is required for patients under 18")
+    if not data.consent.signature_data:
+        raise ValidationAppError("Patient consent signature is required")
+
+    item_ids = [row.inventory_item_id for row in data.items]
+    catalog = (
+        await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.clinic_id == clinic_id,
+                InventoryItem.id.in_(item_ids),
+                InventoryItem.is_active.is_(True),
+                InventoryItem.billable_at_registration.is_(True),
+            )
+        )
+    ).scalars().all()
+    by_id = {row.id: row for row in catalog}
+    missing = [item_id for item_id in item_ids if item_id not in by_id]
+    if missing:
+        raise ValidationAppError(
+            "One or more items are not available for registration billing. "
+            "Add them in Warehouse as billable registration services."
+        )
+
+    lines: list[InvoiceLineCreate] = []
+    stock_takes: list[tuple[InventoryItem, int]] = []
+    for selected in data.items:
+        item = by_id[selected.inventory_item_id]
+        qty = int(selected.quantity)
+        price = float(item.sale_price or 0) or float(item.unit_cost or 0)
+        if price <= 0:
+            raise ValidationAppError(f"{item.name} has no sale price — set it in Warehouse")
+        if item.item_kind == InventoryItemKind.STOCK:
+            if float(item.quantity) < qty:
+                raise ValidationAppError(f"Insufficient stock for {item.name}")
+            stock_takes.append((item, qty))
+        lines.append(
+            InvoiceLineCreate(
+                description=item.name,
+                quantity=qty,
+                unit_price=price,
+                procedure_code=item.sku,
+            )
+        )
+
+    expected_total = sum(line.quantity * line.unit_price for line in lines)
+    pay_in = data.payment
+    if pay_in.amount - 0.001 > expected_total:
+        raise ValidationAppError("Payment exceeds the registration total")
+    if not pay_in.outstanding and pay_in.amount + 0.001 < expected_total:
+        raise ValidationAppError(
+            "Mark outstanding as Yes to finalize with a remaining balance, or pay the full amount"
+        )
+    outstanding = pay_in.outstanding or pay_in.amount + 0.001 < expected_total
+    for item, qty in stock_takes:
+        item.quantity = float(item.quantity) - qty
+
+    patient = await _patient_for_registration(db, clinic_id, actor_id, data)
+    invoice = await create_invoice(
+        db,
+        clinic_id,
+        actor_id,
+        InvoiceCreate(
+            patient_id=patient.id,
+            line_items=lines,
+            notes="Registration checkout",
+        ),
+    )
+    method, insurer, reference = _registration_payment_fields(pay_in)
+    if pay_in.amount > 0:
+        invoice = await add_payment(
+            db,
+            clinic_id,
+            actor_id,
+            invoice.id,
+            PaymentCreate(
+                amount=min(float(pay_in.amount), float(invoice.total)),
+                method=method,
+                payer_type=pay_in.payer_type,
+                insurer=insurer,
+                reference=reference,
+            ),
+        )
+    patient.has_outstanding = outstanding
+    patient.primary_dentist_id = data.appointment.dentist_id
+    consent = await create_consent(
+        db,
+        clinic_id,
+        actor_id,
+        patient.id,
+        ConsentCreate(
+            procedure_name=data.consent.procedure_name,
+            signature_data=data.consent.signature_data,
+            signed_by_name=data.consent.signed_by_name,
+            guardian=data.consent.guardian,
+        ),
+    )
+    appt = await _book_registration_slot(
+        db, clinic_id, actor_id, patient.id, data.destination_department, data.appointment
+    )
+    patient.registration_status = RegistrationStatus.FINALIZED
+    patient.destination_department = data.destination_department
+    patient.registration_finalized_at = datetime.now(UTC)
+    await db.flush()
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="finalize",
+        resource_type="patient_registration",
+        resource_id=patient.id,
+        after={
+            "invoice_id": invoice.id,
+            "consent_id": consent.id,
+            "destination_department": data.destination_department,
+            "total": invoice.total,
+            "outstanding": outstanding,
+            "queue_number": appt.queue_number,
+        },
+    )
+    invoice = await get_invoice(db, clinic_id, invoice.id)
+    staff = await db.get(User, appt.dentist_id)
+    return PatientRegisterOut(
+        patient=patient,
+        invoice=invoice,
+        consent_id=consent.id,
+        destination_department=data.destination_department,
+        clinical_path=f"/clinical/{data.destination_department}",
+        outstanding=outstanding,
+        queue_number=appt.queue_number,
+        appointment_id=appt.id,
+        service_name=appt.service_name,
+        slot_starts_at=appt.starts_at,
+        is_appointment=bool(appt.is_appointment),
+        medical_staff_id=appt.dentist_id,
+        medical_staff_name=staff.full_name if staff else None,
+    )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _registration_payment_fields(pay) -> tuple[str, str | None, str | None]:
+    insurer = None
+    reference = pay.reference
+    if pay.payer_type == PayerType.INSURANCE:
+        label = (pay.insurer or "").strip().lower()
+        if label == "other":
+            insurer = (pay.insurer_name or "").strip() or "other"
+        else:
+            insurer = label
+        if pay.insurer_name and label != "other":
+            insurer = f"{label}:{pay.insurer_name.strip()}"
+        method = PaymentMethod.INSURANCE
+        if not reference:
+            reference = insurer
+    elif pay.payer_type == PayerType.OTHER:
+        method = PaymentMethod.OTHER
+        insurer = (pay.insurer_name or "").strip() or None
+        if not reference:
+            reference = insurer
+    else:
+        method = pay.method or PaymentMethod.CASH
+    return method, insurer, reference
+
+
+def _clinic_tz(name: str | None):
+    """Windows Python needs the tzdata package for IANA keys; never fail slot listing."""
+    for key in (name, "Africa/Dar_es_Salaam", "UTC"):
+        if not key:
+            continue
+        try:
+            return ZoneInfo(key)
+        except Exception:
+            continue
+    return UTC
+
+
+async def _clinic_day_bounds(db: AsyncSession, clinic_id: str, day: date) -> tuple[datetime, datetime, object]:
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
+    tz = _clinic_tz(clinic.timezone)
+    start = datetime.combine(day, time.min, tzinfo=tz).astimezone(UTC)
+    end = start + timedelta(days=1)
+    return start, end, tz
+
+
+async def clinic_local_day_bounds(
+    db: AsyncSession, clinic_id: str, when: datetime | None = None
+) -> tuple[datetime, datetime, object]:
+    """UTC window for the clinic's local calendar day (not UTC midnight)."""
+    when = when or datetime.now(UTC)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
+    tz = _clinic_tz(clinic.timezone)
+    local_day = when.astimezone(tz).date()
+    start = datetime.combine(local_day, time.min, tzinfo=tz).astimezone(UTC)
+    end = start + timedelta(days=1)
+    return start, end, tz
+
+
+async def next_queue_number(db: AsyncSession, clinic_id: str, day: date) -> int:
+    start, end, _tz = await _clinic_day_bounds(db, clinic_id, day)
+    current = (
+        await db.execute(
+            select(func.max(Appointment.queue_number)).where(
+                Appointment.clinic_id == clinic_id,
+                Appointment.starts_at >= start,
+                Appointment.starts_at < end,
+                Appointment.queue_number.is_not(None),
+            )
+        )
+    ).scalar_one()
+    return int(current or 0) + 1
+
+
+async def list_registration_slots(
+    db: AsyncSession, clinic_id: str, day: date, duration_minutes: int = 30
+) -> RegistrationSlotsOut:
+    start, end, tz = await _clinic_day_bounds(db, clinic_id, day)
+    booked = (
+        await db.execute(
+            select(Appointment).where(
+                Appointment.clinic_id == clinic_id,
+                Appointment.starts_at < end,
+                Appointment.ends_at > start,
+                Appointment.waitlist.is_(False),
+                Appointment.is_appointment.is_(True),
+                Appointment.status != AppointmentStatus.CANCELLED,
+            )
+        )
+    ).scalars().all()
+    open_local = datetime.combine(day, time(8, 0), tzinfo=tz)
+    close_local = datetime.combine(day, time(17, 0), tzinfo=tz)
+    slots: list[RegistrationSlotOut] = []
+    cursor = open_local
+    step = timedelta(minutes=duration_minutes)
+    while cursor + step <= close_local:
+        slot_end = cursor + step
+        start_utc = cursor.astimezone(UTC)
+        end_utc = slot_end.astimezone(UTC)
+        taken = any(
+            getattr(row, "is_appointment", True)
+            and _as_utc(row.starts_at) < end_utc
+            and _as_utc(row.ends_at) > start_utc
+            for row in booked
+        )
+        slots.append(RegistrationSlotOut(starts_at=start_utc, ends_at=end_utc, available=not taken))
+        cursor = slot_end
+    return RegistrationSlotsOut(
+        slots=slots,
+        next_queue_number=await next_queue_number(db, clinic_id, day),
+        date=day,
+    )
+
+
+async def _book_registration_slot(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    patient_id: str,
+    department: str,
+    booking,
+) -> Appointment:
+    dentist_id = (booking.dentist_id or "").strip()
+    if not dentist_id:
+        raise ValidationAppError("Select medical staff for this visit")
+    staff = await db.get(User, dentist_id)
+    if not staff or staff.clinic_id != clinic_id or not staff.is_active:
+        raise ValidationAppError("Selected medical staff is not available")
+    is_appointment = bool(getattr(booking, "is_appointment", True))
+    starts = booking.starts_at
+    if not is_appointment:
+        starts = datetime.now(UTC)
+    elif starts is None:
+        raise ValidationAppError("Choose a time slot when this visit is an appointment")
+    if starts.tzinfo is None:
+        starts = starts.replace(tzinfo=UTC)
+    ends = starts + timedelta(minutes=int(booking.duration_minutes))
+    day = starts.astimezone(UTC).date()
+    queue_number = await next_queue_number(db, clinic_id, day)
+    appt = await create_appointment(
+        db,
+        clinic_id,
+        actor_id,
+        AppointmentCreate(
+            patient_id=patient_id,
+            dentist_id=dentist_id,
+            starts_at=starts,
+            ends_at=ends,
+            reason=booking.service_name,
+            notes="Registration appointment" if is_appointment else "Registration walk-in",
+        ),
+    )
+    appt.queue_number = queue_number
+    appt.service_name = booking.service_name
+    appt.department = department
+    appt.is_appointment = is_appointment
+    today = datetime.now(UTC).date()
+    if not is_appointment:
+        appt.status = AppointmentStatus.CHECKED_IN
+    else:
+        appt.status = (
+            AppointmentStatus.CHECKED_IN if day == today else AppointmentStatus.SCHEDULED
+        )
+    await db.flush()
+    return appt
+
+
 def _estimate_caries_risk(patient: Patient, medical_history=None) -> float:
     risk = 0.2
     if patient.allergies or (medical_history and getattr(medical_history, "allergies_flag", False)):
@@ -354,6 +738,76 @@ async def get_patient(
     if actor is not None:
         enforce_patient_assignment(actor, patient)
     return patient
+
+
+IDENTITY_PHOTO_MAX_BYTES = 2 * 1024 * 1024
+IDENTITY_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+async def save_patient_photo(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    patient_id: str,
+    *,
+    filename: str,
+    content_type: str,
+    data: bytes,
+    actor: User | None = None,
+) -> Patient:
+    from app.storage import get_object_storage
+
+    patient = await get_patient(db, clinic_id, patient_id, actor=actor)
+    if len(data) < 32:
+        raise ValidationAppError("Photo is empty")
+    if len(data) > IDENTITY_PHOTO_MAX_BYTES:
+        raise ValidationAppError("Identity photo must be 2 MB or smaller")
+    ctype = (content_type or "application/octet-stream").split(";")[0].strip().lower()
+    if ctype not in IDENTITY_PHOTO_TYPES:
+        raise ValidationAppError("Identity photo must be JPEG, PNG, or WebP")
+
+    storage = get_object_storage()
+    previous = patient.photo_storage_key
+    meta = storage.put(
+        clinic_id=clinic_id,
+        prefix="identity",
+        data=data,
+        content_type=ctype,
+    )
+    patient.photo_storage_key = meta["storage_key"]
+    patient.photo_content_type = ctype
+    await db.flush()
+    if previous and previous != patient.photo_storage_key:
+        try:
+            storage.delete(previous)
+        except ValueError:
+            pass
+    await write_audit(
+        db,
+        clinic_id=clinic_id,
+        actor_id=actor_id,
+        action="upload",
+        resource_type="patient_photo",
+        resource_id=patient.id,
+        after={"byte_size": meta["byte_size"], "content_type": ctype, "filename": filename},
+    )
+    return patient
+
+
+async def read_patient_photo(
+    db: AsyncSession,
+    clinic_id: str,
+    patient_id: str,
+    *,
+    actor: User | None = None,
+) -> tuple[Patient, bytes]:
+    from app.storage import get_object_storage
+
+    patient = await get_patient(db, clinic_id, patient_id, actor=actor)
+    if not patient.photo_storage_key or not str(patient.photo_storage_key).startswith("localenc://"):
+        raise NotFoundError("Patient photo")
+    data = get_object_storage().get(patient.photo_storage_key)
+    return patient, data
 
 
 def enforce_patient_assignment(actor: User, patient: Patient) -> None:
@@ -607,8 +1061,8 @@ async def update_appointment(
     if not appt:
         raise NotFoundError("Appointment")
 
-    if actor is not None and not has_permission(actor.role, "appointments:*"):
-        if not has_permission(actor.role, "appointments:update_own"):
+    if actor is not None and not user_has_permission(actor, "appointments:*"):
+        if not user_has_permission(actor, "appointments:update_own"):
             raise ForbiddenError("Missing permission: appointments:update_own")
         if appt.dentist_id != actor.id:
             raise ForbiddenError("You can only update your own appointments")
@@ -1254,19 +1708,21 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
     await db.flush()
 
 
-async def list_fee_schedule(db: AsyncSession, clinic_id: str) -> list[FeeScheduleItem]:
+async def list_fee_schedule(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    billable: bool | None = None,
+    active: bool | None = None,
+) -> list[FeeScheduleItem]:
     await ensure_fee_schedule(db, clinic_id)
-    return list(
-        (
-            await db.execute(
-                select(FeeScheduleItem)
-                .where(FeeScheduleItem.clinic_id == clinic_id)
-                .order_by(FeeScheduleItem.category, FeeScheduleItem.code)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    q = select(FeeScheduleItem).where(FeeScheduleItem.clinic_id == clinic_id)
+    if billable is not None:
+        q = q.where(FeeScheduleItem.billable.is_(billable))
+    if active is not None:
+        q = q.where(FeeScheduleItem.is_active.is_(active))
+    q = q.order_by(FeeScheduleItem.category, FeeScheduleItem.code)
+    return list((await db.execute(q)).scalars().all())
 
 
 async def upsert_fee_item(
@@ -1477,6 +1933,60 @@ async def chart_to_cash(
 
 
 # ── Billing ───────────────────────────────────────────
+async def invoice_from_procedures(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    data: InvoiceFromProceduresRequest,
+) -> Invoice:
+    """Create an invoice from admin-managed procedural items (prices come from the catalog)."""
+    await get_patient(db, clinic_id, data.patient_id)
+    item_ids = [row.fee_item_id for row in data.items]
+    catalog = (
+        await db.execute(
+            select(FeeScheduleItem).where(
+                FeeScheduleItem.clinic_id == clinic_id,
+                FeeScheduleItem.id.in_(item_ids),
+                FeeScheduleItem.is_active.is_(True),
+                FeeScheduleItem.billable.is_(True),
+            )
+        )
+    ).scalars().all()
+    by_id = {row.id: row for row in catalog}
+    missing = [item_id for item_id in item_ids if item_id not in by_id]
+    if missing:
+        raise ValidationAppError(
+            "One or more procedures are not available for billing. "
+            "Ask an admin to add them on the procedure catalog."
+        )
+    lines: list[InvoiceLineCreate] = []
+    for selected in data.items:
+        item = by_id[selected.fee_item_id]
+        price = float(item.unit_price or 0)
+        if price <= 0:
+            raise ValidationAppError(f"{item.label} has no billable price — set it in Clinic admin")
+        lines.append(
+            InvoiceLineCreate(
+                description=item.label,
+                quantity=int(selected.quantity),
+                unit_price=price,
+                procedure_code=item.code,
+                tooth_number=selected.tooth_number or None,
+            )
+        )
+    return await create_invoice(
+        db,
+        clinic_id,
+        actor_id,
+        InvoiceCreate(
+            patient_id=data.patient_id,
+            line_items=lines,
+            notes=data.notes or "Procedural invoice",
+            idempotency_key=data.idempotency_key,
+        ),
+    )
+
+
 async def next_invoice_number(db: AsyncSession, clinic_id: str) -> str:
     count = (
         await db.execute(select(func.count()).select_from(Invoice).where(Invoice.clinic_id == clinic_id))
@@ -1760,16 +2270,27 @@ async def add_payment(
         invoice_id=invoice.id,
         amount=data.amount,
         method=data.method,
+        payer_type=data.payer_type or PayerType.SELF,
+        insurer=data.insurer,
         reference=data.reference,
         received_by_id=actor_id,
         idempotency_key=data.idempotency_key,
     )
-    db.add(payment)
+    invoice.payments.append(payment)
     invoice.amount_paid += data.amount
     if invoice.amount_paid >= invoice.total:
         invoice.status = InvoiceStatus.PAID
     elif invoice.amount_paid > 0:
         invoice.status = InvoiceStatus.PARTIALLY_PAID
+    await db.flush()
+    if invoice.status == InvoiceStatus.PAID:
+        patient = (
+            await db.execute(
+                select(Patient).where(Patient.id == invoice.patient_id, Patient.clinic_id == clinic_id)
+            )
+        ).scalar_one_or_none()
+        if patient:
+            patient.has_outstanding = False
     await db.flush()
     return await get_invoice(db, clinic_id, invoice_id)
 

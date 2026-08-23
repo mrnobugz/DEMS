@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +12,7 @@ from app.schemas import (
     AppointmentOut,
     AppointmentTypeOut,
     AppointmentUpdate,
+    RegistrationSlotsOut,
 )
 from app.services import domain as svc
 
@@ -34,6 +35,20 @@ async def list_types(
         )
     ).scalars().all()
     return list(rows)
+
+
+@router.get("/registration-slots", response_model=RegistrationSlotsOut)
+async def registration_slots(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("appointments:read"))],
+    day: date | None = Query(None),
+    duration_minutes: int = Query(30, ge=15, le=180),
+):
+    _ = user
+    return await svc.list_registration_slots(
+        db, clinic_id, day or datetime.now().date(), duration_minutes
+    )
 
 
 @router.get("", response_model=list[AppointmentOut])

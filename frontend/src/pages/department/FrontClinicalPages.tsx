@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
+import { RegistrationWizard } from "@/components/RegistrationWizard";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
+import type { ChairQueueItem } from "@/lib/types";
 import { useUiPrefs } from "@/lib/uiPrefs";
 
 type Home = {
@@ -65,8 +67,7 @@ export function StatGrid({ home }: { home: Home }) {
 }
 
 export function FrontDeskPage() {
-  const { home, error } = useDepartmentHome();
-  const [appts, setAppts] = useState<any[]>([]);
+  const [appts, setAppts] = useState<ChairQueueItem[]>([]);
   const [recall, setRecall] = useState<
     Array<{
       id: string;
@@ -76,26 +77,20 @@ export function FrontDeskPage() {
       perio_risk_band?: string | null;
     }>
   >([]);
+  const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    api<any[]>("/api/v1/departments/today-appointments").then(setAppts).catch(() => setAppts([]));
+    api<ChairQueueItem[]>("/api/v1/departments/today-appointments")
+      .then(setAppts)
+      .catch((e) => {
+        setAppts([]);
+        setError(e.message ?? "Could not load today's board");
+      });
     api<typeof recall>("/api/v1/patients/hygiene-recall-due")
       .then(setRecall)
       .catch(() => setRecall([]));
   }, []);
-
-  async function sendAppointmentReminders() {
-    try {
-      const res = await api<{ queued: number; dispatched: number }>(
-        "/api/v1/notifications/reminders/appointments",
-        { method: "POST", body: JSON.stringify({ window_hours: 24 }) },
-      );
-      setMsg(`Queued ${res.queued} appointment reminders · dispatched ${res.dispatched}`);
-    } catch (e: any) {
-      setMsg(e.message ?? "Failed to queue reminders");
-    }
-  }
 
   async function sendRecallReminders() {
     try {
@@ -110,86 +105,98 @@ export function FrontDeskPage() {
   }
 
   return (
-    <div className="animate-rise space-y-6">
+    <div className="animate-rise space-y-4">
       <div>
-        <h2 className="font-display text-3xl font-bold text-brand-900">Front desk</h2>
-        <p className="text-sm text-muted">Check-in, waitlist, recall, and patient flow for today.</p>
+        <h2 className="font-display text-2xl font-bold text-brand-900">Today</h2>
+        <p className="text-sm text-muted">
+          Queue and walk-ins on the board. Recalls due for front desk follow-up.
+        </p>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {msg && <p className="text-sm text-brand-700">{msg}</p>}
-      {home && <StatGrid home={home} />}
-      <div className="flex flex-wrap gap-2">
-        <Link className="btn-primary" to="/patients">
-          Register / find patient
-        </Link>
-        <Link className="btn-ghost" to="/schedule">
-          Open schedule
-        </Link>
-        <Link className="btn-ghost" to="/billing">
-          Billing
-        </Link>
-        <button className="btn-ghost" type="button" onClick={sendAppointmentReminders}>
-          Send 24h reminders
-        </button>
-        <button className="btn-ghost" type="button" onClick={sendRecallReminders}>
-          Send recall messages
-        </button>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className="glass-panel rounded-2xl p-4">
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <h3 className="font-display text-lg font-bold text-brand-900">Today&apos;s board</h3>
+            <span className="text-xs font-semibold text-muted">{appts.length} on the list</span>
+          </div>
+          {appts.length === 0 ? (
+            <EmptyState title="No visits today" hint="Registered walk-ins and booked slots appear here." />
+          ) : (
+            <ul className="divide-y divide-brand-100">
+              {appts.map((a) => (
+                <li key={a.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink">
+                      {a.queue_number != null ? `Q${a.queue_number} · ` : ""}
+                      {a.patient_name || a.service_name || a.reason || "Visit"}
+                      {a.patient_code ? (
+                        <span className="ml-2 font-mono text-xs font-normal text-muted">
+                          {a.patient_code}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-xs text-muted">
+                      {a.department ? `${a.department} · ` : ""}
+                      {a.dentist_name ? `${a.dentist_name} · ` : ""}
+                      {a.service_name || a.reason || "Visit"} ·{" "}
+                      {a.is_appointment === false ? "Walk-in" : "Appointment"}
+                      {a.starts_at
+                        ? ` · ${new Date(a.starts_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : ""}
+                    </div>
+                  </div>
+                  <span className="status-pill status-pill--info shrink-0 capitalize">
+                    {a.status.replaceAll("_", " ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="glass-panel rounded-2xl p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-display text-lg font-bold text-brand-900">
+              Hygiene recall due (front desk)
+            </h3>
+            <button className="btn-ghost text-xs" type="button" onClick={sendRecallReminders}>
+              Send recall messages
+            </button>
+          </div>
+          {recall.length === 0 ? (
+            <EmptyState
+              title="No recalls due"
+              hint="Perio risk bands set hygiene_recall_due automatically."
+            />
+          ) : (
+            <ul className="divide-y divide-brand-100">
+              {recall.map((r) => (
+                <li key={r.id} className="flex items-center justify-between py-2.5 text-sm">
+                  <div>
+                    <Link
+                      className="font-semibold text-brand-700 hover:underline"
+                      to={`/patients/${r.id}`}
+                    >
+                      {r.patient_code} · {r.name}
+                    </Link>
+                    <div className="text-xs text-muted capitalize">
+                      Risk {r.perio_risk_band || "—"} · due {r.hygiene_recall_due}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
-      <section className="glass-panel rounded-3xl p-5">
-        <h3 className="font-display text-lg font-bold text-brand-900">Today&apos;s board</h3>
-        {appts.length === 0 ? (
-          <EmptyState title="No appointments today" hint="Book from the schedule." />
-        ) : (
-          <ul className="mt-4 divide-y divide-brand-100">
-            {appts.map((a) => (
-              <li key={a.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                <div>
-                  <div className="font-semibold text-ink">{a.reason || "Visit"}</div>
-                  <div className="text-xs text-muted">
-                    Chair {a.chair_number} ·{" "}
-                    {new Date(a.starts_at).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                </div>
-                <span className="status-pill status-pill--info capitalize">
-                  {a.status.replaceAll("_", " ")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <section className="glass-panel rounded-3xl p-5">
-        <h3 className="font-display text-lg font-bold text-brand-900">
-          Hygiene recall due (front desk)
-        </h3>
-        {recall.length === 0 ? (
-          <EmptyState
-            title="No recalls due"
-            hint="Perio risk bands set hygiene_recall_due automatically."
-          />
-        ) : (
-          <ul className="mt-3 divide-y divide-brand-100">
-            {recall.map((r) => (
-              <li key={r.id} className="flex items-center justify-between py-3 text-sm">
-                <div>
-                  <Link
-                    className="font-semibold text-brand-700 hover:underline"
-                    to={`/patients/${r.id}`}
-                  >
-                    {r.patient_code} · {r.name}
-                  </Link>
-                  <div className="text-xs text-muted capitalize">
-                    Risk {r.perio_risk_band || "—"} · due {r.hygiene_recall_due}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </div>
   );
+}
+
+export function FrontDeskRegisterPage() {
+  const navigate = useNavigate();
+  return <RegistrationWizard onDone={() => navigate("/front-desk/register?step=0")} />;
 }

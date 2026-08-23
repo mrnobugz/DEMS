@@ -1,23 +1,21 @@
-import { FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Search, UserPlus, Users } from "lucide-react";
-import {
-  ClerkshipIntakeFields,
-  clerkshipPayload,
-  emptyClerkshipForm,
-  type ClerkshipFormState,
-} from "@/components/ClerkshipIntakeFields";
 import { EmptyState } from "@/components/EmptyState";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { Page, Patient } from "@/lib/types";
 
+function destPath(dept?: string | null) {
+  if (!dept) return null;
+  const allowed = ["restorative", "maxillofacial", "orthodontic", "paediatric"];
+  return allowed.includes(dept) ? `/clinical/${dept}` : null;
+}
+
 export function PatientsPage() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [total, setTotal] = useState(0);
-  const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState("");
-  const [form, setForm] = useState<ClerkshipFormState>(emptyClerkshipForm);
 
   async function load(search = q) {
     const data = await api<Page<Patient>>(
@@ -31,32 +29,20 @@ export function PatientsPage() {
     void load("");
   }, []);
 
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    try {
-      await api("/api/v1/patients", {
-        method: "POST",
-        body: JSON.stringify(clerkshipPayload(form)),
-      });
-      setShowForm(false);
-      setForm(emptyClerkshipForm());
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not create patient");
-    }
-  }
-
   return (
     <div className="space-y-5 animate-rise">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl font-bold text-brand-900">Patients</h2>
           <p className="text-sm text-muted">
-            {total} records · Digital Clerkship intake · unique IDs across chart & billing
+            {total} records · File opening and fees at reception. The dentist takes the history after
+            consultation fees.
           </p>
         </div>
-        <button className="btn-primary inline-flex items-center gap-2" onClick={() => setShowForm((v) => !v)}>
+        <button
+          className="btn-primary inline-flex items-center gap-2"
+          onClick={() => navigate("/front-desk/register?step=0")}
+        >
           <UserPlus size={16} /> New patient
         </button>
       </div>
@@ -74,29 +60,19 @@ export function PatientsPage() {
         />
       </div>
 
-      {showForm && (
-        <form className="glass-panel space-y-4 rounded-3xl p-5" onSubmit={onCreate}>
-          <div>
-            <h3 className="font-display text-lg font-bold text-brand-900">Register patient</h3>
-            <p className="text-sm text-muted">
-              Demographics, anamnesis, pain assessment — replaces paper clerkship forms.
-            </p>
-          </div>
-          <ClerkshipIntakeFields form={form} onChange={setForm} mode="create" />
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <button className="btn-primary">Register patient</button>
-        </form>
-      )}
-
       <div className="glass-panel overflow-hidden rounded-3xl">
         {patients.length === 0 ? (
           <div className="p-4">
             <EmptyState
               title="No patients yet"
-              hint="Register the first patient to start charting and billing."
+              hint="Register the first patient, collect fees, then send them to a clinical department."
               icon={Users}
               action={
-                <button type="button" className="btn-primary" onClick={() => setShowForm(true)}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => navigate("/front-desk/register?step=0")}
+                >
                   New patient
                 </button>
               }
@@ -108,14 +84,18 @@ export function PatientsPage() {
             <tr>
               <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Complaint</th>
+              <th className="px-4 py-3">Visit reason</th>
+              <th className="px-4 py-3">Registration</th>
               <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Risk</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
-            {patients.map((p) => (
+            {patients.map((p) => {
+              const clinical = destPath(p.destination_department);
+              const finalized = p.registration_status === "finalized";
+              return (
               <tr key={p.id} className="border-t border-brand-50">
                 <td className="px-4 py-3 font-mono text-xs text-brand-700">
                   <div>{p.patient_code}</div>
@@ -128,6 +108,19 @@ export function PatientsPage() {
                 </td>
                 <td className="max-w-[14rem] truncate px-4 py-3 text-muted">
                   {p.chief_complaint || "—"}
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`status-pill ${
+                      finalized ? "status-pill--success" : "status-pill--warning"
+                    }`}
+                  >
+                    {finalized ? "Finalized" : p.registration_status || "Draft"}
+                  </span>
+                  <div className="mt-1 text-[10px] text-muted">
+                    Outstanding: {p.has_outstanding ? "Yes" : "No"}
+                    {p.destination_department ? ` · ${p.destination_department}` : ""}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-muted">{p.phone || "—"}</td>
                 <td className="px-4 py-3">
@@ -148,12 +141,27 @@ export function PatientsPage() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
+                  {finalized && clinical && (
+                    <Link
+                      className="mr-3 font-semibold text-brand-600"
+                      to={`${clinical}?patient=${p.id}`}
+                    >
+                      Open in {p.destination_department}
+                    </Link>
+                  )}
+                  <Link
+                    className="mr-3 font-semibold text-brand-600"
+                    to={`/front-desk/register?step=0&patient=${p.id}`}
+                  >
+                    New visit
+                  </Link>
                   <Link className="font-semibold text-brand-600" to={`/patients/${p.id}`}>
                     Open chart
                   </Link>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         )}

@@ -8,17 +8,21 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ClerkshipIntakeFields,
+  ageFromDob,
   clerkshipPayload,
+  clinicalClerkshipIncomplete,
   formFromPatient,
   type ClerkshipFormState,
 } from "@/components/ClerkshipIntakeFields";
 import { ClinicalExamPanel } from "@/components/ClinicalExamPanel";
 import { ConsentPad } from "@/components/ConsentPad";
+import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { EmptyState } from "@/components/EmptyState";
 import { EndoPanel } from "@/components/EndoPanel";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { api } from "@/lib/api";
-import type { Patient } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import type { ChairQueueItem, Patient } from "@/lib/types";
 
 export type ClinicalDept = "restorative" | "maxillofacial" | "orthodontic" | "paediatric";
 
@@ -41,14 +45,6 @@ const DEPT_CLERKSHIP: Record<ClinicalDept, { exam: string; consent: string }> = 
   },
 };
 
-type Appt = {
-  id: string;
-  patient_id: string;
-  reason?: string | null;
-  status: string;
-  starts_at?: string;
-};
-
 export function DepartmentChairwork({
   dept,
   patientId,
@@ -59,7 +55,8 @@ export function DepartmentChairwork({
   selectedTooth?: string | null;
 }) {
   const copy = DEPT_CLERKSHIP[dept];
-  const [appts, setAppts] = useState<Appt[]>([]);
+  const user = useAuth((s) => s.user);
+  const [appts, setAppts] = useState<ChairQueueItem[]>([]);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [intake, setIntake] = useState<ClerkshipFormState | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
@@ -67,19 +64,38 @@ export function DepartmentChairwork({
   const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
 
   useEffect(() => {
-    api<Appt[]>("/api/v1/departments/today-appointments").then(setAppts).catch(() => setAppts([]));
-  }, []);
+    let alive = true;
+    async function loadQueue() {
+      try {
+        const rows = await api<ChairQueueItem[]>(
+          `/api/v1/departments/today-appointments?department=${dept}`,
+        );
+        if (alive) setAppts(rows);
+      } catch {
+        if (alive) setAppts([]);
+      }
+    }
+    void loadQueue();
+    const tick = window.setInterval(() => void loadQueue(), 20000);
+    return () => {
+      alive = false;
+      window.clearInterval(tick);
+    };
+  }, [dept]);
 
   useEffect(() => {
     if (!patientId) {
       setPatient(null);
       setIntake(null);
+      setIntakeOpen(false);
       return;
     }
     api<Patient>(`/api/v1/patients/${patientId}`)
       .then((p) => {
+        const form = formFromPatient(p);
         setPatient(p);
-        setIntake(formFromPatient(p));
+        setIntake(form);
+        setIntakeOpen(clinicalClerkshipIncomplete(form));
       })
       .catch(() => {
         setPatient(null);
@@ -142,35 +158,29 @@ export function DepartmentChairwork({
   }
 
   return (
-    <div className="space-y-4">
-      <section className="glass-panel rounded-3xl p-5">
-        <h3 className="font-display text-lg font-bold text-brand-900">Chair queue · today</h3>
-        <p className="text-xs text-muted">Open a visit into this Clinical department</p>
+    <div className="space-y-3">
+      <section className="glass-panel">
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <h3 className="font-display text-base font-bold text-brand-900">Chair queue</h3>
+          <span className="text-xs font-semibold capitalize text-muted">{dept} · today</span>
+        </div>
+        <p className="text-xs text-muted">
+          Registered to this department. Your assigned visits are listed first.
+        </p>
         {appts.length === 0 ? (
-          <EmptyState title="No chair visits queued" hint="Book from the schedule." />
+          <EmptyState
+            title="No chair visits queued"
+            hint="Finalize registration to this department to populate the queue."
+          />
         ) : (
-          <ul className="mt-3 divide-y divide-brand-100">
-            {appts.map((a) => (
-              <li key={a.id}>
-                <Link
-                  className="block rounded-xl px-3 py-2 hover:bg-brand-50"
-                  to={`?patient=${a.patient_id}`}
-                >
-                  <span className="font-semibold">{a.reason || "Visit"}</span>
-                  <span className="ml-2 text-xs text-muted capitalize">
-                    {a.status.replaceAll("_", " ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <QueueList items={appts} userId={user?.id} />
         )}
       </section>
 
       {!patientId && (
         <p className="text-sm text-muted">
-          Select a patient on this department form to open the full clerkship (intake, exam, SOAP,
-          consent) plus {dept} operations.
+          Open a queued patient after consultation fees. Complete clinical clerkship (history, pain,
+          exam), then {dept} operations.
         </p>
       )}
 
@@ -187,9 +197,9 @@ export function DepartmentChairwork({
             </Link>
           </div>
 
-          <section className="glass-panel rounded-3xl p-5">
+          <section className="glass-panel">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-display text-lg font-bold">Digital Clerkship intake</h3>
+              <h3 className="font-display text-base font-bold">Clinical clerkship</h3>
               <button
                 type="button"
                 className="btn-ghost text-xs"
@@ -200,7 +210,12 @@ export function DepartmentChairwork({
             </div>
             {intakeOpen && intake && (
               <form className="mt-3 space-y-3" onSubmit={saveIntake}>
-                <ClerkshipIntakeFields form={intake} onChange={setIntake} mode="edit" />
+                <ClerkshipIntakeFields
+                  form={intake}
+                  onChange={setIntake}
+                  mode="edit"
+                  variant="clinical"
+                />
                 <button className="btn-primary" type="submit">
                   Save intake
                 </button>
@@ -217,34 +232,41 @@ export function DepartmentChairwork({
           />
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <form className="glass-panel space-y-3 rounded-3xl p-5" onSubmit={saveNote}>
+            <form className="glass-panel space-y-2" onSubmit={saveNote}>
               <div className="flex items-center justify-between">
-                <h3 className="font-display text-lg font-bold">SOAP clinical note</h3>
+                <h3 className="font-display text-base font-bold">SOAP note</h3>
                 <button type="button" className="btn-ghost text-xs" onClick={() => void draftSoap()}>
                   AI draft
                 </button>
               </div>
+              <div className="grid gap-2 sm:grid-cols-2">
               {(["subjective", "objective", "assessment", "plan"] as const).map((field) => (
                 <div key={field}>
                   <label className="label capitalize">{field}</label>
                   <textarea
-                    className="input min-h-16"
+                    className="input"
+                    rows={2}
                     value={note[field]}
                     onChange={(e) => setNote({ ...note, [field]: e.target.value })}
                   />
                 </div>
               ))}
+              </div>
               <button className="btn-primary" type="submit">
                 Save note
               </button>
             </form>
+            <ProcedureInvoicePanel patientId={patientId} onDone={() => setMsg("Invoice created from procedures")} />
             <ConsentPad
               patientId={patientId}
               patientName={
                 patient ? `${patient.first_name} ${patient.last_name}` : undefined
               }
               onMessage={setMsg}
-              defaultGuardian={dept === "paediatric"}
+              defaultGuardian={
+                dept === "paediatric" ||
+                (patient?.date_of_birth ? (ageFromDob(patient.date_of_birth) ?? 99) < 18 : false)
+              }
               defaultProcedure={copy.consent}
             />
           </div>
@@ -258,5 +280,54 @@ export function DepartmentChairwork({
         </>
       )}
     </div>
+  );
+}
+
+function QueueList({ items, userId }: { items: ChairQueueItem[]; userId?: string }) {
+  const mine = userId ? items.filter((a) => a.dentist_id === userId) : [];
+  const rest = userId ? items.filter((a) => a.dentist_id !== userId) : items;
+  return (
+    <div className="mt-3 space-y-3">
+      {mine.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">My chair</p>
+          <ul className="divide-y divide-brand-100">{mine.map((a) => (
+            <QueueRow key={a.id} item={a} mine />
+          ))}</ul>
+        </div>
+      )}
+      {rest.length > 0 && (
+        <div>
+          {mine.length > 0 && (
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Department</p>
+          )}
+          <ul className="divide-y divide-brand-100">{rest.map((a) => (
+            <QueueRow key={a.id} item={a} />
+          ))}</ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueueRow({ item, mine }: { item: ChairQueueItem; mine?: boolean }) {
+  return (
+    <li>
+      <Link className="block rounded-xl px-3 py-2 hover:bg-brand-50" to={`?patient=${item.patient_id}`}>
+        {item.queue_number != null && (
+          <span className="mr-2 font-mono text-xs font-bold text-brand-700">Q{item.queue_number}</span>
+        )}
+        <span className="font-semibold">{item.patient_name || item.patient_code || "Patient"}</span>
+        <span className="ml-2 text-xs text-muted">
+          {item.service_name || item.reason || "Visit"}
+          {item.dentist_name ? ` · ${item.dentist_name}` : ""}
+        </span>
+        <span className="ml-2 text-xs text-muted">
+          {item.is_appointment === false ? "Walk-in" : "Appointment"}
+        </span>
+        {mine && <span className="ml-2 text-xs font-semibold text-brand-700">Yours</span>}
+        <span className="ml-2 text-xs text-muted capitalize">{item.status.replaceAll("_", " ")}</span>
+      </Link>
+    </li>
   );
 }
