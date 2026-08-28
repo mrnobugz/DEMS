@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   MedicalHistoryFlags,
   PainAssessment,
@@ -112,75 +113,6 @@ export function ageFromDob(dob: string): number | null {
 export function isMinor(form: ClerkshipFormState) {
   const age = ageFromDob(form.date_of_birth);
   return age != null && age < 18;
-}
-
-function dash(value?: string | null) {
-  const v = (value || "").trim();
-  return v || "—";
-}
-
-function joinParts(...parts: (string | null | undefined)[]) {
-  const v = parts.map((p) => (p || "").trim()).filter(Boolean);
-  return v.length ? v.join(" · ") : "—";
-}
-
-/** Always-visible identity snapshot for department clerkship. */
-export function PatientParticularsPreview({
-  form,
-  patient,
-}: {
-  form: ClerkshipFormState;
-  patient?: Patient | null;
-}) {
-  const age = ageFromDob(form.date_of_birth);
-  const address = [
-    form.house_number,
-    form.street,
-    form.area_ward,
-    form.town_city,
-    form.po_box ? `P.O. Box ${form.po_box}` : "",
-  ]
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .join(", ");
-  const rows: [string, string][] = [
-    ["Patient file", dash(patient?.patient_code)],
-    ["Hospital no.", dash(form.hospital_reg_number)],
-    ["National ID / NIDA", dash(form.national_id)],
-    ["Full name", joinParts(form.first_name, form.middle_name, form.last_name)],
-    ["Sex", dash(form.sex)],
-    [
-      "Date of birth",
-      form.date_of_birth
-        ? `${form.date_of_birth}${age != null ? ` · ${age} year${age === 1 ? "" : "s"}` : ""}`
-        : "—",
-    ],
-    ["Marital status", dash(form.marital_status)],
-    ["Telephone", dash(form.phone)],
-    ["Email", dash(form.email)],
-    ["Occupation", dash(form.occupation)],
-    ["Tribe / nationality", dash(form.tribe_nation)],
-    ["Residence", dash(address)],
-    ["Next of kin", joinParts(form.next_of_kin, form.next_of_kin_relationship, form.next_of_kin_phone)],
-    ["Emergency contact", joinParts(form.emergency_contact_name, form.emergency_contact_phone)],
-    ["Guardian", joinParts(form.guardian_name, form.guardian_relationship, form.guardian_phone)],
-    ["Insurance / NHIF", dash(form.insurance_number)],
-    ["Referred from", dash(form.referral_source)],
-    ["Visit reason", dash(form.chief_complaint)],
-    ["Assigned dentist", dash(patient?.primary_dentist_name)],
-    ["Route", dash(patient?.destination_department)],
-  ];
-
-  return (
-    <dl className="part-preview">
-      {rows.map(([label, value]) => (
-        <div key={label} className="part-preview__row">
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
 }
 
 /** Front-desk file opening only — clinical history is taken by the dentist. */
@@ -372,6 +304,7 @@ type Props = {
   mode?: "create" | "edit";
   /** reception = front desk file opening; clinical = dentist after consult fee */
   variant?: ClerkshipVariant;
+  department?: string;
 };
 
 function Req({ show }: { show?: boolean }) {
@@ -383,13 +316,17 @@ export function ClerkshipIntakeFields({
   onChange,
   mode = "create",
   variant = "all",
+  department,
 }: Props) {
   const required = mode === "create" && variant !== "clinical";
-  const showReception = variant !== "clinical";
   const showClinical = variant !== "reception";
+  const paediatric = department === "paediatric";
   const age = ageFromDob(form.date_of_birth);
   const minor = isMinor(form);
   const gaps = required ? clerkshipGaps(form) : [];
+  const [particularsOpen, setParticularsOpen] = useState(false);
+  const collapseParticulars = variant !== "reception";
+  const showParticularsFields = !collapseParticulars || particularsOpen;
 
   function set<K extends keyof ClerkshipFormState>(key: K, value: ClerkshipFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -401,24 +338,31 @@ export function ClerkshipIntakeFields({
 
   return (
     <div className="space-y-2.5">
-      {variant === "clinical" && (
-        <div className="rounded-2xl bg-brand-50 px-3 py-2 text-sm">
-          <span className="font-semibold">
-            {form.first_name} {form.middle_name} {form.last_name}
+      {collapseParticulars && (
+        <button
+          type="button"
+          className="clerk-id"
+          onClick={() => setParticularsOpen((v) => !v)}
+          aria-expanded={particularsOpen}
+        >
+          <span className="clerk-id__text">
+            <span className="font-semibold">
+              {form.first_name} {form.middle_name} {form.last_name}
+            </span>
+            {age != null && <span className="text-muted"> · {age} yrs</span>}
+            {form.sex && <span className="text-muted"> · {form.sex}</span>}
+            {form.phone && <span className="text-muted"> · {form.phone}</span>}
+            {form.chief_complaint && (
+              <span className="mt-1 block text-muted">Visit reason: {form.chief_complaint}</span>
+            )}
           </span>
-          {age != null && <span className="text-muted"> · {age} yrs</span>}
-          {form.sex && <span className="text-muted"> · {form.sex}</span>}
-          {form.phone && <span className="text-muted"> · {form.phone}</span>}
-          {form.chief_complaint && (
-            <div className="mt-1 text-muted">Visit reason: {form.chief_complaint}</div>
-          )}
-          {form.insurance_number && (
-            <div className="text-muted">Insurance / NHIF: {form.insurance_number}</div>
-          )}
-        </div>
+          <span className="reveal-toggle__action">
+            {particularsOpen ? "Hide particulars" : "Show particulars"}
+          </span>
+        </button>
       )}
 
-      {showReception && (
+      {showParticularsFields && (
       <>
       <section className={sectionClass}>
         <h4 className={titleClass}>
@@ -795,6 +739,8 @@ export function ClerkshipIntakeFields({
               placeholder="e.g. never, 6 months ago"
             />
           </div>
+          {!paediatric && (
+          <>
           <div>
             <label className="label">Smoking</label>
             <select
@@ -821,6 +767,8 @@ export function ClerkshipIntakeFields({
               <option value="regular">Regular</option>
             </select>
           </div>
+          </>
+          )}
         </div>
         <div className={fieldGrid}>
           <div>
@@ -947,6 +895,7 @@ export function ClerkshipIntakeFields({
         </div>
       </section>
 
+      {!paediatric && (
       <section className={sectionClass}>
         <h4 className={titleClass}>
           D. Reported symptoms
@@ -969,6 +918,7 @@ export function ClerkshipIntakeFields({
           ))}
         </div>
       </section>
+      )}
 
       <section className={sectionClass}>
         <label className="label">Clinical clerkship notes</label>

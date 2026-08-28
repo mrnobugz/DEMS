@@ -118,6 +118,39 @@ function cleanStr(v: string | null | undefined): string | null {
   return t || null;
 }
 
+function composeExtraOral(extra: ExtraOralExam): string {
+  if ((extra.notes || "").trim()) return extra.notes || "";
+  const lines: string[] = [];
+  const labeled: [string, string | null | undefined][] = [
+    ["Head shape", extra.head_shape],
+    ["Facial form", extra.facial_form],
+    ["Symmetry", extra.symmetry],
+    ["Proportions", extra.proportions],
+    ["Profile", extra.profile],
+    ["Skeletal anterior", extra.skeletal_anterior],
+    ["Skeletal posterior", extra.skeletal_posterior],
+    ["Skeletal vertical", extra.skeletal_vertical],
+    ["Smile line", extra.smile_line],
+    ["Nasolabial angle", extra.nasolabial_angle],
+    ["Chin", extra.chin],
+    ["Mentolabial sulcus", extra.mentolabial_sulcus],
+    ["Lip competence", extra.lip_competence],
+  ];
+  for (const [label, value] of labeled) {
+    if (value?.trim()) lines.push(`${label}: ${value.trim()}`);
+  }
+  if (extra.smile_corridor_mm != null) lines.push(`Smile corridor: ${extra.smile_corridor_mm} mm`);
+  const flags = [
+    extra.tmj_tenderness && "TMJ tenderness",
+    extra.tmj_sounds && "TMJ sounds",
+    extra.jaw_deviation && "Jaw deviation",
+    extra.restricted_movement && "Restricted movement",
+    extra.lymph_nodes_palpable && "Lymph nodes palpable",
+  ].filter(Boolean);
+  if (flags.length) lines.push(flags.join(", "));
+  return lines.join("\n");
+}
+
 export function ClinicalExamPanel({
   patientId,
   chiefComplaint,
@@ -137,6 +170,7 @@ export function ClinicalExamPanel({
   const [dx, setDx] = useState(emptyDx);
   const [notes, setNotes] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [vitalsOpen, setVitalsOpen] = useState(false);
 
   async function load() {
     const rows = await api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`);
@@ -162,6 +196,7 @@ export function ClinicalExamPanel({
     setIx(emptyIx());
     setDx(emptyDx());
     setNotes("");
+    setVitalsOpen(false);
   }
 
   function loadVisit(v: ClinicalVisit) {
@@ -171,11 +206,13 @@ export function ClinicalExamPanel({
     setComplaint(v.chief_complaint || "");
     setStatus(v.status);
     setVitals({ ...emptyVitals(), ...(v.vitals || {}) });
-    setExtra({ ...emptyExtra(), ...(v.extra_oral || {}) });
+    const nextExtra = { ...emptyExtra(), ...(v.extra_oral || {}) };
+    setExtra({ ...nextExtra, notes: composeExtraOral(nextExtra) });
     setIntra({ ...emptyIntra(), ...(v.intra_oral || {}) });
     setIx({ ...emptyIx(), ...(v.investigations || {}) });
     setDx({ ...emptyDx(), ...(v.diagnosis || {}) });
     setNotes(v.notes || "");
+    setVitalsOpen(false);
   }
 
   function payload() {
@@ -264,7 +301,7 @@ export function ClinicalExamPanel({
         <div>
           <h3 className="font-display text-base font-bold">Clinical examination</h3>
           <p className="text-xs text-muted">
-            Vitals · extra-oral · intra-oral · investigations · diagnosis
+            Extra-oral · intra-oral · investigations · diagnosis
             {department ? ` · ${department}` : ""}
           </p>
         </div>
@@ -314,38 +351,20 @@ export function ClinicalExamPanel({
 
       {open && (
         <form className="space-y-5 border-t border-brand-50 pt-4" onSubmit={onSave}>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <label className="label">Visit date</label>
-              <input
-                className="input"
-                type="date"
-                required
-                value={visitDate}
-                onChange={(e) => setVisitDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">Status</label>
-              <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="in_progress">In progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-            <div className="md:col-span-1">
-              <label className="label">Chief complaint (this visit)</label>
-              <input
-                className="input"
-                value={complaint}
-                onChange={(e) => setComplaint(e.target.value)}
-              />
-            </div>
-          </div>
-
           <section className="space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Vital signs & general
-            </h4>
+            <button
+              type="button"
+              className="reveal-toggle"
+              onClick={() => setVitalsOpen((v) => !v)}
+              aria-expanded={vitalsOpen}
+            >
+              <span className="reveal-toggle__text">
+                <span className="reveal-toggle__title">Vital signs</span>
+                <span className="reveal-toggle__hint">BP, pulse, height, weight, appearance</span>
+              </span>
+              <span className="reveal-toggle__action">{vitalsOpen ? "Hide" : "Show"}</span>
+            </button>
+            {vitalsOpen && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="label">BP systolic</label>
@@ -400,15 +419,11 @@ export function ClinicalExamPanel({
               </div>
               <div>
                 <label className="label">Appearance</label>
-                <select
+                <input
                   className="input"
                   value={vitals.appearance || ""}
                   onChange={(e) => setVitals({ ...vitals, appearance: e.target.value })}
-                >
-                  <option value="">—</option>
-                  <option value="healthy_looking">Healthy-looking</option>
-                  <option value="ill_looking">Ill-looking</option>
-                </select>
+                />
               </div>
               <div>
                 <label className="label">Posture</label>
@@ -427,81 +442,20 @@ export function ClinicalExamPanel({
                 />
               </div>
             </div>
+            )}
           </section>
 
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
               Extra-oral examination
             </h4>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {(
-                [
-                  ["facial_form", "Facial form"],
-                  ["symmetry", "Symmetry"],
-                  ["profile", "Profile"],
-                  ["skeletal_anterior", "Skeletal (anterior)"],
-                  ["skeletal_posterior", "Skeletal (posterior)"],
-                  ["skeletal_vertical", "Skeletal (vertical)"],
-                  ["smile_line", "Smile line"],
-                  ["nasolabial_angle", "Nasolabial angle"],
-                  ["chin", "Chin"],
-                  ["mentolabial_sulcus", "Mentolabial sulcus"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key}>
-                  <label className="label">{label}</label>
-                  <input
-                    className="input"
-                    value={(extra[key] as string) || ""}
-                    onChange={(e) => setExtra({ ...extra, [key]: e.target.value })}
-                  />
-                </div>
-              ))}
-              <div>
-                <label className="label">Smile corridor (mm)</label>
-                <input
-                  className="input"
-                  type="number"
-                  step="0.1"
-                  value={extra.smile_corridor_mm ?? ""}
-                  onChange={(e) =>
-                    setExtra({ ...extra, smile_corridor_mm: numOrNull(e.target.value) })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label">Lip competence</label>
-                <select
-                  className="input"
-                  value={extra.lip_competence || ""}
-                  onChange={(e) => setExtra({ ...extra, lip_competence: e.target.value })}
-                >
-                  <option value="">—</option>
-                  <option value="competent">Competent</option>
-                  <option value="incompetent">Incompetent</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-4 text-sm">
-              {(
-                [
-                  ["tmj_tenderness", "TMJ tenderness"],
-                  ["tmj_sounds", "TMJ sounds"],
-                  ["jaw_deviation", "Jaw deviation"],
-                  ["restricted_movement", "Restricted movement"],
-                  ["lymph_nodes_palpable", "Lymph nodes palpable"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(extra[key])}
-                    onChange={(e) => setExtra({ ...extra, [key]: e.target.checked })}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
+            <textarea
+              className="input"
+              rows={5}
+              value={extra.notes || ""}
+              onChange={(e) => setExtra({ ...extra, notes: e.target.value })}
+              placeholder="Head, face, TMJ, lymph nodes, profile, symmetry, lips…"
+            />
           </section>
 
           <section className="space-y-2">

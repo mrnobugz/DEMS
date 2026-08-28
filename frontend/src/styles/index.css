@@ -797,8 +797,25 @@ html.chairside .odontogram-tooth {
   color: var(--demsta-brand-700, #0a4ad6);
 }
 
-.reveal-toggle__preview {
-  margin-top: 0.65rem;
+.clerk-id {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 14px;
+  background: var(--demsta-brand-50, #eef4ff);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.clerk-id__text {
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.35;
 }
 
 .reveal-toggle__body {

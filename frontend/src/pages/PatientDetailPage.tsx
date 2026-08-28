@@ -506,6 +506,7 @@ export function PatientDetailPage() {
             onChange={setIntakeForm}
             mode="edit"
             variant={user?.role === "receptionist" ? "reception" : "all"}
+            department={patient.destination_department || undefined}
           />
           <button className="btn-primary">Save intake</button>
         </form>
@@ -517,6 +518,7 @@ export function PatientDetailPage() {
         patientId={id}
         chiefComplaint={patient.chief_complaint}
         onMessage={setMsg}
+        department={patient.destination_department || undefined}
       />
 
       <Odontogram

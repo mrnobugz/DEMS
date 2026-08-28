@@ -8,7 +8,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ClerkshipIntakeFields,
-  PatientParticularsPreview,
   ageFromDob,
   clerkshipPayload,
   formFromPatient,
@@ -61,7 +60,6 @@ export function DepartmentChairwork({
   const [patient, setPatient] = useState<Patient | null>(null);
   const [intake, setIntake] = useState<ClerkshipFormState | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
-  const [particularsOpen, setParticularsOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
 
@@ -90,7 +88,6 @@ export function DepartmentChairwork({
       setPatient(null);
       setIntake(null);
       setIntakeOpen(false);
-      setParticularsOpen(false);
       return;
     }
     api<Patient>(`/api/v1/patients/${patientId}`)
@@ -99,7 +96,6 @@ export function DepartmentChairwork({
         setPatient(p);
         setIntake(form);
         setIntakeOpen(false);
-        setParticularsOpen(false);
       })
       .catch(() => {
         setPatient(null);
@@ -202,29 +198,6 @@ export function DepartmentChairwork({
           </div>
 
           <RevealSection
-            title="Patient particulars"
-            hint="Full identity, residence, contacts, insurance, and guardian"
-            open={particularsOpen}
-            onOpenChange={setParticularsOpen}
-            showLabel="Edit"
-            preview={intake ? <PatientParticularsPreview form={intake} patient={patient} /> : null}
-          >
-            {intake && (
-              <form className="space-y-3" onSubmit={saveIntake}>
-                <ClerkshipIntakeFields
-                  form={intake}
-                  onChange={setIntake}
-                  mode="edit"
-                  variant="reception"
-                />
-                <button className="btn-primary" type="submit">
-                  Save particulars
-                </button>
-              </form>
-            )}
-          </RevealSection>
-
-          <RevealSection
             title="Clinical clerkship"
             hint={copy.exam}
             open={intakeOpen}
@@ -234,10 +207,12 @@ export function DepartmentChairwork({
             {intake && (
               <form className="space-y-3" onSubmit={saveIntake}>
                 <ClerkshipIntakeFields
+                  key={patientId}
                   form={intake}
                   onChange={setIntake}
                   mode="edit"
                   variant="clinical"
+                  department={dept}
                 />
                 <button className="btn-primary" type="submit">
                   Save intake
