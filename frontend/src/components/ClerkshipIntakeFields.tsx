@@ -632,6 +632,7 @@ export function ClerkshipIntakeFields({
         </section>
       )}
 
+      {!paediatric && (
         <div className={sectionClass}>
           <label className="label">Reason for visit (patient&apos;s words)</label>
           <textarea
@@ -642,6 +643,7 @@ export function ClerkshipIntakeFields({
             placeholder="Optional — toothache, cleaning, swelling…"
           />
         </div>
+      )}
       </>
       )}
 
@@ -652,6 +654,7 @@ export function ClerkshipIntakeFields({
           Clinical anamnesis (dentist)
         </h4>
         <div className={fieldGrid}>
+          {!paediatric && (
           <div>
             <label className="label">
               Chief complaint
@@ -666,6 +669,7 @@ export function ClerkshipIntakeFields({
               placeholder="In the patient's words — why they came today"
             />
           </div>
+          )}
           <div>
             <label className="label">History of presenting complaint</label>
             <textarea
@@ -730,6 +734,7 @@ export function ClerkshipIntakeFields({
               </select>
             </div>
           )}
+          {!paediatric && (
           <div>
             <label className="label">Last dental visit</label>
             <input
@@ -739,6 +744,7 @@ export function ClerkshipIntakeFields({
               placeholder="e.g. never, 6 months ago"
             />
           </div>
+          )}
           {!paediatric && (
           <>
           <div>
