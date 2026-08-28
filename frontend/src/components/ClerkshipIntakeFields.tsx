@@ -114,6 +114,75 @@ export function isMinor(form: ClerkshipFormState) {
   return age != null && age < 18;
 }
 
+function dash(value?: string | null) {
+  const v = (value || "").trim();
+  return v || "—";
+}
+
+function joinParts(...parts: (string | null | undefined)[]) {
+  const v = parts.map((p) => (p || "").trim()).filter(Boolean);
+  return v.length ? v.join(" · ") : "—";
+}
+
+/** Always-visible identity snapshot for department clerkship. */
+export function PatientParticularsPreview({
+  form,
+  patient,
+}: {
+  form: ClerkshipFormState;
+  patient?: Patient | null;
+}) {
+  const age = ageFromDob(form.date_of_birth);
+  const address = [
+    form.house_number,
+    form.street,
+    form.area_ward,
+    form.town_city,
+    form.po_box ? `P.O. Box ${form.po_box}` : "",
+  ]
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .join(", ");
+  const rows: [string, string][] = [
+    ["Patient file", dash(patient?.patient_code)],
+    ["Hospital no.", dash(form.hospital_reg_number)],
+    ["National ID / NIDA", dash(form.national_id)],
+    ["Full name", joinParts(form.first_name, form.middle_name, form.last_name)],
+    ["Sex", dash(form.sex)],
+    [
+      "Date of birth",
+      form.date_of_birth
+        ? `${form.date_of_birth}${age != null ? ` · ${age} year${age === 1 ? "" : "s"}` : ""}`
+        : "—",
+    ],
+    ["Marital status", dash(form.marital_status)],
+    ["Telephone", dash(form.phone)],
+    ["Email", dash(form.email)],
+    ["Occupation", dash(form.occupation)],
+    ["Tribe / nationality", dash(form.tribe_nation)],
+    ["Residence", dash(address)],
+    ["Next of kin", joinParts(form.next_of_kin, form.next_of_kin_relationship, form.next_of_kin_phone)],
+    ["Emergency contact", joinParts(form.emergency_contact_name, form.emergency_contact_phone)],
+    ["Guardian", joinParts(form.guardian_name, form.guardian_relationship, form.guardian_phone)],
+    ["Insurance / NHIF", dash(form.insurance_number)],
+    ["Referred from", dash(form.referral_source)],
+    ["Visit reason", dash(form.chief_complaint)],
+    ["Assigned dentist", dash(patient?.primary_dentist_name)],
+    ["Route", dash(patient?.destination_department)],
+  ];
+
+  return (
+    <dl className="part-preview">
+      {rows.map(([label, value]) => (
+        <div key={label} className="part-preview__row">
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** Front-desk file opening only — clinical history is taken by the dentist. */
 export function clerkshipGaps(form: ClerkshipFormState): string[] {
   const gaps: string[] = [];
@@ -572,20 +641,20 @@ export function ClerkshipIntakeFields({
         </div>
       </section>
 
-      {minor && (
-        <section className="reg-section border-amber-200 bg-amber-50/70">
-          <h4 className="reg-section__title text-amber-800">
-            Guardian (patient under 18)
+      {(minor || mode === "edit") && (
+        <section className={`reg-section${minor ? " border-amber-200 bg-amber-50/70" : ""}`}>
+          <h4 className={`reg-section__title${minor ? " text-amber-800" : ""}`}>
+            Guardian{minor ? " (patient under 18)" : ""}
           </h4>
           <div className={fieldGrid}>
             <div>
               <label className="label">
                 Guardian name
-                <Req show />
+                <Req show={minor} />
               </label>
               <input
                 className="input"
-                required
+                required={minor}
                 value={form.guardian_name}
                 onChange={(e) => set("guardian_name", e.target.value)}
               />
@@ -593,11 +662,11 @@ export function ClerkshipIntakeFields({
             <div>
               <label className="label">
                 Relationship
-                <Req show />
+                <Req show={minor} />
               </label>
               <input
                 className="input"
-                required
+                required={minor}
                 value={form.guardian_relationship}
                 onChange={(e) => set("guardian_relationship", e.target.value)}
                 placeholder="Mother, father, aunt…"
@@ -606,11 +675,11 @@ export function ClerkshipIntakeFields({
             <div>
               <label className="label">
                 Telephone
-                <Req show />
+                <Req show={minor} />
               </label>
               <input
                 className="input"
-                required
+                required={minor}
                 value={form.guardian_phone}
                 onChange={(e) => set("guardian_phone", e.target.value)}
               />

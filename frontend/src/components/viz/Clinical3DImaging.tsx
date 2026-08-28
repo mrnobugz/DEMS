@@ -5,6 +5,7 @@
  * measurements, render presets, and darkroom.
  */
 
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { api } from "@/lib/api";
@@ -492,6 +493,7 @@ export function Clinical3DImaging({
   onAction,
   extraImplants = [],
 }: Props) {
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>("orthogonal");
   const [tool, setTool] = useState<Tool>("select");
   const [axial, setAxial] = useState(50);
@@ -808,15 +810,27 @@ export function Clinical3DImaging({
   const body = (
     <section className={`space-y-3 ${darkroom ? "" : "glass-panel"}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-            CS 3D Imaging · {mode}
-          </p>
-          <h3 className="font-display text-lg font-bold text-brand-900">3D volume workspace</h3>
-          <p className="text-xs text-muted">
-            Linked MPR · W/L · auto arch/nerve · AI virtual crown · PDIP · canal trace
-          </p>
-        </div>
+        <button
+          type="button"
+          className="reveal-toggle flex-1 text-left"
+          onClick={() => setWorkspaceOpen((v) => !v)}
+          aria-expanded={workspaceOpen}
+        >
+          <span className="reveal-toggle__icon" aria-hidden>
+            {workspaceOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </span>
+          <span className="reveal-toggle__text">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted">
+              CS 3D Imaging · {mode}
+            </span>
+            <span className="reveal-toggle__title">3D volume workspace</span>
+            <span className="reveal-toggle__hint">
+              Linked MPR · W/L · auto arch/nerve · AI virtual crown · PDIP · canal trace
+            </span>
+          </span>
+          <span className="reveal-toggle__action">{workspaceOpen ? "Hide" : "Show"}</span>
+        </button>
+        {workspaceOpen && (
         <div className="flex flex-wrap gap-1">
           {(["orthogonal", "curved", "oblique"] as const).map((w) => (
             <button
@@ -845,8 +859,11 @@ export function Clinical3DImaging({
             {darkroom ? "Exit darkroom" : "Darkroom"}
           </button>
         </div>
+        )}
       </div>
 
+      {workspaceOpen && (
+      <>
       <div className="flex flex-wrap gap-1">
         {TOOLS.map((t) => (
           <button
@@ -1374,6 +1391,8 @@ export function Clinical3DImaging({
           </ul>
         )}
       </div>
+      </>
+      )}
     </section>
   );
 

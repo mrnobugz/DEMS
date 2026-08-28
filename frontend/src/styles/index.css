@@ -745,6 +745,100 @@ html.chairside .odontogram-tooth {
   }
 }
 
+.reveal-toggle {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reveal-toggle__icon {
+  display: inline-flex;
+  margin-top: 0.15rem;
+  color: var(--demsta-brand-600, #0b5fff);
+  flex: none;
+}
+
+.reveal-toggle__text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.reveal-toggle__title {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--demsta-brand-900, #041e5c);
+  line-height: 1.2;
+}
+
+.reveal-toggle__hint {
+  font-size: 0.72rem;
+  color: var(--demsta-muted);
+  line-height: 1.35;
+}
+
+.reveal-toggle__action {
+  flex: none;
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--demsta-brand-700, #0a4ad6);
+}
+
+.reveal-toggle__preview {
+  margin-top: 0.65rem;
+}
+
+.reveal-toggle__body {
+  margin-top: 0.7rem;
+}
+
+.part-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.85rem;
+}
+
+.part-preview__row {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.part-preview__row dt {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--demsta-muted);
+}
+
+.part-preview__row dd {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--demsta-brand-900, #041e5c);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .part-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
 .clin-shell {
   max-width: 80rem;
 }

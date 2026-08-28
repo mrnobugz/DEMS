@@ -8,9 +8,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ClerkshipIntakeFields,
+  PatientParticularsPreview,
   ageFromDob,
   clerkshipPayload,
-  clinicalClerkshipIncomplete,
   formFromPatient,
   type ClerkshipFormState,
 } from "@/components/ClerkshipIntakeFields";
@@ -20,6 +20,7 @@ import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { EmptyState } from "@/components/EmptyState";
 import { EndoPanel } from "@/components/EndoPanel";
 import { RestorativePanel } from "@/components/RestorativePanel";
+import { RevealSection } from "@/components/RevealSection";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ChairQueueItem, Patient } from "@/lib/types";
@@ -60,6 +61,7 @@ export function DepartmentChairwork({
   const [patient, setPatient] = useState<Patient | null>(null);
   const [intake, setIntake] = useState<ClerkshipFormState | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [particularsOpen, setParticularsOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
 
@@ -88,6 +90,7 @@ export function DepartmentChairwork({
       setPatient(null);
       setIntake(null);
       setIntakeOpen(false);
+      setParticularsOpen(false);
       return;
     }
     api<Patient>(`/api/v1/patients/${patientId}`)
@@ -95,7 +98,8 @@ export function DepartmentChairwork({
         const form = formFromPatient(p);
         setPatient(p);
         setIntake(form);
-        setIntakeOpen(clinicalClerkshipIncomplete(form));
+        setIntakeOpen(false);
+        setParticularsOpen(false);
       })
       .catch(() => {
         setPatient(null);
@@ -197,19 +201,38 @@ export function DepartmentChairwork({
             </Link>
           </div>
 
-          <section className="glass-panel">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-display text-base font-bold">Clinical clerkship</h3>
-              <button
-                type="button"
-                className="btn-ghost text-xs"
-                onClick={() => setIntakeOpen((v) => !v)}
-              >
-                {intakeOpen ? "Hide intake" : "Edit clerkship intake"}
-              </button>
-            </div>
-            {intakeOpen && intake && (
-              <form className="mt-3 space-y-3" onSubmit={saveIntake}>
+          <RevealSection
+            title="Patient particulars"
+            hint="Full identity, residence, contacts, insurance, and guardian"
+            open={particularsOpen}
+            onOpenChange={setParticularsOpen}
+            showLabel="Edit"
+            preview={intake ? <PatientParticularsPreview form={intake} patient={patient} /> : null}
+          >
+            {intake && (
+              <form className="space-y-3" onSubmit={saveIntake}>
+                <ClerkshipIntakeFields
+                  form={intake}
+                  onChange={setIntake}
+                  mode="edit"
+                  variant="reception"
+                />
+                <button className="btn-primary" type="submit">
+                  Save particulars
+                </button>
+              </form>
+            )}
+          </RevealSection>
+
+          <RevealSection
+            title="Clinical clerkship"
+            hint={copy.exam}
+            open={intakeOpen}
+            onOpenChange={setIntakeOpen}
+            showLabel="Show"
+          >
+            {intake && (
+              <form className="space-y-3" onSubmit={saveIntake}>
                 <ClerkshipIntakeFields
                   form={intake}
                   onChange={setIntake}
@@ -221,7 +244,7 @@ export function DepartmentChairwork({
                 </button>
               </form>
             )}
-          </section>
+          </RevealSection>
 
           <ClinicalExamPanel
             patientId={patientId}

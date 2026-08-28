@@ -14,6 +14,7 @@ import { Odontogram } from "@/components/Odontogram";
 import { PerioChart } from "@/components/PerioChart";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { EndoPanel } from "@/components/EndoPanel";
+import { RevealSection } from "@/components/RevealSection";
 import { ToothHistoryPanel } from "@/components/ToothHistoryPanel";
 import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
 import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
@@ -526,14 +527,15 @@ export function PatientDetailPage() {
         patientId={id}
       />
 
-      <section className="glass-panel">
-        <h3 className="font-display text-lg font-bold text-brand-900">3D odontogram + objects</h3>
-        <p className="mb-2 text-sm text-muted">
-          Mapped anatomy — tap a tooth to select it across all panels · toggle nerve / implant / endo objects
-        </p>
+      <RevealSection
+        title="3D odontogram + objects"
+        hint="Mapped anatomy — tap a tooth to select it · toggle nerve / implant / endo objects"
+        showLabel="Show 3D workspace"
+      >
         <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
           <Mouth3DLazy
             title="Patient 3D odontogram"
+            eager
             colors={chart3dColors}
             selected={selectedTooth}
             onSelect={setSelectedTooth}
@@ -556,7 +558,7 @@ export function PatientDetailPage() {
             onToggle={(key) => setObjectLayers((o) => ({ ...o, [key]: !o[key] }))}
           />
         </div>
-      </section>
+      </RevealSection>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ToothHistoryPanel patientId={id} toothNumber={selectedTooth} />
