@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Icd10Picker } from "@/components/Icd10Picker";
-import { api, ApiError } from "@/lib/api";
+import { api, apiUpload, ApiError } from "@/lib/api";
 import type {
   ClinicalVisit,
   ExtraOralExam,
@@ -171,6 +171,8 @@ export function ClinicalExamPanel({
   const [notes, setNotes] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [vitalsOpen, setVitalsOpen] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const paediatric = department === "paediatric";
 
   async function load() {
     const rows = await api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`);
@@ -197,6 +199,38 @@ export function ClinicalExamPanel({
     setDx(emptyDx());
     setNotes("");
     setVitalsOpen(false);
+  }
+
+  async function uploadExamImage(file: File) {
+    setPhotoBusy(true);
+    try {
+      const kind = file.type.startsWith("image/") ? "photo" : "PA";
+      const study = await api<{ id: string }>(
+        "/api/v1/imaging/studies",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            patient_id: patientId,
+            study_type: kind,
+            notes: "Paediatric exam investigation",
+          }),
+        },
+      );
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      await apiUpload(`/api/v1/imaging/studies/${study.id}/upload`, fd);
+      setIx((prev) => ({
+        ...prev,
+        photography_type: kind === "photo" ? "intra_oral" : prev.photography_type,
+        photography_storage_key: study.id,
+        photography_notes: file.name,
+      }));
+      onMessage("Image uploaded");
+    } catch (err) {
+      onMessage(err instanceof ApiError ? err.message : "Could not upload the image");
+    } finally {
+      setPhotoBusy(false);
+    }
   }
 
   function loadVisit(v: ClinicalVisit) {
@@ -513,8 +547,55 @@ export function ClinicalExamPanel({
 
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Investigations (structured pulp / photo / radiograph)
+              Investigations
             </h4>
+            {paediatric ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="label">Percussion</label>
+                  <select
+                    className="input"
+                    value={ix.pulp_percussion_result || ""}
+                    onChange={(e) => setIx({ ...ix, pulp_percussion_result: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    {["positive", "negative", "delayed"].map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label">Radiographic</label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={ix.radiograph_notes || ""}
+                    onChange={(e) => setIx({ ...ix, radiograph_notes: e.target.value })}
+                    placeholder="Radiograph findings…"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label">Upload image / photo</label>
+                  <input
+                    className="input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/*,.dcm,application/dicom"
+                    disabled={photoBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) void uploadExamImage(file);
+                    }}
+                  />
+                  {photoBusy && <p className="mt-1 text-xs text-muted">Uploading…</p>}
+                  {ix.photography_notes && (
+                    <p className="mt-1 text-xs text-brand-800">Uploaded: {ix.photography_notes}</p>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {(
                 [
@@ -635,6 +716,7 @@ export function ClinicalExamPanel({
                 </div>
               ))}
             </div>
+            )}
           </section>
 
           <section className="space-y-2">

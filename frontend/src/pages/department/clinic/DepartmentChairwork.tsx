@@ -230,6 +230,7 @@ export function DepartmentChairwork({
           />
 
           <div className="grid gap-4 lg:grid-cols-2">
+            {dept !== "paediatric" && (
             <form className="glass-panel space-y-2" onSubmit={saveNote}>
               <div className="flex items-center justify-between">
                 <h3 className="font-display text-base font-bold">SOAP note</h3>
@@ -254,6 +255,7 @@ export function DepartmentChairwork({
                 Save note
               </button>
             </form>
+            )}
             <ProcedureInvoicePanel patientId={patientId} onDone={() => setMsg("Invoice created from procedures")} />
             <ConsentPad
               patientId={patientId}
