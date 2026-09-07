@@ -253,7 +253,7 @@ const ALL: NavEntry[] = [
     anyPermission: ["reports:own", "reports:financial", "reports:*"],
   },
   {
-    to: "/",
+    to: "/dashboard/modules",
     labelKey: "dashboard",
     icon: LayoutDashboard,
   },
@@ -313,29 +313,11 @@ export function flatNavForRole(
   });
 }
 
-export function roleHomePath(role: string | undefined | null): string {
-  switch (role) {
-    case "super_admin":
-      return "/owner";
-    case "clinic_admin":
-      return "/admin";
-    case "receptionist":
-      return "/front-desk";
-    case "dentist":
-      return "/clinical/restorative";
-    case "hygienist":
-      return "/hygiene";
-    case "imaging_tech":
-      return "/imaging";
-    case "lab_tech":
-      return "/lab";
-    case "pharmacy":
-      return "/pharmacy";
-    case "accountant":
-      return "/billing";
-    default:
-      return "/";
-  }
+export const MODULES_DASHBOARD_PATH = "/dashboard/modules";
+
+/** Every staff role lands on the modules dashboard. Do not branch on role name. */
+export function roleHomePath(_role?: string | undefined | null): string {
+  return MODULES_DASHBOARD_PATH;
 }
 
 export function roleHomeLabel(role: string | undefined | null): string {

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { DemstaLogo } from "@/components/DemstaLogo";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { roleHomePath } from "@/lib/nav";
+import { MODULES_DASHBOARD_PATH } from "@/lib/nav";
 import type { User } from "@/lib/types";
 
 export function LoginPage() {
@@ -29,7 +29,7 @@ export function LoginPage() {
         body: JSON.stringify({ email, password, clinic_code: clinicCode }),
       });
       setSession(data.access_token, data.refresh_token, data.user);
-      navigate(roleHomePath(data.user.role));
+      navigate(MODULES_DASHBOARD_PATH);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login failed");
     } finally {

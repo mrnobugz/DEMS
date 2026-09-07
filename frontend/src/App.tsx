@@ -2,11 +2,11 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { RequireRole } from "@/components/RequireRole";
 import { useAuth } from "@/lib/auth";
-import { roleHomePath } from "@/lib/nav";
+import { MODULES_DASHBOARD_PATH } from "@/lib/nav";
 import { AiAssistPage } from "@/pages/AiAssistPage";
 import { BillingPage } from "@/pages/BillingPage";
-import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { ModulesDashboardPage } from "@/pages/ModulesDashboardPage";
 import { PatientDetailPage } from "@/pages/PatientDetailPage";
 import { PatientsPage } from "@/pages/PatientsPage";
 import { PortalHomePage } from "@/pages/PortalHomePage";
@@ -32,11 +32,6 @@ function ProtectedLayout() {
   return <AppShell />;
 }
 
-function RoleHomeRedirect() {
-  const role = useAuth((s) => s.user?.role);
-  return <Navigate to={roleHomePath(role)} replace />;
-}
-
 export default function App() {
   return (
     <Routes>
@@ -44,8 +39,9 @@ export default function App() {
       <Route path="/portal/login" element={<PortalLoginPage />} />
       <Route path="/portal" element={<PortalHomePage />} />
       <Route element={<ProtectedLayout />}>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/home" element={<RoleHomeRedirect />} />
+        <Route path="/" element={<Navigate to={MODULES_DASHBOARD_PATH} replace />} />
+        <Route path="/home" element={<Navigate to={MODULES_DASHBOARD_PATH} replace />} />
+        <Route path="/dashboard/modules" element={<ModulesDashboardPage />} />
         <Route
           path="/owner"
           element={
@@ -169,7 +165,7 @@ export default function App() {
         />
         <Route path="/ai" element={<AiAssistPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/home" replace />} />
+      <Route path="*" element={<Navigate to={MODULES_DASHBOARD_PATH} replace />} />
     </Routes>
   );
 }

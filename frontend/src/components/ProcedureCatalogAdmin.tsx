@@ -96,7 +96,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
       <div className="clin-head">
         <div>
           <h3 className="font-display text-base font-bold text-brand-900">Billing procedures</h3>
-          <p className="text-xs text-muted">Admin-owned prices specialists pick when invoicing.</p>
+          <p className="text-xs text-muted">Admin-owned procedure SKUs. Prices are versioned in the catalog fee schedule.</p>
         </div>
         <p className="text-[11px] text-muted">
           {visible.length} shown · {items.length} total

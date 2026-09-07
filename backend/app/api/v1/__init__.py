@@ -11,6 +11,7 @@ from app.api.v1 import (
     insurance,
     inventory,
     lab,
+    me,
     notifications,
     ops,
     owner,
@@ -24,6 +25,7 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(me.router)
 api_router.include_router(patients.router)
 api_router.include_router(appointments.router)
 api_router.include_router(clinical.router)

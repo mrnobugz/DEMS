@@ -90,6 +90,7 @@ export function AppShell() {
     location.pathname.startsWith("/admin") ||
     location.pathname.startsWith("/inventory") ||
     location.pathname.startsWith("/billing");
+  const modulesLanding = location.pathname.startsWith("/dashboard/modules");
   const chairside = useUiPrefs((s) => s.chairside);
   const toggleChairside = useUiPrefs((s) => s.toggleChairside);
   const links = navForRole(user?.role, user?.effective_permissions);
@@ -110,7 +111,8 @@ export function AppShell() {
       </a>
       <OfflineBanner />
 
-      <div className="lg:grid lg:grid-cols-[260px_1fr]">
+      <div className={modulesLanding ? "" : "lg:grid lg:grid-cols-[260px_1fr]"}>
+        {!modulesLanding && (
         <aside
           className="app-shell__aside glass-panel m-3 hidden flex-col rounded-3xl p-5 lg:flex"
           aria-label="Primary"
@@ -127,7 +129,7 @@ export function AppShell() {
                 <NavLink
                   key={entry.to}
                   to={entry.to}
-                  end={entry.to === "/"}
+                  end={entry.to === "/" || entry.to === "/dashboard/modules"}
                   className={navLinkClass}
                 >
                   <entry.icon size={18} aria-hidden />
@@ -180,13 +182,14 @@ export function AppShell() {
             </button>
           </div>
         </aside>
+        )}
 
         <div className="flex min-h-screen flex-col">
-          <header className={`flex items-center justify-between gap-3 px-4 lg:px-8 ${compactWorkspace ? "py-2" : "py-4"}`}>
-            <div className="lg:hidden">
-              <DemstaLogo withWordmark size={36} />
+          <header className={`flex items-center justify-between gap-3 px-4 lg:px-8 ${modulesLanding || compactWorkspace ? "py-2" : "py-4"}`}>
+            <div className={modulesLanding ? "" : "lg:hidden"}>
+              <DemstaLogo withWordmark size={modulesLanding ? 40 : 36} />
             </div>
-            {!compactWorkspace && (
+            {!modulesLanding && !compactWorkspace && (
             <div className="app-shell__header-title hidden lg:block">
               <p className="text-sm text-muted">{t("clinicOps")}</p>
               <h1 className="font-display text-2xl font-bold text-brand-900">
@@ -212,18 +215,33 @@ export function AppShell() {
               <div className="rounded-full border border-brand-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-brand-700">
                 DEMSTA · Live
               </div>
+              {modulesLanding && (
+                <button
+                  type="button"
+                  className="btn-ghost flex items-center gap-2 text-sm"
+                  onClick={() => {
+                    clear();
+                    navigate("/login");
+                  }}
+                >
+                  <LogOut size={16} aria-hidden />
+                  <span className="hidden sm:inline">{t("signOut")}</span>
+                </button>
+              )}
             </div>
           </header>
 
           <main
             id="main-content"
-            className={`app-shell__main flex-1 px-4 pb-24 lg:pb-6 ${compactWorkspace ? "lg:px-6" : "lg:px-8 lg:pb-8"}`}
+            className={`app-shell__main flex-1 overflow-visible px-4 ${
+              modulesLanding ? "pb-10 lg:px-10 lg:pb-12" : compactWorkspace ? "pb-24 lg:px-6 lg:pb-6" : "pb-24 lg:px-8 lg:pb-8"
+            }`}
             tabIndex={-1}
           >
             <Outlet />
           </main>
 
-          {!chairside && (
+          {!chairside && !modulesLanding && (
             <nav
               className="glass-panel sticky bottom-3 z-10 mx-3 flex justify-around rounded-2xl p-2 lg:hidden"
               aria-label="Mobile"

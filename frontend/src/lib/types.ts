@@ -398,6 +398,36 @@ export type FeeScheduleItem = {
   billable: boolean;
   notes?: string | null;
   clinic_id: string;
+  catalog_item_id?: string | null;
+};
+
+export type CatalogFeeRate = {
+  id: string;
+  catalog_item_id: string;
+  payer_name: string;
+  amount: number;
+  effective_from: string;
+};
+
+export type CatalogItem = {
+  id: string;
+  sku: string;
+  kind: string;
+  label: string;
+  list_price: number;
+  currency: string;
+  is_active: boolean;
+  billable: boolean;
+  category_id?: string | null;
+  notes?: string | null;
+  cdt_code?: string | null;
+  tooth_required: boolean;
+  ndc_code?: string | null;
+  drug_schedule?: string | null;
+  unit_of_measure?: string | null;
+  vendor_fee_basis?: string | null;
+  clinic_id: string;
+  fee_rates: CatalogFeeRate[];
 };
 
 export type ClinicalNote = {
@@ -487,6 +517,7 @@ export type Invoice = {
   discount: number;
   total: number;
   amount_paid: number;
+  amount_adjusted?: number;
   outstanding?: boolean;
   currency: string;
   notes?: string | null;
@@ -500,6 +531,12 @@ export type Invoice = {
     total: number;
     procedure_code?: string | null;
     chart_entry_id?: string | null;
+    fee_charged?: number;
+    estimated_insurance?: number;
+    estimated_patient?: number;
+    actual_insurance?: number;
+    actual_patient?: number;
+    charge_status?: string;
   }>;
   payments: Array<{
     id: string;
@@ -507,6 +544,54 @@ export type Invoice = {
     method: string;
     paid_at: string;
   }>;
+};
+
+export type InsuranceClaim = {
+  id: string;
+  patient_id: string;
+  invoice_id: string;
+  plan_id?: string | null;
+  claim_number: string;
+  status: string;
+  submitted_at?: string | null;
+  adjudicated_at?: string | null;
+  scrub_notes?: string | null;
+  notes?: string | null;
+  lines: Array<{
+    id: string;
+    line_item_id: string;
+    billed_amount: number;
+    allowed_amount?: number | null;
+    paid_amount: number;
+    patient_responsibility: number;
+    status: string;
+    denial_reason?: string | null;
+  }>;
+};
+
+export type ClaimDenial = {
+  claim_id: string;
+  claim_number: string;
+  claim_line_id: string;
+  invoice_id: string;
+  patient_id: string;
+  procedure: string;
+  procedure_code?: string | null;
+  billed_amount: number;
+  paid_amount: number;
+  status: string;
+  denial_reason?: string | null;
+};
+
+export type PatientStatement = {
+  id: string;
+  patient_id: string;
+  statement_number: string;
+  balance_due: number;
+  due_date?: string | null;
+  issued_at: string;
+  notes?: string | null;
+  invoice_ids?: string | null;
 };
 
 export type PatientRegisterResult = {

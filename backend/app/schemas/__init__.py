@@ -97,6 +97,15 @@ class UserOut(ORMModel):
         return data
 
 
+class ModuleOut(BaseModel):
+    key: str
+    name: str
+    description: str
+    icon: str
+    route_path: str
+    sort_order: int = 0
+
+
 # ── Patients (Digital Clerkship + demographics) ───────
 class PatientCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -656,6 +665,12 @@ class InvoiceLineOut(ORMModel):
     total: float
     procedure_code: Optional[str] = None
     chart_entry_id: Optional[str] = None
+    fee_charged: float = 0.0
+    estimated_insurance: float = 0.0
+    estimated_patient: float = 0.0
+    actual_insurance: float = 0.0
+    actual_patient: float = 0.0
+    charge_status: str = "posted"
 
 
 class PaymentOut(ORMModel):
@@ -678,6 +693,7 @@ class InvoiceOut(ORMModel):
     discount: float
     total: float
     amount_paid: float
+    amount_adjusted: float = 0.0
     currency: str
     notes: Optional[str] = None
     issued_at: Optional[datetime] = None
@@ -689,7 +705,90 @@ class InvoiceOut(ORMModel):
     def outstanding(self) -> bool:
         if self.status in ("void", "refunded", "paid"):
             return False
-        return self.amount_paid + 0.001 < self.total
+        return self.amount_paid + self.amount_adjusted + 0.001 < self.total
+
+
+class AdjustmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: float = Field(gt=0)
+    kind: str = "write_off"
+    line_item_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ClaimCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    invoice_id: str
+    line_item_ids: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+class RemittanceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    claim_line_id: str
+    paid_amount: float = 0.0
+    allowed_amount: Optional[float] = None
+    denied: bool = False
+    denial_reason: Optional[str] = None
+    payer_name: Optional[str] = None
+    reference: Optional[str] = None
+
+
+class ClaimLineOut(ORMModel):
+    id: str
+    line_item_id: str
+    billed_amount: float
+    allowed_amount: Optional[float] = None
+    paid_amount: float
+    patient_responsibility: float
+    status: str
+    denial_reason: Optional[str] = None
+
+
+class ClaimOut(ORMModel):
+    id: str
+    patient_id: str
+    invoice_id: str
+    plan_id: Optional[str] = None
+    claim_number: str
+    status: str
+    submitted_at: Optional[datetime] = None
+    adjudicated_at: Optional[datetime] = None
+    scrub_notes: Optional[str] = None
+    notes: Optional[str] = None
+    lines: list[ClaimLineOut] = []
+
+
+class DenialOut(BaseModel):
+    claim_id: str
+    claim_number: str
+    claim_line_id: str
+    invoice_id: str
+    patient_id: str
+    procedure: str
+    procedure_code: Optional[str] = None
+    billed_amount: float
+    paid_amount: float
+    status: str
+    denial_reason: Optional[str] = None
+
+
+class StatementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patient_id: str
+    due_date: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class StatementOut(ORMModel):
+    id: str
+    patient_id: str
+    statement_number: str
+    balance_due: float
+    due_date: Optional[date] = None
+    issued_at: datetime
+    notes: Optional[str] = None
+    invoice_ids: Optional[str] = None
 
 
 class FeeScheduleItemCreate(BaseModel):
@@ -726,6 +825,101 @@ class FeeScheduleItemOut(ORMModel):
     billable: bool
     notes: Optional[str] = None
     clinic_id: str
+    effective_from: Optional[date] = None
+    catalog_item_id: Optional[str] = None
+
+
+class CatalogCategoryOut(ORMModel):
+    id: str
+    name: str
+    slug: str
+    parent_id: Optional[str] = None
+    sort_order: int = 0
+
+
+class CatalogFeeRateCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_name: str = ""
+    amount: float = Field(ge=0)
+    effective_from: Optional[date] = None
+
+
+class CatalogFeeRateOut(ORMModel):
+    id: str
+    catalog_item_id: str
+    payer_name: str
+    amount: float
+    effective_from: date
+
+
+class CatalogPriceHistoryOut(ORMModel):
+    id: str
+    catalog_item_id: str
+    old_price: float
+    new_price: float
+    created_at: datetime
+    notes: Optional[str] = None
+
+
+class CatalogItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sku: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=200)
+    kind: str = "procedure"
+    list_price: float = Field(ge=0)
+    currency: str = "TZS"
+    is_active: bool = True
+    billable: bool = True
+    category: Optional[str] = None
+    category_id: Optional[str] = None
+    notes: Optional[str] = None
+    cdt_code: Optional[str] = None
+    tooth_required: bool = False
+    ndc_code: Optional[str] = None
+    drug_schedule: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    vendor_fee_basis: Optional[str] = None
+    effective_from: Optional[date] = None
+
+
+class CatalogItemUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    kind: Optional[str] = None
+    list_price: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
+    is_active: Optional[bool] = None
+    billable: Optional[bool] = None
+    category: Optional[str] = None
+    category_id: Optional[str] = None
+    notes: Optional[str] = None
+    cdt_code: Optional[str] = None
+    tooth_required: Optional[bool] = None
+    ndc_code: Optional[str] = None
+    drug_schedule: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    vendor_fee_basis: Optional[str] = None
+
+
+class CatalogItemOut(ORMModel):
+    id: str
+    sku: str
+    label: str
+    kind: str
+    list_price: float
+    currency: str
+    is_active: bool
+    billable: bool
+    category_id: Optional[str] = None
+    notes: Optional[str] = None
+    cdt_code: Optional[str] = None
+    tooth_required: bool = False
+    ndc_code: Optional[str] = None
+    drug_schedule: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    vendor_fee_basis: Optional[str] = None
+    clinic_id: str
+    fee_rates: list[CatalogFeeRateOut] = []
 
 
 class ChartToCashRequest(BaseModel):

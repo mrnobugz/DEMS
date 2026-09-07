@@ -3,11 +3,21 @@ import { format, parseISO } from "date-fns";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/i18n";
+import { printHtmlDocument } from "@/lib/printRegistration";
 import { useUiPrefs } from "@/lib/uiPrefs";
+import { CatalogPanel } from "@/components/CatalogPanel";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcedureCatalogAdmin } from "@/components/ProcedureCatalogAdmin";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
-import type { FeeScheduleItem, Invoice, Page, Patient } from "@/lib/types";
+import type {
+  ClaimDenial,
+  FeeScheduleItem,
+  InsuranceClaim,
+  Invoice,
+  Page,
+  Patient,
+  PatientStatement,
+} from "@/lib/types";
 
 type BillableChart = {
   id: string;
@@ -52,6 +62,20 @@ type InsuranceEstimate = {
   notes: string;
 };
 
+type BillingView = "ledger" | "catalog" | "claims" | "denials" | "statements";
+
+const VIEWS: { id: BillingView; label: string }[] = [
+  { id: "ledger", label: "Ledger" },
+  { id: "catalog", label: "Catalog" },
+  { id: "claims", label: "Claims" },
+  { id: "denials", label: "Denials" },
+  { id: "statements", label: "Statements" },
+];
+
+function invoiceRemaining(inv: Invoice) {
+  return Math.max(inv.total - inv.amount_paid - (inv.amount_adjusted || 0), 0);
+}
+
 function printReceipt(inv: Invoice, patientLabel: string, money: (n: number) => string) {
   const lines = inv.line_items
     .map(
@@ -65,6 +89,7 @@ function printReceipt(inv: Invoice, patientLabel: string, money: (n: number) => 
         `<tr><td>${p.method} · ${format(parseISO(p.paid_at), "MMM d HH:mm")}</td><td style="text-align:right">${money(p.amount)}</td></tr>`,
     )
     .join("");
+  const due = invoiceRemaining(inv);
   const html = `<!doctype html><html><head><title>Receipt ${inv.invoice_number}</title>
     <style>
       body{font-family:Georgia,serif;padding:24px;color:#041e5c}
@@ -85,19 +110,17 @@ function printReceipt(inv: Invoice, patientLabel: string, money: (n: number) => 
       <tr><td>Discount</td><td style="text-align:right">${money(inv.discount)}</td></tr>
       <tr class="total"><td>Total</td><td style="text-align:right">${money(inv.total)}</td></tr>
       <tr><td>Paid</td><td style="text-align:right">${money(inv.amount_paid)}</td></tr>
-      <tr><td>Balance</td><td style="text-align:right">${money(Math.max(inv.total - inv.amount_paid, 0))}</td></tr>
+      <tr><td>Adjustments</td><td style="text-align:right">${money(inv.amount_adjusted || 0)}</td></tr>
+      <tr><td>Balance</td><td style="text-align:right">${money(due)}</td></tr>
     </table>
     ${payments ? `<h3 style="margin-top:20px;font-size:14px">Payments</h3><table>${payments}</table>` : ""}
     <p class="muted" style="margin-top:24px">One record. One ledger. One clinic OS.</p>
-    <script>window.onload=()=>window.print()</script>
     </body></html>`;
-  const w = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
+  printHtmlDocument(html);
 }
 
 export function BillingPage() {
+  const [view, setView] = useState<BillingView>("ledger");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [outstanding, setOutstanding] = useState<Outstanding[]>([]);
   const [cashUp, setCashUp] = useState<CashUp | null>(null);
@@ -105,8 +128,14 @@ export function BillingPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [fees, setFees] = useState<FeeScheduleItem[]>([]);
   const [billable, setBillable] = useState<BillableChart[]>([]);
+  const [claims, setClaims] = useState<InsuranceClaim[]>([]);
+  const [denials, setDenials] = useState<ClaimDenial[]>([]);
+  const [statements, setStatements] = useState<PatientStatement[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
+  const [remitPaid, setRemitPaid] = useState("");
+  const [remitDenied, setRemitDenied] = useState(false);
+  const [remitReason, setRemitReason] = useState("");
   const currency = useUiPrefs((s) => s.currency);
   const locale = useUiPrefs((s) => s.locale);
   const money = (n: number) => formatMoney(n, currency, locale);
@@ -124,18 +153,24 @@ export function BillingPage() {
 
   async function load(patientId?: string) {
     const pid = patientId ?? form.patient_id;
-    const [inv, p, feeList, out, cash] = await Promise.all([
+    const [inv, p, feeList, out, cash, claimList, denialList, stmtList] = await Promise.all([
       api<Invoice[]>("/api/v1/billing/invoices"),
       api<Page<Patient>>("/api/v1/patients?limit=100"),
       api<FeeScheduleItem[]>("/api/v1/billing/fee-schedule"),
       api<Outstanding[]>("/api/v1/billing/outstanding"),
       api<CashUp>("/api/v1/billing/cash-up"),
+      api<InsuranceClaim[]>("/api/v1/billing/claims"),
+      api<ClaimDenial[]>("/api/v1/billing/denials"),
+      api<PatientStatement[]>("/api/v1/billing/statements"),
     ]);
     setInvoices(inv);
     setPatients(p.items);
     setFees(feeList);
     setOutstanding(out);
     setCashUp(cash);
+    setClaims(claimList);
+    setDenials(denialList);
+    setStatements(stmtList);
     const nextPatient = pid || p.items[0]?.id || "";
     if (!form.patient_id && nextPatient) {
       setForm((f) => ({ ...f, patient_id: nextPatient }));
@@ -172,9 +207,18 @@ export function BillingPage() {
     setEstimate(est);
   }
 
-  async function chartToCash() {
+  async function run(action: () => Promise<void>) {
     setError("");
     try {
+      await action();
+      await load(form.patient_id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Billing request failed");
+    }
+  }
+
+  async function chartToCash() {
+    await run(async () => {
       await api("/api/v1/billing/chart-to-cash", {
         method: "POST",
         body: JSON.stringify({
@@ -184,22 +228,72 @@ export function BillingPage() {
           notes: "Chart-to-Cash from odontogram",
         }),
       });
-      await load(form.patient_id);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Chart-to-Cash failed");
-    }
+    });
   }
 
   async function pay(invoiceId: string, remaining: number) {
-    await api(`/api/v1/billing/invoices/${invoiceId}/payments`, {
-      method: "POST",
-      body: JSON.stringify({
-        amount: remaining,
-        method: "card",
-        idempotency_key: crypto.randomUUID(),
-      }),
+    await run(async () => {
+      await api(`/api/v1/billing/invoices/${invoiceId}/payments`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount: remaining,
+          method: "card",
+          idempotency_key: crypto.randomUUID(),
+        }),
+      });
     });
-    await load(form.patient_id);
+  }
+
+  async function writeOff(invoiceId: string, remaining: number) {
+    await run(async () => {
+      await api(`/api/v1/billing/invoices/${invoiceId}/adjustments`, {
+        method: "POST",
+        body: JSON.stringify({ amount: remaining, kind: "write_off" }),
+      });
+    });
+  }
+
+  async function createClaim(invoiceId: string) {
+    await run(async () => {
+      await api("/api/v1/billing/claims", {
+        method: "POST",
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      });
+    });
+  }
+
+  async function submitClaim(claimId: string) {
+    await run(async () => {
+      await api(`/api/v1/billing/claims/${claimId}/submit`, { method: "POST" });
+    });
+  }
+
+  async function postRemittance(claim: InsuranceClaim, lineId: string) {
+    const paid = Number(remitPaid);
+    await run(async () => {
+      await api(`/api/v1/billing/claims/${claim.id}/remittance`, {
+        method: "POST",
+        body: JSON.stringify({
+          claim_line_id: lineId,
+          paid_amount: Number.isFinite(paid) ? paid : 0,
+          denied: remitDenied,
+          denial_reason: remitReason || null,
+          payer_name: estimate?.payer_name || "Insurance",
+        }),
+      });
+      setRemitPaid("");
+      setRemitDenied(false);
+      setRemitReason("");
+    });
+  }
+
+  async function generateStatement() {
+    await run(async () => {
+      await api("/api/v1/billing/statements", {
+        method: "POST",
+        body: JSON.stringify({ patient_id: form.patient_id }),
+      });
+    });
   }
 
   function toggle(id: string) {
@@ -223,18 +317,26 @@ export function BillingPage() {
     {} as Record<string, number>,
   );
 
+  const patientInvoices = invoices.filter((inv) => inv.patient_id === form.patient_id);
+  const patientClaims = claims.filter((c) => c.patient_id === form.patient_id);
+  const patientStatements = statements.filter((s) => s.patient_id === form.patient_id);
+  const patientDenials = denials.filter((d) => d.patient_id === form.patient_id);
+
   return (
     <div className="clin-shell space-y-3 animate-rise">
       <div className="clin-head">
         <div>
           <h2 className="font-display text-xl font-bold leading-tight text-brand-900">Billing</h2>
           <p className="text-xs text-muted">
-            Chart-to-cash, aging, cash-up, and receipts
+            Posted charges stay on the ledger. Claims, denials, and statements are views of it.
           </p>
         </div>
         <div className="admin-counts">
           <span className="admin-count">
             <strong>{outstanding.length}</strong> open
+          </span>
+          <span className="admin-count">
+            <strong>{denials.length}</strong> denials
           </span>
           {cashUp && (
             <span className="admin-count">
@@ -244,6 +346,27 @@ export function BillingPage() {
         </div>
       </div>
 
+      <div className="admin-tabs" role="tablist" aria-label="Billing views">
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            role="tab"
+            aria-selected={view === v.id}
+            className={`admin-tab ${view === v.id ? "admin-tab--on" : ""}`}
+            onClick={() => setView(v.id)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {view === "catalog" && <CatalogPanel />}
+
+      {view === "ledger" && (
+        <>
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="glass-panel space-y-2">
           <h3 className="reg-section__title">Outstanding balances</h3>
@@ -438,20 +561,23 @@ export function BillingPage() {
               <th>Status</th>
               <th>Total</th>
               <th>Paid</th>
+              <th>Est. insurance</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {invoices.map((inv) => {
-              const remaining = Math.max(inv.total - inv.amount_paid, 0);
+              const remaining = invoiceRemaining(inv);
               const p = patientMap.get(inv.patient_id);
               const label = p ? `${p.first_name} ${p.last_name}` : inv.patient_id;
+              const estIns = inv.line_items.reduce((sum, li) => sum + (li.estimated_insurance || 0), 0);
               return (
                 <tr key={inv.id}>
                   <td className="font-mono text-xs">{inv.invoice_number}</td>
                   <td className="capitalize">{inv.status.replace("_", " ")}</td>
                   <td>{money(inv.total)}</td>
                   <td>{money(inv.amount_paid)}</td>
+                  <td>{money(estIns)}</td>
                   <td className="text-right">
                     <div className="flex justify-end gap-2">
                       <button
@@ -468,6 +594,14 @@ export function BillingPage() {
                           Pay remaining
                         </button>
                       )}
+                      {canManageCatalog && remaining > 0 && (
+                        <button
+                          className="btn-ghost text-xs"
+                          onClick={() => void writeOff(inv.id, remaining)}
+                        >
+                          Write off
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -476,6 +610,237 @@ export function BillingPage() {
           </tbody>
         </table>
       </div>
+        </>
+      )}
+
+      {view === "claims" && (
+        <div className="space-y-3">
+          <div className="glass-panel space-y-2">
+            <h3 className="reg-section__title">Create claim</h3>
+            <p className="text-xs text-muted">
+              One claim line traces to one posted charge. Fees are never overwritten after posting.
+            </p>
+            <div>
+              <label className="label">Patient</label>
+              <select
+                className="input"
+                value={form.patient_id}
+                onChange={(e) => void onPatientChange(e.target.value)}
+              >
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.first_name} {p.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {patientInvoices.length === 0 ? (
+              <p className="text-sm text-muted">No invoices for this patient.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {patientInvoices.map((inv) => (
+                  <li
+                    key={inv.id}
+                    className="flex items-center justify-between rounded-xl border border-brand-50 px-3 py-2"
+                  >
+                    <span>
+                      <span className="font-mono text-xs">{inv.invoice_number}</span>
+                      <span className="ml-2 text-muted">{money(inv.total)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      onClick={() => void createClaim(inv.id)}
+                    >
+                      Create claim
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="glass-panel overflow-hidden">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Claim</th>
+                  <th>Status</th>
+                  <th>Lines</th>
+                  <th>Scrub</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(form.patient_id ? patientClaims : claims).map((claim) => (
+                  <tr key={claim.id}>
+                    <td className="font-mono text-xs">{claim.claim_number}</td>
+                    <td className="capitalize">{claim.status.replace("_", " ")}</td>
+                    <td>
+                      {claim.lines.map((line) => (
+                        <div key={line.id} className="text-xs">
+                          {money(line.billed_amount)} · {line.status}
+                          {line.denial_reason ? ` · ${line.denial_reason}` : ""}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="text-xs text-muted">{claim.scrub_notes || "—"}</td>
+                    <td className="text-right">
+                      <div className="flex flex-col items-end gap-1">
+                        {(claim.status === "draft" || claim.status === "denied") && (
+                          <button
+                            type="button"
+                            className="btn-ghost text-xs"
+                            onClick={() => void submitClaim(claim.id)}
+                          >
+                            Submit
+                          </button>
+                        )}
+                        {(claim.status === "submitted" || claim.status === "adjudicated") &&
+                          claim.lines.map((line) =>
+                            line.status === "pending" || line.status === "partial" ? (
+                              <div key={line.id} className="flex flex-wrap justify-end gap-1">
+                                <input
+                                  className="input w-24 text-xs"
+                                  placeholder="Paid"
+                                  value={remitPaid}
+                                  onChange={(e) => setRemitPaid(e.target.value)}
+                                />
+                                <label className="flex items-center gap-1 text-[10px]">
+                                  <input
+                                    type="checkbox"
+                                    checked={remitDenied}
+                                    onChange={(e) => setRemitDenied(e.target.checked)}
+                                  />
+                                  Denied
+                                </label>
+                                <input
+                                  className="input w-32 text-xs"
+                                  placeholder="Reason"
+                                  value={remitReason}
+                                  onChange={(e) => setRemitReason(e.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-ghost text-xs"
+                                  onClick={() => void postRemittance(claim, line.id)}
+                                >
+                                  Post ERA
+                                </button>
+                              </div>
+                            ) : null,
+                          )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {claims.length === 0 && <p className="p-3 text-sm text-muted">No claims yet.</p>}
+          </div>
+        </div>
+      )}
+
+      {view === "denials" && (
+        <div className="glass-panel overflow-hidden">
+          <h3 className="reg-section__title px-3 pt-3">Denial work queue</h3>
+          <p className="px-3 text-xs text-muted">
+            Underpaid or denied lines. Correct and resubmit, appeal, or write off the remaining charge.
+          </p>
+          {(form.patient_id ? patientDenials : denials).length === 0 ? (
+            <p className="p-3 text-sm text-muted">No denials or underpayments.</p>
+          ) : (
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Claim</th>
+                  <th>Procedure</th>
+                  <th>Billed</th>
+                  <th>Paid</th>
+                  <th>Reason</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(form.patient_id ? patientDenials : denials).map((row) => {
+                  const inv = invoices.find((i) => i.id === row.invoice_id);
+                  const remaining = inv ? invoiceRemaining(inv) : 0;
+                  return (
+                    <tr key={row.claim_line_id}>
+                      <td className="font-mono text-xs">{row.claim_number}</td>
+                      <td>
+                        {row.procedure}
+                        {row.procedure_code ? ` · ${row.procedure_code}` : ""}
+                      </td>
+                      <td>{money(row.billed_amount)}</td>
+                      <td>{money(row.paid_amount)}</td>
+                      <td className="text-xs">{row.denial_reason || row.status}</td>
+                      <td className="text-right">
+                        {canManageCatalog && remaining > 0 && (
+                          <button
+                            type="button"
+                            className="btn-ghost text-xs"
+                            onClick={() => void writeOff(row.invoice_id, remaining)}
+                          >
+                            Write off balance
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {view === "statements" && (
+        <div className="glass-panel space-y-3">
+          <h3 className="reg-section__title">Patient statements</h3>
+          <p className="text-xs text-muted">
+            Remaining balance after insurance and adjustments, for the selected patient.
+          </p>
+          <div>
+            <label className="label">Patient</label>
+            <select
+              className="input"
+              value={form.patient_id}
+              onChange={(e) => void onPatientChange(e.target.value)}
+            >
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.first_name} {p.last_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="btn-primary" onClick={() => void generateStatement()}>
+            Generate statement
+          </button>
+          {patientStatements.length === 0 ? (
+            <p className="text-sm text-muted">No statements yet.</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {patientStatements.map((stmt) => (
+                <li
+                  key={stmt.id}
+                  className="flex items-center justify-between rounded-xl border border-brand-50 px-3 py-2"
+                >
+                  <div>
+                    <div className="font-mono text-xs">{stmt.statement_number}</div>
+                    <div className="text-xs text-muted">
+                      Due {stmt.due_date || "—"} · issued{" "}
+                      {format(parseISO(stmt.issued_at), "MMM d, yyyy")}
+                    </div>
+                  </div>
+                  <div className="font-semibold">{money(stmt.balance_due)}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -67,6 +67,44 @@ class PayerType(StrEnum):
     OTHER = "other"
 
 
+class ChargeStatus(StrEnum):
+    POSTED = "posted"
+    PENDING_INSURANCE = "pending_insurance"
+    PARTIAL = "partial"
+    PAID = "paid"
+    CLOSED = "closed"
+    VOID = "void"
+
+
+class ClaimStatus(StrEnum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    ADJUDICATED = "adjudicated"
+    DENIED = "denied"
+    VOID = "void"
+
+
+class ClaimLineStatus(StrEnum):
+    PENDING = "pending"
+    PAID = "paid"
+    PARTIAL = "partial"
+    DENIED = "denied"
+
+
+class AdjustmentKind(StrEnum):
+    WRITE_OFF = "write_off"
+    CONTRACTUAL = "contractual"
+    CORRECTION = "correction"
+    VOID_OFFSET = "void_offset"
+
+
+class CatalogItemKind(StrEnum):
+    PROCEDURE = "procedure"
+    DRUG = "drug"
+    SUPPLY = "supply"
+    LAB = "lab"
+
+
 class InventoryItemKind(StrEnum):
     STOCK = "stock"
     SERVICE = "service"
@@ -449,10 +487,13 @@ class Invoice(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     currency: Mapped[str] = mapped_column(String(8), default="TZS")
     notes: Mapped[Optional[str]] = mapped_column(Text)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
+    amount_adjusted: Mapped[float] = mapped_column(Float, default=0.0)
 
     patient: Mapped["Patient"] = relationship(back_populates="invoices")
     line_items: Mapped[list["InvoiceLineItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+    claims: Mapped[list["InsuranceClaim"]] = relationship(back_populates="invoice")
+    adjustments: Mapped[list["LedgerAdjustment"]] = relationship(back_populates="invoice")
 
 
 class InvoiceLineItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -468,8 +509,16 @@ class InvoiceLineItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     chart_entry_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("dental_chart_entries.id"), index=True, nullable=True
     )
+    provider_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), index=True)
+    fee_charged: Mapped[float] = mapped_column(Float, default=0.0)
+    estimated_insurance: Mapped[float] = mapped_column(Float, default=0.0)
+    estimated_patient: Mapped[float] = mapped_column(Float, default=0.0)
+    actual_insurance: Mapped[float] = mapped_column(Float, default=0.0)
+    actual_patient: Mapped[float] = mapped_column(Float, default=0.0)
+    charge_status: Mapped[str] = mapped_column(String(32), default=ChargeStatus.POSTED, index=True)
 
     invoice: Mapped["Invoice"] = relationship(back_populates="line_items")
+    claim_lines: Mapped[list["ClaimLineItem"]] = relationship(back_populates="charge")
 
 
 class Payment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -535,6 +584,98 @@ class FeeScheduleItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     billable: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    effective_from: Mapped[Optional[date]] = mapped_column(Date)
+    catalog_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("catalog_items.id"), index=True
+    )
+
+    catalog_item: Mapped[Optional["CatalogItem"]] = relationship()
+
+
+class CatalogCategory(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Tree of catalog groupings."""
+
+    __tablename__ = "catalog_categories"
+    __table_args__ = (UniqueConstraint("clinic_id", "slug", name="uq_catalog_category_clinic_slug"),)
+
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    slug: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("catalog_categories.id"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    parent: Mapped[Optional["CatalogCategory"]] = relationship(remote_side="CatalogCategory.id")
+
+
+class CatalogItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Billable SKU. Warehouse stock stays on inventory_items."""
+
+    __tablename__ = "catalog_items"
+    __table_args__ = (UniqueConstraint("clinic_id", "sku", name="uq_catalog_item_clinic_sku"),)
+
+    sku: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default=CatalogItemKind.PROCEDURE, index=True)
+    list_price: Mapped[float] = mapped_column(Float, default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), default="TZS")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    billable: Mapped[bool] = mapped_column(Boolean, default=True)
+    category_id: Mapped[Optional[str]] = mapped_column(ForeignKey("catalog_categories.id"), index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    cdt_code: Mapped[Optional[str]] = mapped_column(String(40))
+    tooth_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    ndc_code: Mapped[Optional[str]] = mapped_column(String(40))
+    drug_schedule: Mapped[Optional[str]] = mapped_column(String(20))
+    unit_of_measure: Mapped[Optional[str]] = mapped_column(String(40))
+    vendor_fee_basis: Mapped[Optional[str]] = mapped_column(String(80))
+
+    category: Mapped[Optional["CatalogCategory"]] = relationship()
+    price_history: Mapped[list["CatalogPriceHistory"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+    fee_rates: Mapped[list["CatalogFeeRate"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+
+
+class CatalogPriceHistory(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Audit of catalog list-price changes."""
+
+    __tablename__ = "catalog_price_history"
+
+    catalog_item_id: Mapped[str] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="CASCADE"), index=True
+    )
+    old_price: Mapped[float] = mapped_column(Float, nullable=False)
+    new_price: Mapped[float] = mapped_column(Float, nullable=False)
+    changed_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+    notes: Mapped[Optional[str]] = mapped_column(String(200))
+
+    item: Mapped["CatalogItem"] = relationship(back_populates="price_history")
+
+
+class CatalogFeeRate(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Payer (or office) price for a catalog item, versioned by effective date."""
+
+    __tablename__ = "catalog_fee_rates"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "catalog_item_id",
+            "payer_name",
+            "effective_from",
+            name="uq_catalog_fee_rate_payer_date",
+        ),
+        Index("ix_catalog_fee_rates_item_payer", "catalog_item_id", "payer_name"),
+    )
+
+    catalog_item_id: Mapped[str] = mapped_column(
+        ForeignKey("catalog_items.id", ondelete="CASCADE"), index=True
+    )
+    payer_name: Mapped[str] = mapped_column(String(200), default="", index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+
+    item: Mapped["CatalogItem"] = relationship(back_populates="fee_rates")
 
 
 class ClinicalVisit(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -651,6 +792,70 @@ class PatientInsurancePlan(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixi
     effective_to: Mapped[Optional[date]] = mapped_column(Date)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
+
+
+class LedgerAdjustment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Credits/write-offs. Never edits a posted charge fee."""
+
+    __tablename__ = "ledger_adjustments"
+
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.id"), index=True)
+    line_item_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoice_line_items.id"), index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), default=AdjustmentKind.WRITE_OFF)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="adjustments")
+
+
+class InsuranceClaim(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "insurance_claims"
+    __table_args__ = (Index("ix_insurance_claims_clinic_status", "clinic_id", "status"),)
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.id"), index=True)
+    plan_id: Mapped[Optional[str]] = mapped_column(ForeignKey("patient_insurance_plans.id"), index=True)
+    claim_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default=ClaimStatus.DRAFT, index=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    adjudicated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    scrub_notes: Mapped[Optional[str]] = mapped_column(Text)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="claims")
+    lines: Mapped[list["ClaimLineItem"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
+
+
+class ClaimLineItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "claim_line_items"
+    __table_args__ = (UniqueConstraint("line_item_id", name="uq_claim_line_charge"),)
+
+    claim_id: Mapped[str] = mapped_column(ForeignKey("insurance_claims.id", ondelete="CASCADE"), index=True)
+    line_item_id: Mapped[str] = mapped_column(ForeignKey("invoice_line_items.id"), index=True)
+    billed_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    allowed_amount: Mapped[Optional[float]] = mapped_column(Float)
+    paid_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    patient_responsibility: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(32), default=ClaimLineStatus.PENDING, index=True)
+    denial_reason: Mapped[Optional[str]] = mapped_column(String(300))
+
+    claim: Mapped["InsuranceClaim"] = relationship(back_populates="lines")
+    charge: Mapped["InvoiceLineItem"] = relationship(back_populates="claim_lines")
+
+
+class PatientStatement(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "patient_statements"
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    statement_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    balance_due: Mapped[float] = mapped_column(Float, default=0.0)
+    due_date: Mapped[Optional[date]] = mapped_column(Date)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    invoice_ids: Mapped[Optional[str]] = mapped_column(Text)
 
     patient: Mapped["Patient"] = relationship()
 

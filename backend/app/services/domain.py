@@ -1722,7 +1722,11 @@ async def list_fee_schedule(
     if active is not None:
         q = q.where(FeeScheduleItem.is_active.is_(active))
     q = q.order_by(FeeScheduleItem.category, FeeScheduleItem.code)
-    return list((await db.execute(q)).scalars().all())
+    items = list((await db.execute(q)).scalars().all())
+    from app.services.catalog import sync_fee_schedule_catalog
+
+    await sync_fee_schedule_catalog(db, clinic_id)
+    return items
 
 
 async def upsert_fee_item(
@@ -1761,6 +1765,9 @@ async def upsert_fee_item(
         db.add(item)
         action = "create"
     await db.flush()
+    from app.services.catalog import sync_fee_item_to_catalog
+
+    await sync_fee_item_to_catalog(db, clinic_id, item, actor_id)
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -1793,6 +1800,9 @@ async def update_fee_item(
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(item, k, v)
     await db.flush()
+    from app.services.catalog import sync_fee_item_to_catalog
+
+    await sync_fee_item_to_catalog(db, clinic_id, item, actor_id)
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -1834,6 +1844,16 @@ async def list_billable_chart_entries(
         fee = fees.get(entry.condition_code.lower())
         if not fee or not fee.billable or fee.unit_price <= 0:
             continue
+        unit_price = float(fee.unit_price)
+        if fee.catalog_item_id:
+            from app.services.catalog import get_catalog_item, resolve_fee_for_patient
+
+            catalog_item = await get_catalog_item(db, clinic_id, fee.catalog_item_id)
+            unit_price = await resolve_fee_for_patient(
+                db, clinic_id, catalog_item, patient_id
+            )
+            if unit_price <= 0:
+                continue
         out.append(
             {
                 "id": entry.id,
@@ -1845,7 +1865,7 @@ async def list_billable_chart_entries(
                 "entry_kind": entry.entry_kind,
                 "status": entry.status,
                 "material": entry.material,
-                "unit_price": fee.unit_price,
+                "unit_price": unit_price,
                 "fee_label": fee.label,
                 "billed_invoice_id": entry.billed_invoice_id,
                 "created_at": entry.created_at,
@@ -1960,11 +1980,23 @@ async def invoice_from_procedures(
             "Ask an admin to add them on the procedure catalog."
         )
     lines: list[InvoiceLineCreate] = []
+    from app.services.catalog import get_catalog_item, resolve_fee_for_patient, sync_fee_item_to_catalog
+
     for selected in data.items:
         item = by_id[selected.fee_item_id]
+        if not item.catalog_item_id:
+            await sync_fee_item_to_catalog(db, clinic_id, item, actor_id)
         price = float(item.unit_price or 0)
+        catalog_item = None
+        if item.catalog_item_id:
+            catalog_item = await get_catalog_item(db, clinic_id, item.catalog_item_id)
+            price = await resolve_fee_for_patient(
+                db, clinic_id, catalog_item, data.patient_id
+            )
         if price <= 0:
             raise ValidationAppError(f"{item.label} has no billable price — set it in Clinic admin")
+        if catalog_item and catalog_item.tooth_required and not (selected.tooth_number or "").strip():
+            raise ValidationAppError(f"{item.label} requires a tooth number")
         lines.append(
             InvoiceLineCreate(
                 description=item.label,
@@ -2036,6 +2068,9 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
             )
         )
     await db.flush()
+    from app.services.billing_ledger import apply_coverage_to_invoice
+
+    await apply_coverage_to_invoice(db, clinic_id, invoice)
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -2102,7 +2137,7 @@ async def list_outstanding_invoices(db: AsyncSession, clinic_id: str) -> list[di
     now = datetime.now(UTC)
     out: list[dict] = []
     for inv in rows:
-        balance = float(inv.total) - float(inv.amount_paid)
+        balance = float(inv.total) - float(inv.amount_paid) - float(getattr(inv, "amount_adjusted", 0) or 0)
         if balance <= 0.001:
             continue
         issued = inv.issued_at or inv.created_at
@@ -2261,7 +2296,7 @@ async def add_payment(
         if existing:
             return await get_invoice(db, clinic_id, invoice_id)
 
-    remaining = invoice.total - invoice.amount_paid
+    remaining = invoice.total - invoice.amount_paid - float(invoice.amount_adjusted or 0)
     if data.amount > remaining + 0.001:
         raise ValidationAppError("Payment exceeds outstanding balance")
 
@@ -2278,7 +2313,8 @@ async def add_payment(
     )
     invoice.payments.append(payment)
     invoice.amount_paid += data.amount
-    if invoice.amount_paid >= invoice.total:
+    remaining_after = invoice.total - invoice.amount_paid - float(invoice.amount_adjusted or 0)
+    if remaining_after <= 0.001:
         invoice.status = InvoiceStatus.PAID
     elif invoice.amount_paid > 0:
         invoice.status = InvoiceStatus.PARTIALLY_PAID

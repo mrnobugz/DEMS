@@ -31,6 +31,14 @@ REQUIRED_TABLES = {
     "notification_outbox",
     "patient_insurance_plans",
     "restorations",
+    "insurance_claims",
+    "claim_line_items",
+    "ledger_adjustments",
+    "patient_statements",
+    "catalog_categories",
+    "catalog_items",
+    "catalog_price_history",
+    "catalog_fee_rates",
 }
 REQUIRED_PATIENT_COLUMNS = {
     "hospital_reg_number",
@@ -65,7 +73,18 @@ REQUIRED_USER_COLUMNS = {
     "extra_permissions",
     "denied_permissions",
 }
-HEAD_REVISION = "018_patient_identity_photo"
+REQUIRED_INVOICE_COLUMNS = {
+    "amount_adjusted",
+}
+REQUIRED_INVOICE_LINE_COLUMNS = {
+    "fee_charged",
+    "estimated_insurance",
+    "estimated_patient",
+    "actual_insurance",
+    "actual_patient",
+    "charge_status",
+}
+HEAD_REVISION = "020_catalog_core"
 
 
 def _use_database(db_path: pathlib.Path) -> None:
@@ -90,6 +109,8 @@ def _check_at_head(label: str, db_path: pathlib.Path) -> None:
     inventory_columns = {col["name"] for col in inspector.get_columns("inventory_items")}
     appointment_columns = {col["name"] for col in inspector.get_columns("appointments")}
     user_columns = {col["name"] for col in inspector.get_columns("users")}
+    invoice_columns = {col["name"] for col in inspector.get_columns("invoices")}
+    invoice_line_columns = {col["name"] for col in inspector.get_columns("invoice_line_items")}
     patient_indexes = {ix["name"] for ix in inspector.get_indexes("patients")}
     with engine.connect() as conn:
         revision = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
@@ -107,6 +128,12 @@ def _check_at_head(label: str, db_path: pathlib.Path) -> None:
     )
     assert REQUIRED_USER_COLUMNS <= user_columns, (
         f"{label}: missing user columns {sorted(REQUIRED_USER_COLUMNS - user_columns)}"
+    )
+    assert REQUIRED_INVOICE_COLUMNS <= invoice_columns, (
+        f"{label}: missing invoice columns {sorted(REQUIRED_INVOICE_COLUMNS - invoice_columns)}"
+    )
+    assert REQUIRED_INVOICE_LINE_COLUMNS <= invoice_line_columns, (
+        f"{label}: missing invoice line columns {sorted(REQUIRED_INVOICE_LINE_COLUMNS - invoice_line_columns)}"
     )
     assert "ix_patients_clinic_name" in patient_indexes, f"{label}: missing composite index"
     assert revision == HEAD_REVISION, f"{label}: at revision {revision}, expected {HEAD_REVISION}"
