@@ -173,6 +173,8 @@ export function ClinicalExamPanel({
   const [vitalsOpen, setVitalsOpen] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const paediatric = department === "paediatric";
+  const omfs = department === "maxillofacial";
+  const simpleIx = paediatric || omfs;
 
   async function load() {
     const rows = await api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`);
@@ -212,7 +214,7 @@ export function ClinicalExamPanel({
           body: JSON.stringify({
             patient_id: patientId,
             study_type: kind,
-            notes: "Paediatric exam investigation",
+            notes: `${department || "Clinical"} exam investigation`,
           }),
         },
       );
@@ -333,10 +335,14 @@ export function ClinicalExamPanel({
     <div className="glass-panel space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-display text-base font-bold">Clinical examination</h3>
+          <h3 className="font-display text-base font-bold">
+            {omfs ? "Examination" : "Clinical examination"}
+          </h3>
           <p className="text-xs text-muted">
-            Extra-oral · intra-oral · investigations · diagnosis
-            {department ? ` · ${department}` : ""}
+            {omfs
+              ? "General · vital signs · local · diagnosis · investigation"
+              : "Extra-oral · intra-oral · investigations · diagnosis"}
+            {department && !omfs ? ` · ${department}` : ""}
           </p>
         </div>
         <button
@@ -385,6 +391,41 @@ export function ClinicalExamPanel({
 
       {open && (
         <form className="space-y-5 border-t border-brand-50 pt-4" onSubmit={onSave}>
+          {omfs && (
+            <section className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+                General examination
+              </h4>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="label">Appearance</label>
+                  <input
+                    className="input"
+                    value={vitals.appearance || ""}
+                    onChange={(e) => setVitals({ ...vitals, appearance: e.target.value })}
+                    placeholder="Ill / well · distress · pallor…"
+                  />
+                </div>
+                <div>
+                  <label className="label">Posture</label>
+                  <input
+                    className="input"
+                    value={vitals.posture || ""}
+                    onChange={(e) => setVitals({ ...vitals, posture: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Gait</label>
+                  <input
+                    className="input"
+                    value={vitals.gait || ""}
+                    onChange={(e) => setVitals({ ...vitals, gait: e.target.value })}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
           <section className="space-y-2">
             <button
               type="button"
@@ -394,7 +435,9 @@ export function ClinicalExamPanel({
             >
               <span className="reveal-toggle__text">
                 <span className="reveal-toggle__title">Vital signs</span>
-                <span className="reveal-toggle__hint">BP, pulse, height, weight, appearance</span>
+                <span className="reveal-toggle__hint">
+                  {omfs ? "BP, pulse, height, weight" : "BP, pulse, height, weight, appearance"}
+                </span>
               </span>
               <span className="reveal-toggle__action">{vitalsOpen ? "Hide" : "Show"}</span>
             </button>
@@ -451,6 +494,8 @@ export function ClinicalExamPanel({
                   onChange={(e) => setVitals({ ...vitals, weight_kg: numOrNull(e.target.value) })}
                 />
               </div>
+              {!omfs && (
+              <>
               <div>
                 <label className="label">Appearance</label>
                 <input
@@ -475,9 +520,17 @@ export function ClinicalExamPanel({
                   onChange={(e) => setVitals({ ...vitals, gait: e.target.value })}
                 />
               </div>
+              </>
+              )}
             </div>
             )}
           </section>
+
+          {omfs && (
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Local examination
+            </h4>
+          )}
 
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
@@ -494,8 +547,17 @@ export function ClinicalExamPanel({
 
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Intra-oral examination
+              Intraoral examination
             </h4>
+            {omfs && (
+              <textarea
+                className="input"
+                rows={3}
+                value={intra.notes || ""}
+                onChange={(e) => setIntra({ ...intra, notes: e.target.value })}
+                placeholder="Soft tissue, surgical site, mouth opening, hygiene…"
+              />
+            )}
             <div className="grid gap-3 md:grid-cols-2">
               {(
                 [
@@ -545,11 +607,51 @@ export function ClinicalExamPanel({
             </div>
           </section>
 
+          {omfs && (
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Investigations
+              Diagnosis
             </h4>
-            {paediatric ? (
+            <Icd10Picker
+              selected={dx.icd10_codes || []}
+              onChange={(codes) => setDx({ ...dx, icd10_codes: codes })}
+              multiple
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="label">Working diagnosis</label>
+                <input
+                  className="input"
+                  value={dx.working_diagnosis || ""}
+                  onChange={(e) => setDx({ ...dx, working_diagnosis: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Final clinical impression</label>
+                <input
+                  className="input"
+                  value={dx.final_impression || ""}
+                  onChange={(e) => setDx({ ...dx, final_impression: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Problem list</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={dx.problem_list || ""}
+                  onChange={(e) => setDx({ ...dx, problem_list: e.target.value })}
+                />
+              </div>
+            </div>
+          </section>
+          )}
+
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Investigation
+            </h4>
+            {simpleIx ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <label className="label">Percussion</label>
@@ -566,6 +668,20 @@ export function ClinicalExamPanel({
                     ))}
                   </select>
                 </div>
+                {omfs && (
+                  <div className="md:col-span-2">
+                    <label className="label">Investigation notes</label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      value={ix.study_models_notes || ""}
+                      onChange={(e) => setIx({ ...ix, study_models_notes: e.target.value })}
+                      placeholder="Aspiration, biopsy, bloods, culture…"
+                    />
+                  </div>
+                )}
+                {paediatric && (
+                <>
                 <div className="md:col-span-2">
                   <label className="label">Radiographic</label>
                   <textarea
@@ -594,6 +710,8 @@ export function ClinicalExamPanel({
                     <p className="mt-1 text-xs text-brand-800">Uploaded: {ix.photography_notes}</p>
                   )}
                 </div>
+                </>
+                )}
               </div>
             ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -719,6 +837,22 @@ export function ClinicalExamPanel({
             )}
           </section>
 
+          {omfs && (
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Radiology notes
+            </h4>
+            <textarea
+              className="input"
+              rows={2}
+              value={ix.radiograph_notes || ""}
+              onChange={(e) => setIx({ ...ix, radiograph_notes: e.target.value })}
+              placeholder="OPG / PA / CBCT findings — bill and attach the film in Radiology below"
+            />
+          </section>
+          )}
+
+          {!omfs && (
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
               Diagnosis & plan bridge
@@ -773,7 +907,9 @@ export function ClinicalExamPanel({
               </div>
             </div>
           </section>
+          )}
 
+          {!omfs && (
           <div>
             <label className="label">Visit notes</label>
             <textarea
@@ -783,6 +919,7 @@ export function ClinicalExamPanel({
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary">{editingId ? "Update exam" : "Save exam"}</button>

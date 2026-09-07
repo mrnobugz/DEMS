@@ -32,7 +32,7 @@ const DEPT_CLERKSHIP: Record<ClinicalDept, { exam: string; consent: string }> = 
     consent: "Restorative / crown / RCT consent",
   },
   maxillofacial: {
-    exam: "Extra-oral, TMJ, lymph nodes, and surgical sites",
+    exam: "Chief complaint through review of systems, then local exam",
     consent: "Surgical / extraction / implant consent",
   },
   orthodontic: {
@@ -95,7 +95,7 @@ export function DepartmentChairwork({
         const form = formFromPatient(p);
         setPatient(p);
         setIntake(form);
-        setIntakeOpen(false);
+        setIntakeOpen(dept === "maxillofacial");
       })
       .catch(() => {
         setPatient(null);
@@ -198,7 +198,7 @@ export function DepartmentChairwork({
           </div>
 
           <RevealSection
-            title="Clinical clerkship"
+            title={dept === "maxillofacial" ? "Oral maxillofacial surgery" : "Clinical clerkship"}
             hint={copy.exam}
             open={intakeOpen}
             onOpenChange={setIntakeOpen}
@@ -229,6 +229,7 @@ export function DepartmentChairwork({
             defaultOpen
           />
 
+          {dept !== "maxillofacial" && (
           <div className="grid gap-4 lg:grid-cols-2">
             {dept !== "paediatric" && (
             <form className="glass-panel space-y-2" onSubmit={saveNote}>
@@ -270,6 +271,7 @@ export function DepartmentChairwork({
               defaultProcedure={copy.consent}
             />
           </div>
+          )}
 
           {dept === "restorative" && (
             <div className="grid gap-4 lg:grid-cols-2">

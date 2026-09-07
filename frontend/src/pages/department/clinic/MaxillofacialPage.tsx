@@ -1,10 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
+import { ChairsidePharmacy } from "@/components/ChairsidePharmacy";
+import { ConsentPad } from "@/components/ConsentPad";
 import { EmptyState } from "@/components/EmptyState";
+import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
 import { JawMap, jawRegionLabel } from "@/components/viz/JawMap";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
-import { api } from "@/lib/api";
+import { api, apiUpload, imagingContentUrl } from "@/lib/api";
+import type { ClinicalVisit } from "@/lib/types";
 import {
   DeptHeader,
   PatientChip,
@@ -66,6 +70,7 @@ export function MaxillofacialPage() {
   const [cases, setCases] = useState<SurgicalCase[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [followUpFor, setFollowUpFor] = useState<string | null>(null);
   const [form, setForm] = useState({
     patient_id: "",
@@ -179,11 +184,13 @@ export function MaxillofacialPage() {
     return { colors, regionMarks, implants, missing };
   }, [cases]);
 
+  const selectedPatient = patients.find((p) => p.id === form.patient_id);
+
   return (
     <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
-        title="Maxillofacial"
-        subtitle="Extractions · impactions · biopsies · trauma · implants · post-op follow-up"
+        title="Oral maxillofacial surgery"
+        subtitle="Clerkship sheet · history · exam · imaging · plan · procedure · pharmacy · post-op"
       />
       {overview && (
         <StatCards
@@ -199,6 +206,16 @@ export function MaxillofacialPage() {
         />
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {notice && <p className="text-sm text-brand-700">{notice}</p>}
+
+      <section className="glass-panel rounded-3xl p-5">
+        <PatientSelect
+          patients={patients}
+          value={form.patient_id}
+          onChange={(id) => setForm({ ...form, patient_id: id })}
+          label="Patient for this clerkship"
+        />
+      </section>
 
       <DepartmentChairwork
         dept="maxillofacial"
@@ -206,67 +223,79 @@ export function MaxillofacialPage() {
         selectedTooth={/^\d{2}$/.test(form.site) ? form.site : null}
       />
 
-      <Clinical3DImaging
-        mode="surgical"
-        patientId={form.patient_id || undefined}
-        selected={/^\d{2}$/.test(form.site) ? form.site : null}
-        onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
-        colors={surgicalViz.colors}
-        implants={surgicalViz.implants}
-        missing={surgicalViz.missing}
-        onAction={(actionId, tooth, meta) => {
-          setForm((f) => ({
-            ...f,
-            site: tooth,
-            procedure_type:
-              actionId === "extract"
-                ? "extraction"
-                : actionId === "implant" || actionId === "pdip" || actionId === "auto-crown-implant"
-                  ? "implant_placement"
-                  : f.procedure_type,
-            diagnosis:
-              actionId === "auto-crown" && meta?.crown
-                ? f.diagnosis ||
-                  `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl} mm · ${Math.round(meta.crown.confidence * 100)}%`
-                : actionId === "auto-crown-implant" && meta?.crown && meta.implant
-                  ? `PDIP AI crown+implant Ø${meta.implant.diameter}×${meta.implant.length} + ${meta.crown.md}×${meta.crown.bl} mm crown`
-                  : actionId === "implant" && meta?.implant
-                    ? f.diagnosis ||
-                      `PDIP Ø${meta.implant.diameter} × ${meta.implant.length} mm` +
-                        (meta.clearanceMm != null ? ` · IAN ${meta.clearanceMm} mm` : "")
-                    : f.diagnosis,
-          }));
-          if (actionId === "followup") {
-            const match = cases.find((c) => c.site === tooth);
-            if (match) setFollowUpFor(match.id);
-          }
-        }}
-      />
-
-      <section className="glass-panel rounded-3xl p-5">
-        <div>
-          <h3 className="font-display text-base font-bold text-brand-900">Non-tooth sites</h3>
-          <p className="text-xs text-muted">
-            Jaw regions for trauma, cysts, and orthognathic work — tooth-level surgery uses the 3D
-            workspace above
-          </p>
-        </div>
-        <div className="mx-auto mt-2 max-w-xl">
-          <JawMap
-            marks={surgicalViz.regionMarks}
-            selected={!/^\d{2}$/.test(form.site) && form.site ? form.site : null}
-            onSelect={(site) => setForm((f) => ({ ...f, site }))}
-          />
-        </div>
+      <section className="space-y-3">
+        <h3 className="font-display text-lg font-bold text-brand-900">Radiology (imaging)</h3>
+        <Clinical3DImaging
+          mode="surgical"
+          patientId={form.patient_id || undefined}
+          selected={/^\d{2}$/.test(form.site) ? form.site : null}
+          onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
+          colors={surgicalViz.colors}
+          implants={surgicalViz.implants}
+          missing={surgicalViz.missing}
+          onAction={(actionId, tooth, meta) => {
+            setForm((f) => ({
+              ...f,
+              site: tooth,
+              procedure_type:
+                actionId === "extract"
+                  ? "extraction"
+                  : actionId === "implant" || actionId === "pdip" || actionId === "auto-crown-implant"
+                    ? "implant_placement"
+                    : f.procedure_type,
+              diagnosis:
+                actionId === "auto-crown" && meta?.crown
+                  ? f.diagnosis ||
+                    `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl} mm · ${Math.round(meta.crown.confidence * 100)}%`
+                  : actionId === "auto-crown-implant" && meta?.crown && meta.implant
+                    ? `PDIP AI crown+implant Ø${meta.implant.diameter}×${meta.implant.length} + ${meta.crown.md}×${meta.crown.bl} mm crown`
+                    : actionId === "implant" && meta?.implant
+                      ? f.diagnosis ||
+                        `PDIP Ø${meta.implant.diameter} × ${meta.implant.length} mm` +
+                          (meta.clearanceMm != null ? ` · IAN ${meta.clearanceMm} mm` : "")
+                      : f.diagnosis,
+            }));
+            if (actionId === "followup") {
+              const match = cases.find((c) => c.site === tooth);
+              if (match) setFollowUpFor(match.id);
+            }
+          }}
+        />
+        <section className="glass-panel rounded-3xl p-5">
+          <div>
+            <h4 className="font-display text-base font-bold text-brand-900">Non-tooth sites</h4>
+            <p className="text-xs text-muted">
+              Jaw regions for trauma, cysts, and orthognathic work
+            </p>
+          </div>
+          <div className="mx-auto mt-2 max-w-xl">
+            <JawMap
+              marks={surgicalViz.regionMarks}
+              selected={!/^\d{2}$/.test(form.site) && form.site ? form.site : null}
+              onSelect={(site) => setForm((f) => ({ ...f, site }))}
+            />
+          </div>
+        </section>
+        {form.patient_id && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ProcedureInvoicePanel
+              patientId={form.patient_id}
+              kind="imaging"
+              title="Radiology (imaging) billing"
+              hint="Bill OPG, PA, CBCT, or clinical photos from the catalog."
+              onDone={() => setNotice("Imaging invoice created")}
+            />
+            <RadiologyPhoto patientId={form.patient_id} onDone={setNotice} />
+          </div>
+        )}
       </section>
 
+      <OmfsTreatmentPlan patientId={form.patient_id || undefined} onMessage={setNotice} />
+
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
-        <div className="md:col-span-2">
-          <PatientSelect
-            patients={patients}
-            value={form.patient_id}
-            onChange={(id) => setForm({ ...form, patient_id: id })}
-          />
+        <div className="md:col-span-3">
+          <h3 className="font-display text-base font-bold text-brand-900">Procedure done</h3>
+          <p className="text-xs text-muted">Record the operation, then bill it below.</p>
         </div>
         <label className="text-sm">
           Procedure
@@ -338,14 +367,37 @@ export function MaxillofacialPage() {
           />
         </label>
         <button className="btn-primary md:col-span-3" type="submit" disabled={!form.patient_id}>
-          Open surgical case
+          Record procedure done
         </button>
       </form>
+
+      {form.patient_id && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ProcedureInvoicePanel
+            patientId={form.patient_id}
+            kind="surgery"
+            title="Procedure done (billing)"
+            hint="Bill the extraction, biopsy, implant, or other operation from the catalog."
+          />
+          <ConsentPad
+            patientId={form.patient_id}
+            patientName={
+              selectedPatient
+                ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
+                : undefined
+            }
+            onMessage={setNotice}
+            defaultProcedure="Surgical / extraction / implant consent"
+          />
+        </div>
+      )}
+
+      <ChairsidePharmacy patientId={form.patient_id || undefined} />
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-display text-lg font-bold text-brand-900">
-            Surgical cases ({cases.length})
+            Post operative ({cases.length})
           </h3>
           <select
             className="input w-auto text-xs"
@@ -501,6 +553,210 @@ export function MaxillofacialPage() {
           </div>
         )}
       </section>
+
+      <RadiographyImages patientId={form.patient_id || undefined} />
     </div>
+  );
+}
+
+function RadiologyPhoto({
+  patientId,
+  onDone,
+}: {
+  patientId: string;
+  onDone: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+
+  async function upload(file: File) {
+    setBusy(true);
+    try {
+      const kind = file.type.startsWith("image/") ? "photo" : "PA";
+      const study = await api<{ id: string }>("/api/v1/imaging/studies", {
+        method: "POST",
+        body: JSON.stringify({
+          patient_id: patientId,
+          study_type: kind,
+          notes: "OMFS clerkship radiology photo",
+        }),
+      });
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      await apiUpload(`/api/v1/imaging/studies/${study.id}/upload`, fd);
+      setName(file.name);
+      onDone("Radiology photo uploaded");
+    } catch (err: any) {
+      onDone(err.message || "Could not upload photo");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="glass-panel space-y-2 rounded-3xl p-5">
+      <h3 className="font-display text-base font-bold text-brand-900">Photo</h3>
+      <p className="text-xs text-muted">Attach the film or clinical photograph.</p>
+      <input
+        className="input"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/*,.dcm,application/dicom"
+        disabled={busy}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void upload(file);
+        }}
+      />
+      {busy && <p className="text-xs text-muted">Uploading…</p>}
+      {name && <p className="text-xs text-brand-800">Uploaded: {name}</p>}
+    </section>
+  );
+}
+
+function OmfsTreatmentPlan({
+  patientId,
+  onMessage,
+}: {
+  patientId?: string;
+  onMessage: (msg: string) => void;
+}) {
+  const [visit, setVisit] = useState<ClinicalVisit | null>(null);
+  const [plan, setPlan] = useState("");
+  const [referrals, setReferrals] = useState("");
+
+  useEffect(() => {
+    if (!patientId) {
+      setVisit(null);
+      setPlan("");
+      setReferrals("");
+      return;
+    }
+    api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`)
+      .then((rows) => {
+        const latest = rows[0] || null;
+        setVisit(latest);
+        setPlan(latest?.diagnosis?.general_treatment_plan_notes || "");
+        setReferrals(latest?.diagnosis?.referrals || "");
+      })
+      .catch(() => {
+        setVisit(null);
+        setPlan("");
+        setReferrals("");
+      });
+  }, [patientId]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!visit) {
+      onMessage("Save the examination first, then record the treatment plan.");
+      return;
+    }
+    try {
+      await api(`/api/v1/clinical/visits/${visit.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          diagnosis: {
+            problem_list: visit.diagnosis?.problem_list ?? null,
+            working_diagnosis: visit.diagnosis?.working_diagnosis ?? null,
+            final_impression: visit.diagnosis?.final_impression ?? null,
+            icd10_codes: visit.diagnosis?.icd10_codes || [],
+            general_treatment_plan_notes: plan.trim() || null,
+            referrals: referrals.trim() || null,
+          },
+        }),
+      });
+      onMessage("Treatment plan saved");
+    } catch (err: any) {
+      onMessage(err.message || "Could not save the plan");
+    }
+  }
+
+  return (
+    <form className="glass-panel space-y-3 rounded-3xl p-5" onSubmit={save}>
+      <div>
+        <h3 className="font-display text-base font-bold text-brand-900">Treatment plan</h3>
+        <p className="text-xs text-muted">After imaging — staged surgery, review, and referrals.</p>
+      </div>
+      <textarea
+        className="input"
+        rows={3}
+        value={plan}
+        onChange={(e) => setPlan(e.target.value)}
+        placeholder="Staged plan — extraction, biopsy, ORIF, review…"
+      />
+      <input
+        className="input"
+        value={referrals}
+        onChange={(e) => setReferrals(e.target.value)}
+        placeholder="Referrals"
+      />
+      <button className="btn-primary" type="submit" disabled={!patientId}>
+        Save treatment plan
+      </button>
+    </form>
+  );
+}
+
+type ImagingStudy = {
+  id: string;
+  study_type: string;
+  tooth?: string | null;
+  captured_at: string;
+  has_content?: boolean;
+  content_type?: string | null;
+};
+
+function RadiographyImages({ patientId }: { patientId?: string }) {
+  const [studies, setStudies] = useState<ImagingStudy[]>([]);
+
+  useEffect(() => {
+    if (!patientId) {
+      setStudies([]);
+      return;
+    }
+    api<ImagingStudy[]>(`/api/v1/imaging/studies?patient_id=${patientId}`)
+      .then(setStudies)
+      .catch(() => setStudies([]));
+  }, [patientId]);
+
+  return (
+    <section className="glass-panel space-y-3 rounded-3xl p-5">
+      <div>
+        <h3 className="font-display text-base font-bold text-brand-900">Radiography image</h3>
+        <p className="text-xs text-muted">Films and photos attached to this patient.</p>
+      </div>
+      {!patientId ? (
+        <p className="text-sm text-muted">Select a patient to view images.</p>
+      ) : studies.length === 0 ? (
+        <p className="text-sm text-muted">No radiography images yet.</p>
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {studies.map((s) => {
+            const image = s.has_content && (s.content_type || "").startsWith("image/");
+            return (
+              <li key={s.id} className="overflow-hidden rounded-2xl border border-brand-100 bg-white">
+                {image ? (
+                  <img
+                    src={imagingContentUrl(s.id)}
+                    alt={`${s.study_type}${s.tooth ? ` tooth ${s.tooth}` : ""}`}
+                    className="h-40 w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-40 items-center justify-center bg-brand-50 text-xs font-semibold text-muted">
+                    {s.study_type}
+                    {s.has_content ? "" : " · no file"}
+                  </div>
+                )}
+                <p className="px-3 py-2 text-xs">
+                  {s.study_type}
+                  {s.tooth ? ` · ${s.tooth}` : ""} · {format(parseISO(s.captured_at), "MMM d")}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

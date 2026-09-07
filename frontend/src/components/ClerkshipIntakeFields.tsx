@@ -321,6 +321,7 @@ export function ClerkshipIntakeFields({
   const required = mode === "create" && variant !== "clinical";
   const showClinical = variant !== "reception";
   const paediatric = department === "paediatric";
+  const omfs = department === "maxillofacial";
   const age = ageFromDob(form.date_of_birth);
   const minor = isMinor(form);
   const gaps = required ? clerkshipGaps(form) : [];
@@ -632,7 +633,7 @@ export function ClerkshipIntakeFields({
         </section>
       )}
 
-      {!paediatric && (
+      {!paediatric && !omfs && (
         <div className={sectionClass}>
           <label className="label">Reason for visit (patient&apos;s words)</label>
           <textarea
@@ -647,7 +648,158 @@ export function ClerkshipIntakeFields({
       </>
       )}
 
-      {showClinical && (
+      {showClinical && omfs && (
+      <>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Chief complaint</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.chief_complaint}
+          onChange={(e) => set("chief_complaint", e.target.value)}
+          placeholder="In the patient's words — why they came today"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>History of present illness</h4>
+        <textarea
+          className="input"
+          rows={3}
+          value={form.history_of_presenting_complaint}
+          onChange={(e) => set("history_of_presenting_complaint", e.target.value)}
+          placeholder="Onset, course, previous treatment"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Medical history</h4>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {MEDICAL_LABELS.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-sm text-brand-900">
+              <input
+                type="checkbox"
+                checked={form.medical_history[key]}
+                onChange={(e) =>
+                  set("medical_history", { ...form.medical_history, [key]: e.target.checked })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className={fieldGrid}>
+          <div>
+            <label className="label">Allergy details</label>
+            <input
+              className="input"
+              value={form.allergies}
+              onChange={(e) => set("allergies", e.target.value)}
+              placeholder="Drugs, foods, local anaesthetic…"
+            />
+          </div>
+          <div>
+            <label className="label">Current medication (type & dosage)</label>
+            <input
+              className="input"
+              value={form.current_medications}
+              onChange={(e) => set("current_medications", e.target.value)}
+            />
+          </div>
+          {form.sex === "female" && (
+            <div>
+              <label className="label">Pregnancy trimester</label>
+              <select
+                className="input"
+                value={form.pregnancy_trimester}
+                onChange={(e) => set("pregnancy_trimester", e.target.value)}
+              >
+                <option value="">Not pregnant / N/A</option>
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+              </select>
+            </div>
+          )}
+        </div>
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Past dental history</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.dental_history}
+          onChange={(e) => set("dental_history", e.target.value)}
+          placeholder="Extractions, fillings, dentures, trauma, prior surgery…"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Family and social history</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.family_social_history}
+          onChange={(e) => set("family_social_history", e.target.value)}
+        />
+        <div className={fieldGrid}>
+          <div>
+            <label className="label">Smoking</label>
+            <select
+              className="input"
+              value={form.smoking_status}
+              onChange={(e) => set("smoking_status", e.target.value)}
+            >
+              <option value="">—</option>
+              <option value="never">Never</option>
+              <option value="former">Former</option>
+              <option value="current">Current</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Alcohol</label>
+            <select
+              className="input"
+              value={form.alcohol_use}
+              onChange={(e) => set("alcohol_use", e.target.value)}
+            >
+              <option value="">—</option>
+              <option value="none">None</option>
+              <option value="occasional">Occasional</option>
+              <option value="regular">Regular</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Review of systems</h4>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {SYMPTOM_LABELS.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-sm text-brand-900">
+              <input
+                type="checkbox"
+                checked={form.reported_symptoms[key]}
+                onChange={(e) =>
+                  set("reported_symptoms", {
+                    ...form.reported_symptoms,
+                    [key]: e.target.checked,
+                  })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <label className="label mt-2">Other systems</label>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.notes}
+          onChange={(e) => set("notes", e.target.value)}
+          placeholder="CVS, RS, CNS, GI — relevant positives / negatives"
+        />
+      </section>
+      </>
+      )}
+
+      {showClinical && !omfs && (
       <>
       <section className={sectionClass}>
         <h4 className={titleClass}>

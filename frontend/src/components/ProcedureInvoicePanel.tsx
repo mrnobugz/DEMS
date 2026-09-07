@@ -6,12 +6,23 @@ import { useUiPrefs } from "@/lib/uiPrefs";
 
 type QtyMap = Record<string, number>;
 
+const KIND_RE: Record<string, RegExp> = {
+  imaging: /opg|cbct|pa\b|bitewing|\bbw\b|radio|x-?ray|photo|imaging|pano|ceph/i,
+  surgery: /extract|surg|implant|biopsy|impact|fracture|cyst|third|wisdom|orif|enucleat/i,
+};
+
 export function ProcedureInvoicePanel({
   patientId,
   onDone,
+  title = "Bill procedures",
+  hint = "Use the admin catalog. Prices cannot be changed here.",
+  kind = "all",
 }: {
   patientId?: string;
   onDone?: (invoice: Invoice) => void;
+  title?: string;
+  hint?: string;
+  kind?: "all" | "imaging" | "surgery";
 }) {
   const currency = useUiPrefs((s) => s.currency);
   const locale = useUiPrefs((s) => s.locale);
@@ -31,14 +42,21 @@ export function ProcedureInvoicePanel({
 
   useEffect(() => {
     api<FeeScheduleItem[]>("/api/v1/billing/fee-schedule?billable=true&active=true")
-      .then((rows) => setCatalog(rows.filter((row) => row.unit_price > 0)))
+      .then((rows) => {
+        const priced = rows.filter((row) => row.unit_price > 0);
+        const re = kind === "all" ? null : KIND_RE[kind];
+        const filtered = re
+          ? priced.filter((row) => re.test(`${row.code} ${row.label} ${row.category}`))
+          : priced;
+        setCatalog(filtered.length ? filtered : priced);
+      })
       .catch(() => setCatalog([]));
     if (!patientId) {
       api<Page<Patient>>("/api/v1/patients?limit=100")
         .then((p) => setPatients(p.items))
         .catch(() => setPatients([]));
     }
-  }, [patientId]);
+  }, [patientId, kind]);
 
   const picked = useMemo(
     () => catalog.filter((row) => (qty[row.id] || 0) > 0),
@@ -86,10 +104,8 @@ export function ProcedureInvoicePanel({
   return (
     <form className="glass-panel space-y-2" onSubmit={submit}>
       <div>
-        <h3 className="font-display text-base font-bold text-brand-900">Bill procedures</h3>
-        <p className="text-xs text-muted">
-          Use the admin catalog. Prices cannot be changed here.
-        </p>
+        <h3 className="font-display text-base font-bold text-brand-900">{title}</h3>
+        <p className="text-xs text-muted">{hint}</p>
       </div>
       {!patientId && (
         <div>
