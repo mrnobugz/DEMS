@@ -7,6 +7,7 @@ import { useUiPrefs } from "@/lib/uiPrefs";
 const CATEGORIES = [
   "general",
   "diagnostic",
+  "imaging",
   "restorative",
   "endodontic",
   "surgery",

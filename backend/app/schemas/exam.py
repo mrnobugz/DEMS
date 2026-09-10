@@ -65,6 +65,22 @@ class IntraOralExam(BaseModel):
     notes: Optional[str] = None
 
 
+class RadiologyInvestigationItem(BaseModel):
+    """One radiology order from Investigation — type comes from the admin fee catalog."""
+
+    model_config = ConfigDict(extra="forbid")
+    fee_item_id: str = Field(min_length=1, max_length=40)
+    type_label: str = Field(min_length=1, max_length=200)
+    type_code: Optional[str] = None
+    unit_price: Optional[float] = None
+    region: Optional[str] = Field(default=None, description="Tooth number or anatomic region")
+    quantity: int = Field(default=1, ge=1, le=20)
+    comment: Optional[str] = None
+    study_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    overview: Optional[str] = Field(default=None, description="Single-line summary for the chart")
+
+
 class VisitInvestigations(BaseModel):
     model_config = ConfigDict(extra="forbid")
     pulp_percussion: Optional[str] = None
@@ -92,6 +108,7 @@ class VisitInvestigations(BaseModel):
     radiograph_root_involved: Optional[bool] = None
     radiograph_furcation: Optional[bool] = None
     radiograph_tooth: Optional[str] = None
+    radiology_items: list[RadiologyInvestigationItem] = Field(default_factory=list)
 
 
 class Icd10CodeRef(BaseModel):

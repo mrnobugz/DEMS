@@ -4,7 +4,7 @@ import unittest
 from datetime import date
 
 from app.schemas import ClinicalVisitCreate, ClinicalVisitOut
-from app.schemas.exam import VisitDiagnosis, VisitVitals
+from app.schemas.exam import RadiologyInvestigationItem, VisitDiagnosis, VisitInvestigations, VisitVitals
 
 
 class ClinicalVisitSchemaTests(unittest.TestCase):
@@ -39,6 +39,30 @@ class ClinicalVisitSchemaTests(unittest.TestCase):
         dumped = out.model_dump(mode="json")
         self.assertIn("vitals", dumped)
         self.assertNotIn("vitals_json", dumped)
+
+    def test_investigations_accept_radiology_items(self) -> None:
+        body = ClinicalVisitCreate(
+            visit_date=date(2026, 9, 10),
+            investigations=VisitInvestigations(
+                radiology_items=[
+                    RadiologyInvestigationItem(
+                        fee_item_id="fee-opg",
+                        type_label="Panoramic radiograph (OPG)",
+                        type_code="opg",
+                        unit_price=50000,
+                        region="36",
+                        quantity=1,
+                        comment="Impacted 38",
+                        overview="Panoramic radiograph (OPG) · 36 · ×1 · Impacted 38",
+                    )
+                ]
+            ),
+        )
+        item = body.investigations.radiology_items[0]
+        self.assertEqual(item.region, "36")
+        self.assertEqual(item.quantity, 1)
+        dumped = body.investigations.model_dump()
+        self.assertEqual(dumped["radiology_items"][0]["type_code"], "opg")
 
 
 if __name__ == "__main__":

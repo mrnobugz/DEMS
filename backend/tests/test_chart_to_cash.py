@@ -8,7 +8,7 @@ from app.services.domain import DEFAULT_FEE_SCHEDULE
 class FeeScheduleDefaultsTests(unittest.TestCase):
     def test_default_schedule_covers_odontogram_codes(self) -> None:
         codes = {row[0] for row in DEFAULT_FEE_SCHEDULE}
-        for needed in ("filling", "crown", "rct", "consultation"):
+        for needed in ("filling", "crown", "rct", "consultation", "opg", "pa-radio"):
             self.assertIn(needed, codes)
 
     def test_billable_prices_positive(self) -> None:

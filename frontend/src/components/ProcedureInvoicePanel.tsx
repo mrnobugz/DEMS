@@ -46,7 +46,10 @@ export function ProcedureInvoicePanel({
         const priced = rows.filter((row) => row.unit_price > 0);
         const re = kind === "all" ? null : KIND_RE[kind];
         const filtered = re
-          ? priced.filter((row) => re.test(`${row.code} ${row.label} ${row.category}`))
+          ? priced.filter(
+              (row) =>
+                row.category === kind || re.test(`${row.code} ${row.label} ${row.category}`),
+            )
           : priced;
         setCatalog(filtered.length ? filtered : priced);
       })

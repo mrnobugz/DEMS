@@ -1673,7 +1673,15 @@ DEFAULT_FEE_SCHEDULE: list[tuple[str, str, str, float, bool]] = [
     ("missing", "Missing tooth (charting)", "diagnostic", 0.0, False),
     ("sound", "Sound tooth", "diagnostic", 0.0, False),
     ("planned", "Planned treatment", "diagnostic", 0.0, False),
+    ("pa-radio", "Periapical radiograph (PA)", "imaging", 25000.0, True),
+    ("bw-radio", "Bitewing radiograph", "imaging", 25000.0, True),
+    ("opg", "Panoramic radiograph (OPG)", "imaging", 50000.0, True),
+    ("cbct", "CBCT scan", "imaging", 150000.0, True),
+    ("ceph", "Cephalometric radiograph", "imaging", 45000.0, True),
+    ("clinical-photo", "Clinical photography", "imaging", 15000.0, True),
 ]
+
+DEFAULT_IMAGING_FEES = [row for row in DEFAULT_FEE_SCHEDULE if row[2] == "imaging"]
 
 
 async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
@@ -1685,6 +1693,7 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
         )
     ).scalar_one()
     if count:
+        await ensure_imaging_fees(db, clinic_id)
         return
     from app.core.config import get_settings
 
@@ -1693,6 +1702,43 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
     if clinic and clinic.currency:
         currency = clinic.currency
     for code, label, category, price, billable in DEFAULT_FEE_SCHEDULE:
+        db.add(
+            FeeScheduleItem(
+                clinic_id=clinic_id,
+                code=code,
+                label=label,
+                category=category,
+                unit_price=price,
+                currency=currency,
+                billable=billable,
+                is_active=True,
+            )
+        )
+    await db.flush()
+    await ensure_imaging_fees(db, clinic_id)
+
+
+async def ensure_imaging_fees(db: AsyncSession, clinic_id: str) -> None:
+    """Add default radiology SKUs on clinics that already have a fee schedule."""
+    existing = set(
+        (
+            await db.execute(
+                select(FeeScheduleItem.code).where(FeeScheduleItem.clinic_id == clinic_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    missing = [row for row in DEFAULT_IMAGING_FEES if row[0] not in existing]
+    if not missing:
+        return
+    from app.core.config import get_settings
+
+    currency = get_settings().default_currency
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one_or_none()
+    if clinic and clinic.currency:
+        currency = clinic.currency
+    for code, label, category, price, billable in missing:
         db.add(
             FeeScheduleItem(
                 clinic_id=clinic_id,
@@ -1716,6 +1762,7 @@ async def list_fee_schedule(
     active: bool | None = None,
 ) -> list[FeeScheduleItem]:
     await ensure_fee_schedule(db, clinic_id)
+    await ensure_imaging_fees(db, clinic_id)
     q = select(FeeScheduleItem).where(FeeScheduleItem.clinic_id == clinic_id)
     if billable is not None:
         q = q.where(FeeScheduleItem.billable.is_(billable))

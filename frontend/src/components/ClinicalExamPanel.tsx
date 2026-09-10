@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Icd10Picker } from "@/components/Icd10Picker";
+import { RadiologyInvestigationDialog, formatRadiologyOverview } from "@/components/RadiologyInvestigationDialog";
 import { api, apiUpload, ApiError } from "@/lib/api";
 import type {
   ClinicalVisit,
   ExtraOralExam,
   IntraOralExam,
+  RadiologyInvestigationItem,
   VisitDiagnosis,
   VisitInvestigations,
   VisitVitals,
@@ -96,6 +98,7 @@ const emptyIx = (): VisitInvestigations => ({
   radiograph_root_involved: false,
   radiograph_furcation: false,
   radiograph_tooth: "",
+  radiology_items: [],
 });
 
 const emptyDx = (): VisitDiagnosis => ({
@@ -172,6 +175,7 @@ export function ClinicalExamPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [vitalsOpen, setVitalsOpen] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [radioOpen, setRadioOpen] = useState(false);
   const paediatric = department === "paediatric";
   const omfs = department === "maxillofacial";
   const simpleIx = paediatric || omfs;
@@ -201,6 +205,7 @@ export function ClinicalExamPanel({
     setDx(emptyDx());
     setNotes("");
     setVitalsOpen(false);
+    setRadioOpen(false);
   }
 
   async function uploadExamImage(file: File) {
@@ -287,12 +292,28 @@ export function ClinicalExamPanel({
       intra_oral: Object.fromEntries(
         Object.entries(intra).map(([k, v]) => [k, typeof v === "string" ? cleanStr(v) : v]),
       ),
-      investigations: Object.fromEntries(
-        Object.entries(ix).map(([k, v]) => {
-          if (typeof v === "boolean") return [k, v];
-          return [k, cleanStr(v as string)];
-        }),
-      ),
+      investigations: {
+        ...Object.fromEntries(
+          Object.entries(ix)
+            .filter(([key]) => key !== "radiology_items")
+            .map(([k, v]) => {
+              if (typeof v === "boolean") return [k, v];
+              return [k, cleanStr(v as string)];
+            }),
+        ),
+        radiology_items: (ix.radiology_items || []).map((row) => ({
+          fee_item_id: row.fee_item_id,
+          type_label: row.type_label,
+          type_code: row.type_code || null,
+          unit_price: row.unit_price ?? null,
+          region: cleanStr(row.region),
+          quantity: row.quantity || 1,
+          comment: cleanStr(row.comment),
+          study_id: row.study_id || null,
+          invoice_id: row.invoice_id || null,
+          overview: row.overview || formatRadiologyOverview(row),
+        })),
+      },
       diagnosis: {
         problem_list: cleanStr(dx.problem_list),
         working_diagnosis: cleanStr(dx.working_diagnosis),
@@ -648,9 +669,23 @@ export function ClinicalExamPanel({
           )}
 
           <section className="space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Investigation
-            </h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+                Investigation
+              </h4>
+              <button type="button" className="btn-primary text-xs" onClick={() => setRadioOpen(true)}>
+                Radiology
+              </button>
+            </div>
+            {(ix.radiology_items || []).length > 0 && (
+              <ul className="space-y-1">
+                {(ix.radiology_items || []).map((row, index) => (
+                  <li key={`${row.fee_item_id}-${index}`} className="ix-overview">
+                    {row.overview || formatRadiologyOverview(row)}
+                  </li>
+                ))}
+              </ul>
+            )}
             {simpleIx ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
@@ -935,6 +970,19 @@ export function ClinicalExamPanel({
             </button>
           </div>
         </form>
+      )}
+
+      {radioOpen && (
+        <RadiologyInvestigationDialog
+          patientId={patientId}
+          visitId={editingId}
+          items={ix.radiology_items || []}
+          onSave={(items: RadiologyInvestigationItem[]) =>
+            setIx((prev) => ({ ...prev, radiology_items: items }))
+          }
+          onClose={() => setRadioOpen(false)}
+          onMessage={onMessage}
+        />
       )}
     </div>
   );

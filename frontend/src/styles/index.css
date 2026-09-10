@@ -1274,3 +1274,62 @@ html.chairside textarea.input {
     transition: none;
   }
 }
+
+.ix-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 1.25rem;
+  background: rgba(8, 24, 64, 0.45);
+}
+
+.ix-dialog {
+  width: min(40rem, 100%);
+  margin: auto;
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.1rem 1.15rem 1.2rem;
+  border-radius: 18px;
+  border: 1px solid var(--demsta-border);
+  background: var(--demsta-surface-raised);
+  box-shadow: 0 20px 48px rgba(11, 47, 148, 0.18);
+}
+
+.ix-drop {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(11, 95, 255, 0.35);
+  background: rgba(11, 95, 255, 0.04);
+  min-height: 5.5rem;
+}
+
+.ix-drop:focus {
+  outline: 2px solid var(--demsta-brand-500);
+  outline-offset: 2px;
+}
+
+.ix-drop__preview {
+  width: 100%;
+  max-height: 11rem;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #0b1733;
+}
+
+.ix-overview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(11, 95, 255, 0.14);
+  background: rgba(245, 249, 255, 0.9);
+  font-size: 0.82rem;
+  color: var(--demsta-brand-900);
+}

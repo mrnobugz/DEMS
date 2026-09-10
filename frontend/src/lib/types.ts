@@ -98,6 +98,19 @@ export type IntraOralExam = {
   notes?: string | null;
 };
 
+export type RadiologyInvestigationItem = {
+  fee_item_id: string;
+  type_label: string;
+  type_code?: string | null;
+  unit_price?: number | null;
+  region?: string | null;
+  quantity: number;
+  comment?: string | null;
+  study_id?: string | null;
+  invoice_id?: string | null;
+  overview?: string | null;
+};
+
 export type VisitInvestigations = {
   pulp_percussion?: string | null;
   pulp_cold?: string | null;
@@ -120,6 +133,7 @@ export type VisitInvestigations = {
   radiograph_root_involved?: boolean | null;
   radiograph_furcation?: boolean | null;
   radiograph_tooth?: string | null;
+  radiology_items?: RadiologyInvestigationItem[];
 };
 
 export type VisitDiagnosis = {
