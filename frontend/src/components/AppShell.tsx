@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, LogOut, Menu, MonitorSmartphone, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from "react-router-dom";
+import { ArrowLeft, LayoutDashboard, LogOut, Menu, MonitorSmartphone, X } from "lucide-react";
 import { DemstaLogo } from "./DemstaLogo";
 import { OfflineBanner } from "./OfflineBanner";
 import { api } from "@/lib/api";
@@ -35,10 +35,21 @@ function prefersDesktopSidebar() {
   return typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
 }
 
+const SKIP_HISTORY_PATHS = new Set(["/", "/home", "/clinical"]);
+
+function locationKey(pathname: string, search: string) {
+  return `${pathname}${search}`;
+}
+
+function isInAppView(key: string) {
+  return !key.startsWith("/login") && !key.startsWith("/portal");
+}
+
 export function AppShell() {
   const { user, clear, activeClinicId, setActiveClinicId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const compactWorkspace =
     location.pathname.startsWith("/front-desk/register") ||
     location.pathname.startsWith("/clinical/") ||
@@ -52,6 +63,8 @@ export function AppShell() {
   const toggleChairside = useUiPrefs((s) => s.toggleChairside);
   const [clinics, setClinics] = useState<ClinicRow[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(() => !modulesLanding && prefersDesktopSidebar());
+  const viewStackRef = useRef<string[]>([]);
+  const [canGoBack, setCanGoBack] = useState(false);
 
   useEffect(() => {
     if (user?.role !== "super_admin") return;
@@ -67,6 +80,30 @@ export function AppShell() {
     }
     if (prefersDesktopSidebar()) setSidebarOpen(true);
   }, [modulesLanding]);
+
+  useEffect(() => {
+    if (SKIP_HISTORY_PATHS.has(location.pathname) || location.pathname.startsWith("/clinic/")) {
+      return;
+    }
+    const key = locationKey(location.pathname, location.search);
+    if (!isInAppView(key)) return;
+    const stack = viewStackRef.current;
+    if (stack[stack.length - 1] === key) {
+      setCanGoBack(stack.length > 1 || location.pathname !== MODULES_DASHBOARD_PATH);
+      return;
+    }
+    if (navigationType === "POP") {
+      const idx = stack.lastIndexOf(key);
+      if (idx >= 0) {
+        viewStackRef.current = stack.slice(0, idx + 1);
+        setCanGoBack(idx > 0 || location.pathname !== MODULES_DASHBOARD_PATH);
+        return;
+      }
+    }
+    stack.push(key);
+    if (stack.length > 50) stack.shift();
+    setCanGoBack(stack.length > 1 || location.pathname !== MODULES_DASHBOARD_PATH);
+  }, [location.pathname, location.search, navigationType]);
 
   const showSidebar = sidebarOpen && !modulesLanding;
   const moduleTitle = moduleNav
@@ -93,6 +130,24 @@ export function AppShell() {
 
   function closeSidebarIfNarrow() {
     if (!prefersDesktopSidebar()) setSidebarOpen(false);
+  }
+
+  function goBack() {
+    const stack = viewStackRef.current;
+    let i = stack.length - 2;
+    while (i >= 0 && !isInAppView(stack[i])) i -= 1;
+    if (i >= 0) {
+      const prev = stack[i];
+      viewStackRef.current = stack.slice(0, i + 1);
+      setCanGoBack(viewStackRef.current.length > 1 || prev.split("?")[0] !== MODULES_DASHBOARD_PATH);
+      navigate(prev);
+      return;
+    }
+    if (location.pathname !== MODULES_DASHBOARD_PATH) {
+      viewStackRef.current = [MODULES_DASHBOARD_PATH];
+      setCanGoBack(false);
+      navigate(MODULES_DASHBOARD_PATH);
+    }
   }
 
   return (
@@ -263,10 +318,10 @@ export function AppShell() {
             id="main-content"
             className={`app-shell__main flex-1 overflow-visible px-4 ${
               modulesLanding
-                ? "pb-10 lg:px-10 lg:pb-12"
+                ? "pb-24 lg:px-10 lg:pb-12"
                 : compactWorkspace
-                  ? "pb-8 lg:px-6 lg:pb-6"
-                  : "pb-8 lg:px-8"
+                  ? "pb-24 lg:px-6 lg:pb-10"
+                  : "pb-24 lg:px-8 lg:pb-12"
             }`}
             tabIndex={-1}
           >
@@ -274,6 +329,17 @@ export function AppShell() {
           </main>
         </div>
       </div>
+
+      <button
+        type="button"
+        className={`app-back-fab ${showSidebar ? "app-back-fab--with-sidebar" : ""}`}
+        aria-label={t("goBack")}
+        title={t("goBack")}
+        disabled={!canGoBack}
+        onClick={goBack}
+      >
+        <ArrowLeft size={chairside ? 24 : 20} strokeWidth={2.4} aria-hidden />
+      </button>
     </div>
   );
 }

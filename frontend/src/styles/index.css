@@ -119,6 +119,59 @@ kbd {
   font-family: var(--font-mono);
 }
 
+/* Floating previous-view control */
+.app-back-fab {
+  position: fixed;
+  left: max(0.85rem, env(safe-area-inset-left, 0px));
+  bottom: max(1.1rem, env(safe-area-inset-bottom, 0px));
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--demsta-brand-500) 0%, var(--demsta-brand-700) 100%);
+  box-shadow: 0 10px 28px rgba(11, 95, 255, 0.35);
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+}
+
+.app-back-fab:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(11, 95, 255, 0.42);
+}
+
+.app-back-fab:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  box-shadow: 0 6px 16px rgba(11, 47, 148, 0.12);
+}
+
+.app-back-fab:focus-visible {
+  outline: 3px solid var(--demsta-brand-300);
+  outline-offset: 3px;
+}
+
+@media (min-width: 1024px) {
+  .app-back-fab--with-sidebar {
+    left: calc(260px + 1.75rem);
+  }
+}
+
+html.chairside .app-back-fab {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
 /* Skip link — WCAG */
 .skip-link {
   position: absolute;
