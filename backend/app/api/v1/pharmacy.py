@@ -67,4 +67,6 @@ async def update_rx_status(
     user: Annotated[User, Depends(require_permission("pharmacy:*"))],
 ):
     _ = user
-    return await dept.update_prescription_status(db, clinic_id, rx_id, body.status)
+    return await dept.update_prescription_status(
+        db, clinic_id, user.id, rx_id, body.status, bill=body.bill
+    )

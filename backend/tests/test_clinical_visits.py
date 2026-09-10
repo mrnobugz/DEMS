@@ -54,15 +54,31 @@ class ClinicalVisitSchemaTests(unittest.TestCase):
                         quantity=1,
                         comment="Impacted 38",
                         overview="Panoramic radiograph (OPG) · 36 · ×1 · Impacted 38",
+                        photo_url="/api/v1/imaging/studies/st-opg/content",
+                        captured_at="2026-09-10T16:00:00+00:00",
                     )
-                ]
+                ],
+                photography_url="/api/v1/imaging/studies/st-photo/content",
+                photography_date="2026-09-10",
+                photography_study_id="st-photo",
             ),
         )
         item = body.investigations.radiology_items[0]
         self.assertEqual(item.region, "36")
         self.assertEqual(item.quantity, 1)
+        self.assertEqual(item.photo_url, "/api/v1/imaging/studies/st-opg/content")
+        self.assertEqual(body.investigations.photography_date, "2026-09-10")
         dumped = body.investigations.model_dump()
         self.assertEqual(dumped["radiology_items"][0]["type_code"], "opg")
+        self.assertEqual(dumped["photography_url"], "/api/v1/imaging/studies/st-photo/content")
+
+    def test_legacy_investigations_without_photo_fields_still_parse(self) -> None:
+        body = ClinicalVisitCreate(
+            visit_date=date(2026, 9, 10),
+            investigations=VisitInvestigations(radiograph_notes="PA 36"),
+        )
+        self.assertIsNone(body.investigations.photography_url)
+        self.assertEqual(body.investigations.radiology_items, [])
 
 
 if __name__ == "__main__":

@@ -634,6 +634,8 @@ class InvoiceLineCreate(BaseModel):
     unit_price: float
     procedure_code: Optional[str] = None
     chart_entry_id: Optional[str] = None
+    inventory_item_id: Optional[str] = None
+    line_kind: Optional[str] = None
 
 
 class InvoiceCreate(BaseModel):
@@ -665,6 +667,8 @@ class InvoiceLineOut(ORMModel):
     total: float
     procedure_code: Optional[str] = None
     chart_entry_id: Optional[str] = None
+    inventory_item_id: Optional[str] = None
+    line_kind: str = "procedure"
     fee_charged: float = 0.0
     estimated_insurance: float = 0.0
     estimated_patient: float = 0.0
@@ -827,6 +831,9 @@ class FeeScheduleItemOut(ORMModel):
     clinic_id: str
     effective_from: Optional[date] = None
     catalog_item_id: Optional[str] = None
+    catalog_kind: Optional[str] = None
+    inventory_item_id: Optional[str] = None
+    quantity_on_hand: float = 0
 
 
 class CatalogCategoryOut(ORMModel):
@@ -880,6 +887,7 @@ class CatalogItemCreate(BaseModel):
     unit_of_measure: Optional[str] = None
     vendor_fee_basis: Optional[str] = None
     effective_from: Optional[date] = None
+    inventory_item_id: Optional[str] = None
 
 
 class CatalogItemUpdate(BaseModel):
@@ -899,6 +907,7 @@ class CatalogItemUpdate(BaseModel):
     drug_schedule: Optional[str] = None
     unit_of_measure: Optional[str] = None
     vendor_fee_basis: Optional[str] = None
+    inventory_item_id: Optional[str] = None
 
 
 class CatalogItemOut(ORMModel):
@@ -918,6 +927,7 @@ class CatalogItemOut(ORMModel):
     drug_schedule: Optional[str] = None
     unit_of_measure: Optional[str] = None
     vendor_fee_basis: Optional[str] = None
+    inventory_item_id: Optional[str] = None
     clinic_id: str
     fee_rates: list[CatalogFeeRateOut] = []
 
@@ -1195,6 +1205,8 @@ class InventoryItemCreate(BaseModel):
     target_department: Optional[str] = None
     notes: Optional[str] = None
     expiry_date: Optional[date] = None
+    supplier_id: Optional[str] = None
+    track_lots: bool = False
 
     @field_validator("item_kind")
     @classmethod
@@ -1219,12 +1231,136 @@ class InventoryItemUpdate(BaseModel):
     target_department: Optional[str] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None
+    expiry_date: Optional[date] = None
+    supplier_id: Optional[str] = None
+    track_lots: Optional[bool] = None
 
 
 class InventoryAdjust(BaseModel):
     model_config = ConfigDict(extra="forbid")
     delta: float
     reason: Optional[str] = None
+    location_id: Optional[str] = None
+
+
+class StockLocationOut(ORMModel):
+    id: str
+    code: str
+    name: str
+    kind: str
+    is_active: bool
+
+
+class StockReceiveLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: float = Field(gt=0)
+    unit_cost: float = 0
+    lot_code: Optional[str] = None
+    expiry_date: Optional[date] = None
+    location_id: Optional[str] = None
+
+
+class StockReceiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    location_id: Optional[str] = None
+    supplier_id: Optional[str] = None
+    purchase_order_id: Optional[str] = None
+    reason: Optional[str] = None
+    lines: list[StockReceiveLine] = Field(min_length=1)
+
+
+class StockIssueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: float = Field(gt=0)
+    from_location_id: Optional[str] = None
+    to_location_id: Optional[str] = None
+    location_id: Optional[str] = None
+    patient_id: Optional[str] = None
+    bill: bool = False
+    lot_code: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class StockWriteoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: float = Field(gt=0)
+    location_id: Optional[str] = None
+    lot_code: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class StocktakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    counted: float = Field(ge=0)
+    location_id: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class StockMovementOut(ORMModel):
+    id: str
+    inventory_item_id: str
+    lot_id: Optional[str] = None
+    from_location_id: Optional[str] = None
+    to_location_id: Optional[str] = None
+    movement_type: str
+    quantity: float
+    unit_cost_snapshot: float = 0
+    reason: Optional[str] = None
+    supplier_id: Optional[str] = None
+    purchase_order_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    invoice_line_id: Optional[str] = None
+    prescription_id: Optional[str] = None
+    recorded_by_id: Optional[str] = None
+    created_at: datetime
+
+
+class PurchaseOrderLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: Optional[str] = None
+    sku: Optional[str] = None
+    qty: Optional[float] = None
+    quantity: Optional[float] = None
+    quantity_ordered: Optional[float] = None
+    unit_cost: float = 0
+    lot_code: Optional[str] = None
+    expiry_date: Optional[date] = None
+
+
+class PurchaseOrderReceiveLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: str
+    quantity: float = Field(gt=0)
+    unit_cost: Optional[float] = None
+    lot_code: Optional[str] = None
+    expiry_date: Optional[date] = None
+
+
+class PurchaseOrderReceiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    location_id: Optional[str] = None
+    lines: list[PurchaseOrderReceiveLine] = Field(default_factory=list)
+
+
+class PurchaseOrderLineOut(ORMModel):
+    id: str
+    inventory_item_id: str
+    quantity_ordered: float
+    quantity_received: float
+    unit_cost: float
+
+
+class SupplierUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class InventoryItemOut(ORMModel):
@@ -1244,6 +1380,7 @@ class InventoryItemOut(ORMModel):
     notes: Optional[str] = None
     expiry_date: Optional[date] = None
     supplier_id: Optional[str] = None
+    track_lots: bool = False
     created_at: datetime
 
 
@@ -1590,6 +1727,7 @@ class PrescriptionItemIn(BaseModel):
     dose: str
     quantity: str = "1"
     instructions: Optional[str] = None
+    inventory_item_id: Optional[str] = None
 
 
 class PrescriptionCreate(BaseModel):
@@ -1605,6 +1743,7 @@ class PrescriptionItemOut(ORMModel):
     dose: str
     quantity: str
     instructions: Optional[str] = None
+    inventory_item_id: Optional[str] = None
 
 
 class PrescriptionOut(ORMModel):
@@ -1621,6 +1760,7 @@ class PrescriptionOut(ORMModel):
 class PrescriptionStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: str
+    bill: bool = False
 
 
 class DepartmentHomeOut(BaseModel):
@@ -1833,6 +1973,7 @@ class PurchaseOrderOut(ORMModel):
     expected_at: Optional[date] = None
     notes: Optional[str] = None
     lines_json: Optional[str] = None
+    lines: list[PurchaseOrderLineOut] = []
     created_at: datetime
 
 

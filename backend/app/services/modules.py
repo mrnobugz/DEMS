@@ -141,8 +141,8 @@ MODULE_CATALOG: tuple[ModuleDef, ...] = (
         "package",
         "/inventory",
         120,
-        any_permission=("inventory:read", "inventory:*"),
-        roles=("clinic_admin", "dentist", "super_admin"),
+        any_permission=("inventory:read", "inventory:issue", "inventory:*"),
+        roles=("clinic_admin", "dentist", "super_admin", "pharmacy", "accountant"),
     ),
     ModuleDef(
         "patients",

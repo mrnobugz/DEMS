@@ -4,7 +4,10 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ClipboardList,
   ClipboardPlus,
+  ArrowLeftRight,
+  Truck,
   FlaskConical,
   LayoutDashboard,
   Package,
@@ -49,6 +52,26 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
 
 const CLINICAL_ROLES = ["dentist", "hygienist", "clinic_admin", "super_admin"];
 const FRONT_DESK_ROLES = ["receptionist", "clinic_admin", "super_admin"];
+const WAREHOUSE_ROLES = ["clinic_admin", "dentist", "super_admin", "pharmacy", "accountant", "hygienist"];
+const WAREHOUSE_PERMS = ["inventory:read", "inventory:issue", "inventory:*"];
+
+const WAREHOUSE_GROUP: NavGroup = {
+  labelKey: "inventory",
+  icon: Package,
+  roles: WAREHOUSE_ROLES,
+  anyPermission: WAREHOUSE_PERMS,
+  children: [
+    { to: "/inventory", labelKey: "whOverview", icon: LayoutDashboard, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=stock", labelKey: "whStock", icon: Package, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=receive", labelKey: "whReceive", icon: Truck, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=issues", labelKey: "whIssues", icon: ArrowLeftRight, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=orders", labelKey: "whOrders", icon: ClipboardList, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=suppliers", labelKey: "whSuppliers", icon: Building2, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=movements", labelKey: "whMovements", icon: ClipboardPlus, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=analysis", labelKey: "whAnalysis", icon: BarChart3, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=fees", labelKey: "whFees", icon: Receipt, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+  ],
+};
 
 const FRONT_DESK_GROUP: NavGroup = {
   labelKey: "frontDesk",
@@ -195,13 +218,7 @@ const ALL: NavEntry[] = [
     roles: ["pharmacy", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["pharmacy:read", "pharmacy:*"],
   },
-  {
-    to: "/inventory",
-    labelKey: "inventory",
-    icon: Package,
-    roles: ["clinic_admin", "dentist", "super_admin"],
-    anyPermission: ["inventory:read", "inventory:*"],
-  },
+  WAREHOUSE_GROUP,
   {
     to: "/patients",
     labelKey: "patients",
@@ -259,6 +276,174 @@ const ALL: NavEntry[] = [
   },
 ];
 
+const ADMIN_ITEMS: NavItem[] = [
+  {
+    to: "/admin",
+    labelKey: "adminUsers",
+    icon: Users,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*"],
+  },
+  {
+    to: "/admin?view=roles",
+    labelKey: "adminRoles",
+    icon: UserRoundCog,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*"],
+  },
+  {
+    to: "/admin?view=procedures",
+    labelKey: "adminProcedures",
+    icon: ClipboardPlus,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*"],
+  },
+  {
+    to: "/admin?view=ops",
+    labelKey: "adminOps",
+    icon: Settings2,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*"],
+  },
+];
+
+export type ModuleNav = {
+  key: string;
+  titleKey: string;
+  home: string;
+  items: NavItem[];
+};
+
+type ModuleDef = {
+  key: string;
+  titleKey: string;
+  home: string;
+  match: (path: string) => boolean;
+  items: NavItem[];
+};
+
+function singletonModule(
+  key: string,
+  titleKey: string,
+  home: string,
+  item: NavItem,
+): ModuleDef {
+  return {
+    key,
+    titleKey,
+    home,
+    match: (path) => path === home || path.startsWith(`${home}/`),
+    items: [item],
+  };
+}
+
+/** In-module destinations only — never the full module catalog. */
+const MODULE_DEFS: ModuleDef[] = [
+  singletonModule("owner", "owner", "/owner", {
+    to: "/owner",
+    labelKey: "owner",
+    icon: Building2,
+    roles: ["super_admin"],
+  }),
+  {
+    key: "admin",
+    titleKey: "clinicAdmin",
+    home: "/admin",
+    match: (path) => path === "/admin" || path.startsWith("/admin/"),
+    items: ADMIN_ITEMS,
+  },
+  {
+    key: "front-desk",
+    titleKey: "frontDesk",
+    home: "/front-desk",
+    match: (path) => path === "/front-desk" || path.startsWith("/front-desk/"),
+    items: FRONT_DESK_GROUP.children,
+  },
+  ...CLINICAL_GROUP.children.map((item) => {
+    const home = item.to.split("?")[0];
+    return singletonModule(home.replace("/clinical/", ""), item.labelKey, home, item);
+  }),
+  singletonModule("hygiene", "hygiene", "/hygiene", {
+    to: "/hygiene",
+    labelKey: "hygiene",
+    icon: UserRoundCog,
+    roles: ["hygienist", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["clinical:read", "clinical:limited"],
+  }),
+  singletonModule("imaging", "imaging", "/imaging", {
+    to: "/imaging",
+    labelKey: "imaging",
+    icon: Scan,
+    roles: ["imaging_tech", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["imaging:read", "imaging:*"],
+  }),
+  singletonModule("lab", "lab", "/lab", {
+    to: "/lab",
+    labelKey: "lab",
+    icon: FlaskConical,
+    roles: ["lab_tech", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["lab:read", "lab:*"],
+  }),
+  singletonModule("pharmacy", "pharmacy", "/pharmacy", {
+    to: "/pharmacy",
+    labelKey: "pharmacy",
+    icon: Pill,
+    roles: ["pharmacy", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["pharmacy:read", "pharmacy:*"],
+  }),
+  {
+    key: "inventory",
+    titleKey: "inventory",
+    home: "/inventory",
+    match: (path) => path === "/inventory" || path.startsWith("/inventory/"),
+    items: WAREHOUSE_GROUP.children,
+  },
+  singletonModule("patients", "patients", "/patients", {
+    to: "/patients",
+    labelKey: "patients",
+    icon: Users,
+    roles: [
+      "super_admin",
+      "clinic_admin",
+      "dentist",
+      "hygienist",
+      "receptionist",
+      "lab_tech",
+      "pharmacy",
+      "imaging_tech",
+    ],
+    anyPermission: ["patients:read", "patients:*"],
+  }),
+  singletonModule("schedule", "schedule", "/schedule", {
+    to: "/schedule",
+    labelKey: "schedule",
+    icon: CalendarDays,
+    roles: ["super_admin", "clinic_admin", "dentist", "hygienist", "receptionist"],
+    anyPermission: ["appointments:read", "appointments:*"],
+  }),
+  singletonModule("billing", "billing", "/billing", {
+    to: "/billing",
+    labelKey: "billing",
+    icon: Receipt,
+    roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
+    anyPermission: ["billing:read", "billing:create", "billing:*"],
+  }),
+  singletonModule("ai", "aiAssist", "/ai", {
+    to: "/ai",
+    labelKey: "aiAssist",
+    icon: Sparkles,
+    roles: ["super_admin", "clinic_admin", "dentist", "hygienist", "receptionist"],
+    anyPermission: ["ai:suggest", "ai:*"],
+  }),
+  singletonModule("reports", "reports", "/reports", {
+    to: "/reports",
+    labelKey: "reports",
+    icon: BarChart3,
+    roles: ["super_admin", "clinic_admin", "accountant", "dentist"],
+    anyPermission: ["reports:own", "reports:financial", "reports:*"],
+  }),
+];
+
 function roleAllows(roles: string[] | undefined, role: string | undefined | null): boolean {
   if (!roles) return true;
   if (!role) return false;
@@ -302,7 +487,7 @@ export function navForRole(
   return entries;
 }
 
-/** Flat list (dropdown children inlined) — mobile tab bar and path guards. */
+/** Flat list (dropdown children inlined) — path guards. */
 export function flatNavForRole(
   role: string | undefined | null,
   permissions?: string[] | null,
@@ -311,6 +496,26 @@ export function flatNavForRole(
     if (!isNavGroup(entry)) return [entry];
     return entry.children.filter((c) => !c.omitFromMobile);
   });
+}
+
+/** Sidebar links for the module the user is currently in. Null on the modules dashboard. */
+export function moduleNavForPath(
+  path: string,
+  role: string | undefined | null,
+  permissions?: string[] | null,
+): ModuleNav | null {
+  const clean = path.split("?")[0];
+  if (clean === MODULES_DASHBOARD_PATH || clean.startsWith(`${MODULES_DASHBOARD_PATH}/`)) {
+    return null;
+  }
+  const def = MODULE_DEFS.find((mod) => mod.match(clean));
+  if (!def) return null;
+  return {
+    key: def.key,
+    titleKey: def.titleKey,
+    home: def.home,
+    items: def.items.filter((item) => itemVisible(item, role, permissions)),
+  };
 }
 
 export const MODULES_DASHBOARD_PATH = "/dashboard/modules";

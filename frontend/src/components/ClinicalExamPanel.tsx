@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Icd10Picker } from "@/components/Icd10Picker";
 import { RadiologyInvestigationDialog, formatRadiologyOverview } from "@/components/RadiologyInvestigationDialog";
-import { api, apiUpload, ApiError } from "@/lib/api";
+import { api, apiUpload, imagingContentUrl, ApiError } from "@/lib/api";
 import type {
   ClinicalVisit,
   ExtraOralExam,
@@ -92,6 +92,8 @@ const emptyIx = (): VisitInvestigations => ({
   photography_date: "",
   photography_tooth: "",
   photography_storage_key: "",
+  photography_url: "",
+  photography_study_id: "",
   study_models_date: "",
   study_models_photo_key: "",
   radiograph_lucency: "",
@@ -174,11 +176,11 @@ export function ClinicalExamPanel({
   const [notes, setNotes] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [vitalsOpen, setVitalsOpen] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [radioOpen, setRadioOpen] = useState(false);
-  const paediatric = department === "paediatric";
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
   const omfs = department === "maxillofacial";
-  const simpleIx = paediatric || omfs;
+  const ortho = department === "orthodontic";
 
   async function load() {
     const rows = await api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`);
@@ -208,38 +210,6 @@ export function ClinicalExamPanel({
     setRadioOpen(false);
   }
 
-  async function uploadExamImage(file: File) {
-    setPhotoBusy(true);
-    try {
-      const kind = file.type.startsWith("image/") ? "photo" : "PA";
-      const study = await api<{ id: string }>(
-        "/api/v1/imaging/studies",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            patient_id: patientId,
-            study_type: kind,
-            notes: `${department || "Clinical"} exam investigation`,
-          }),
-        },
-      );
-      const fd = new FormData();
-      fd.append("file", file, file.name);
-      await apiUpload(`/api/v1/imaging/studies/${study.id}/upload`, fd);
-      setIx((prev) => ({
-        ...prev,
-        photography_type: kind === "photo" ? "intra_oral" : prev.photography_type,
-        photography_storage_key: study.id,
-        photography_notes: file.name,
-      }));
-      onMessage("Image uploaded");
-    } catch (err) {
-      onMessage(err instanceof ApiError ? err.message : "Could not upload the image");
-    } finally {
-      setPhotoBusy(false);
-    }
-  }
-
   function loadVisit(v: ClinicalVisit) {
     setEditingId(v.id);
     setOpen(true);
@@ -248,7 +218,9 @@ export function ClinicalExamPanel({
     setStatus(v.status);
     setVitals({ ...emptyVitals(), ...(v.vitals || {}) });
     const nextExtra = { ...emptyExtra(), ...(v.extra_oral || {}) };
-    setExtra({ ...nextExtra, notes: composeExtraOral(nextExtra) });
+    setExtra(
+      ortho ? nextExtra : { ...nextExtra, notes: composeExtraOral(nextExtra) },
+    );
     setIntra({ ...emptyIntra(), ...(v.intra_oral || {}) });
     setIx({ ...emptyIx(), ...(v.investigations || {}) });
     setDx({ ...emptyDx(), ...(v.diagnosis || {}) });
@@ -312,6 +284,8 @@ export function ClinicalExamPanel({
           study_id: row.study_id || null,
           invoice_id: row.invoice_id || null,
           overview: row.overview || formatRadiologyOverview(row),
+          photo_url: row.photo_url || (row.study_id ? `/api/v1/imaging/studies/${row.study_id}/content` : null),
+          captured_at: row.captured_at || null,
         })),
       },
       diagnosis: {
@@ -352,18 +326,60 @@ export function ClinicalExamPanel({
     }
   }
 
+  async function uploadInvestigationPhoto(file: File) {
+    setPhotoBusy(true);
+    try {
+      const study = await api<{ id: string; captured_at: string; storage_key?: string | null }>(
+        "/api/v1/imaging/studies",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            patient_id: patientId,
+            visit_id: editingId || null,
+            study_type: "photo",
+            notes: "Investigation photo",
+          }),
+        },
+      );
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      const uploaded = await apiUpload<{
+        id: string;
+        captured_at: string;
+        storage_key?: string | null;
+      }>(`/api/v1/imaging/studies/${study.id}/upload`, fd);
+      const captured = uploaded.captured_at || study.captured_at || new Date().toISOString();
+      const studyId = uploaded.id || study.id;
+      setIx((prev) => ({
+        ...prev,
+        photography_study_id: studyId,
+        photography_url: `/api/v1/imaging/studies/${studyId}/content`,
+        photography_date: captured.slice(0, 10),
+        photography_storage_key: uploaded.storage_key || study.storage_key || studyId,
+      }));
+      onMessage("Investigation photo uploaded");
+    } catch (err) {
+      onMessage(err instanceof ApiError ? err.message : "Photo upload failed");
+    } finally {
+      setPhotoBusy(false);
+      if (photoRef.current) photoRef.current.value = "";
+    }
+  }
+
   return (
     <div className="glass-panel space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-display text-base font-bold">
-            {omfs ? "Examination" : "Clinical examination"}
+            {omfs ? "Examination" : ortho ? "Orthodontic examination" : "Clinical examination"}
           </h3>
           <p className="text-xs text-muted">
             {omfs
               ? "General · vital signs · local · diagnosis · investigation"
-              : "Extra-oral · intra-oral · investigations · diagnosis"}
-            {department && !omfs ? ` · ${department}` : ""}
+              : ortho
+                ? "General · extra-oral · intra-oral · study models · photographs · radiology"
+                : "Extra-oral · intra-oral · investigations · diagnosis"}
+            {department && !omfs && !ortho ? ` · ${department}` : ""}
           </p>
         </div>
         <button
@@ -447,6 +463,52 @@ export function ClinicalExamPanel({
             </section>
           )}
 
+          {ortho && (
+            <section className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+                General examination
+              </h4>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="label">Height (cm)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.1"
+                    value={vitals.height_cm ?? ""}
+                    onChange={(e) => setVitals({ ...vitals, height_cm: numOrNull(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Weight (kg)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.1"
+                    value={vitals.weight_kg ?? ""}
+                    onChange={(e) => setVitals({ ...vitals, weight_kg: numOrNull(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Posture</label>
+                  <input
+                    className="input"
+                    value={vitals.posture || ""}
+                    onChange={(e) => setVitals({ ...vitals, posture: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Gait</label>
+                  <input
+                    className="input"
+                    value={vitals.gait || ""}
+                    onChange={(e) => setVitals({ ...vitals, gait: e.target.value })}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
           <section className="space-y-2">
             <button
               type="button"
@@ -457,7 +519,7 @@ export function ClinicalExamPanel({
               <span className="reveal-toggle__text">
                 <span className="reveal-toggle__title">Vital signs</span>
                 <span className="reveal-toggle__hint">
-                  {omfs ? "BP, pulse, height, weight" : "BP, pulse, height, weight, appearance"}
+                  {omfs || ortho ? "BP, pulse" : "BP, pulse, height, weight, appearance"}
                 </span>
               </span>
               <span className="reveal-toggle__action">{vitalsOpen ? "Hide" : "Show"}</span>
@@ -495,6 +557,8 @@ export function ClinicalExamPanel({
                   onChange={(e) => setVitals({ ...vitals, pulse: numOrNull(e.target.value) })}
                 />
               </div>
+              {!ortho && (
+              <>
               <div>
                 <label className="label">Height (cm)</label>
                 <input
@@ -515,7 +579,9 @@ export function ClinicalExamPanel({
                   onChange={(e) => setVitals({ ...vitals, weight_kg: numOrNull(e.target.value) })}
                 />
               </div>
-              {!omfs && (
+              </>
+              )}
+              {!omfs && !ortho && (
               <>
               <div>
                 <label className="label">Appearance</label>
@@ -553,6 +619,93 @@ export function ClinicalExamPanel({
             </h4>
           )}
 
+          {ortho ? (
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Extra oral examination
+            </h4>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(
+                [
+                  ["head_shape", "Head shape"],
+                  ["facial_form", "Facial form"],
+                  ["symmetry", "Facial symmetry"],
+                  ["proportions", "Facial proportions"],
+                  ["profile", "Facial profile"],
+                  ["skeletal_anterior", "Anterior skeletal relationship"],
+                  ["skeletal_posterior", "Posterior skeletal relationship"],
+                  ["skeletal_vertical", "Vertical skeletal relationship"],
+                  ["smile_line", "Smile line (upper and lower teeth)"],
+                  ["nasolabial_angle", "Nasolabial angle"],
+                  ["chin", "Chin"],
+                  ["mentolabial_sulcus", "Mentolabial sulcus"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key}>
+                  <label className="label">{label}</label>
+                  <input
+                    className="input"
+                    value={(extra[key] as string) || ""}
+                    onChange={(e) => setExtra({ ...extra, [key]: e.target.value })}
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="label">Smile corridor (mm)</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.1"
+                  value={extra.smile_corridor_mm ?? ""}
+                  onChange={(e) =>
+                    setExtra({ ...extra, smile_corridor_mm: numOrNull(e.target.value) })
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">Examination of lips</label>
+                <select
+                  className="input"
+                  value={extra.lip_competence || ""}
+                  onChange={(e) => setExtra({ ...extra, lip_competence: e.target.value })}
+                >
+                  <option value="">—</option>
+                  <option value="competent">Competent</option>
+                  <option value="incompetent">Incompetent</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    ["tmj_tenderness", "TMJ tenderness"],
+                    ["tmj_sounds", "TMJ sounds"],
+                    ["jaw_deviation", "Jaw deviation"],
+                    ["restricted_movement", "Restricted movement"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(extra[key])}
+                      onChange={(e) => setExtra({ ...extra, [key]: e.target.checked })}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">TMJ assessment</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={extra.notes || ""}
+                  onChange={(e) => setExtra({ ...extra, notes: e.target.value })}
+                  placeholder="Pain, clicking, locking, range of movement…"
+                />
+              </div>
+            </div>
+          </section>
+          ) : (
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
               Extra-oral examination
@@ -565,7 +718,127 @@ export function ClinicalExamPanel({
               placeholder="Head, face, TMJ, lymph nodes, profile, symmetry, lips…"
             />
           </section>
+          )}
 
+          {ortho ? (
+          <>
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Intraoral examination
+            </h4>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="label">Tongue</label>
+                <input
+                  className="input"
+                  value={intra.tongue || ""}
+                  onChange={(e) => setIntra({ ...intra, tongue: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Palate</label>
+                <input
+                  className="input"
+                  value={intra.palate || ""}
+                  onChange={(e) => setIntra({ ...intra, palate: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Gingiva</label>
+                <input
+                  className="input"
+                  value={intra.gingiva_mucosa || ""}
+                  onChange={(e) => setIntra({ ...intra, gingiva_mucosa: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Habit record</label>
+                <input
+                  className="input"
+                  value={intra.oral_habits || ""}
+                  onChange={(e) => setIntra({ ...intra, oral_habits: e.target.value })}
+                  placeholder="Thumb sucking, tongue thrust, mouth breathing…"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Dentition</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={intra.hard_tissue_notes || ""}
+                  onChange={(e) => setIntra({ ...intra, hard_tissue_notes: e.target.value })}
+                  placeholder="Crowding, spacing, unerupted, missing, caries, restorations…"
+                />
+              </div>
+            </div>
+          </section>
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Study models
+            </h4>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="label">Study models date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={ix.study_models_date || ""}
+                  onChange={(e) => setIx({ ...ix, study_models_date: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Evaluation of the model</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={ix.study_models_notes || ""}
+                  onChange={(e) => setIx({ ...ix, study_models_notes: e.target.value })}
+                  placeholder="Arch form, crowding, midline, overjet / overbite, crossbite…"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted">
+              Attach model photographs with Radiology below.
+            </p>
+          </section>
+          <section className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
+              Facial photograph
+            </h4>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="label">Photography date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={ix.photography_date || ""}
+                  onChange={(e) => setIx({ ...ix, photography_date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Extra oral</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={ix.photography_notes || ""}
+                  onChange={(e) => setIx({ ...ix, photography_notes: e.target.value })}
+                  placeholder="Frontal, profile, smile…"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Intra oral</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={intra.notes || ""}
+                  onChange={(e) => setIntra({ ...intra, notes: e.target.value })}
+                  placeholder="Anterior, buccal, occlusal views…"
+                />
+              </div>
+            </div>
+          </section>
+          </>
+          ) : (
           <section className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
               Intraoral examination
@@ -627,6 +900,7 @@ export function ClinicalExamPanel({
               </div>
             </div>
           </section>
+          )}
 
           {omfs && (
           <section className="space-y-2">
@@ -673,219 +947,83 @@ export function ClinicalExamPanel({
               <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
                 Investigation
               </h4>
-              <button type="button" className="btn-primary text-xs" onClick={() => setRadioOpen(true)}>
-                Radiology
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={photoRef}
+                  className="sr-only"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadInvestigationPhoto(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  disabled={photoBusy}
+                  onClick={() => photoRef.current?.click()}
+                >
+                  {photoBusy ? "Uploading…" : "Photo"}
+                </button>
+                <button type="button" className="btn-primary text-xs" onClick={() => setRadioOpen(true)}>
+                  Radiology
+                </button>
+              </div>
             </div>
-            {(ix.radiology_items || []).length > 0 && (
-              <ul className="space-y-1">
-                {(ix.radiology_items || []).map((row, index) => (
-                  <li key={`${row.fee_item_id}-${index}`} className="ix-overview">
-                    {row.overview || formatRadiologyOverview(row)}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {simpleIx ? (
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="label">Percussion</label>
-                  <select
-                    className="input"
-                    value={ix.pulp_percussion_result || ""}
-                    onChange={(e) => setIx({ ...ix, pulp_percussion_result: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {["positive", "negative", "delayed"].map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {omfs && (
-                  <div className="md:col-span-2">
-                    <label className="label">Investigation notes</label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      value={ix.study_models_notes || ""}
-                      onChange={(e) => setIx({ ...ix, study_models_notes: e.target.value })}
-                      placeholder="Aspiration, biopsy, bloods, culture…"
-                    />
+            {(ix.photography_url || ix.photography_study_id) && (
+              <div className="ix-photo">
+                <img
+                  src={
+                    ix.photography_study_id
+                      ? imagingContentUrl(ix.photography_study_id)
+                      : ix.photography_url || ""
+                  }
+                  alt="Investigation photo"
+                  className="ix-drop__preview"
+                />
+                <div className="min-w-0 text-xs">
+                  <div>
+                    <span className="text-muted">Upload date</span>{" "}
+                    <span className="font-semibold">{ix.photography_date || "—"}</span>
                   </div>
-                )}
-                {paediatric && (
-                <>
-                <div className="md:col-span-2">
-                  <label className="label">Radiographic</label>
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={ix.radiograph_notes || ""}
-                    onChange={(e) => setIx({ ...ix, radiograph_notes: e.target.value })}
-                    placeholder="Radiograph findings…"
-                  />
+                  <div className="truncate font-mono text-[11px] text-muted" title={ix.photography_url || ""}>
+                    {ix.photography_url}
+                  </div>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="label">Upload image / photo</label>
-                  <input
-                    className="input"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/*,.dcm,application/dicom"
-                    disabled={photoBusy}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      if (file) void uploadExamImage(file);
-                    }}
-                  />
-                  {photoBusy && <p className="mt-1 text-xs text-muted">Uploading…</p>}
-                  {ix.photography_notes && (
-                    <p className="mt-1 text-xs text-brand-800">Uploaded: {ix.photography_notes}</p>
-                  )}
-                </div>
-                </>
-                )}
               </div>
+            )}
+            {(ix.radiology_items || []).length > 0 ? (
+              <ul className="space-y-1">
+                {(ix.radiology_items || []).map((row, index) => {
+                  const src = row.study_id
+                    ? imagingContentUrl(row.study_id)
+                    : row.photo_url || "";
+                  return (
+                    <li key={`${row.fee_item_id}-${row.study_id || index}`} className="ix-overview">
+                      {src ? <img src={src} alt="" className="ix-thumb" /> : <span className="ix-thumb ix-thumb--empty" />}
+                      <span className="min-w-0 flex-1">
+                        <span className="block">{row.overview || formatRadiologyOverview(row)}</span>
+                        {row.captured_at && (
+                          <span className="block text-[11px] text-muted">
+                            {new Date(row.captured_at).toLocaleString()}
+                          </span>
+                        )}
+                        {row.photo_url && (
+                          <span className="block truncate font-mono text-[11px] text-muted">{row.photo_url}</span>
+                        )}
+                      </span>
+                      <button type="button" className="btn-ghost text-xs" onClick={() => setRadioOpen(true)}>
+                        Edit
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {(
-                [
-                  ["pulp_percussion_result", "Percussion result"],
-                  ["pulp_cold_result", "Cold result"],
-                  ["pulp_heat_result", "Heat result"],
-                  ["pulp_test_cavity_result", "Test cavity result"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key}>
-                  <label className="label">{label}</label>
-                  <select
-                    className="input"
-                    value={(ix as any)[key] || ""}
-                    onChange={(e) => setIx({ ...ix, [key]: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {["positive", "negative", "delayed"].map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-              <div>
-                <label className="label">Photography type</label>
-                <select
-                  className="input"
-                  value={ix.photography_type || ""}
-                  onChange={(e) => setIx({ ...ix, photography_type: e.target.value })}
-                >
-                  <option value="">—</option>
-                  <option value="extra_oral">Extra-oral</option>
-                  <option value="intra_oral">Intra-oral</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Photography date</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={ix.photography_date || ""}
-                  onChange={(e) => setIx({ ...ix, photography_date: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="label">Photo tooth / key</label>
-                <input
-                  className="input"
-                  value={ix.photography_tooth || ""}
-                  onChange={(e) => setIx({ ...ix, photography_tooth: e.target.value })}
-                  placeholder="Tooth"
-                />
-              </div>
-              <div>
-                <label className="label">Photo storage key</label>
-                <input
-                  className="input"
-                  value={ix.photography_storage_key || ""}
-                  onChange={(e) => setIx({ ...ix, photography_storage_key: e.target.value })}
-                  placeholder="stub://photos/..."
-                />
-              </div>
-              <div>
-                <label className="label">Radiograph lucency</label>
-                <select
-                  className="input"
-                  value={ix.radiograph_lucency || ""}
-                  onChange={(e) => setIx({ ...ix, radiograph_lucency: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {["radiolucent", "opaque", "mixed"].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Radiograph tooth</label>
-                <input
-                  className="input"
-                  value={ix.radiograph_tooth || ""}
-                  onChange={(e) => setIx({ ...ix, radiograph_tooth: e.target.value })}
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={Boolean(ix.radiograph_root_involved)}
-                  onChange={(e) => setIx({ ...ix, radiograph_root_involved: e.target.checked })}
-                />
-                Root involved
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={Boolean(ix.radiograph_furcation)}
-                  onChange={(e) => setIx({ ...ix, radiograph_furcation: e.target.checked })}
-                />
-                Furcation
-              </label>
-              {(
-                [
-                  ["radiograph_notes", "Radiograph notes"],
-                  ["photography_notes", "Photography notes"],
-                  ["study_models_notes", "Study models notes"],
-                  ["study_models_date", "Study models date"],
-                  ["study_models_photo_key", "Study models photo key"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key}>
-                  <label className="label">{label}</label>
-                  <input
-                    className="input"
-                    value={(ix as any)[key] || ""}
-                    onChange={(e) => setIx({ ...ix, [key]: e.target.value })}
-                  />
-                </div>
-              ))}
-            </div>
+              <p className="text-xs text-muted">No radiology recorded yet.</p>
             )}
           </section>
-
-          {omfs && (
-          <section className="space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
-              Radiology notes
-            </h4>
-            <textarea
-              className="input"
-              rows={2}
-              value={ix.radiograph_notes || ""}
-              onChange={(e) => setIx({ ...ix, radiograph_notes: e.target.value })}
-              placeholder="OPG / PA / CBCT findings — bill and attach the film in Radiology below"
-            />
-          </section>
-          )}
 
           {!omfs && (
           <section className="space-y-2">

@@ -26,6 +26,8 @@ from app.services.domain import ensure_fee_schedule, get_primary_insurance_plan,
 
 OFFICE_PAYER = ""
 TOOTH_REQUIRED_CODES = {"filling", "crown", "rct", "extraction"}
+FEE_SYNC_KINDS = {CatalogItemKind.PROCEDURE, CatalogItemKind.DRUG, CatalogItemKind.SUPPLY}
+SOLD_GOODS_KINDS = {CatalogItemKind.DRUG, CatalogItemKind.SUPPLY}
 
 
 def _slug(value: str) -> str:
@@ -162,6 +164,98 @@ async def sync_fee_item_to_catalog(
     fee.catalog_item_id = item.id
     await db.flush()
     return item
+
+
+def sold_goods_kind(kind: str | CatalogItemKind | None) -> str | None:
+    if kind in SOLD_GOODS_KINDS or kind in ("drug", "supply"):
+        return str(kind)
+    return None
+
+
+async def sync_catalog_item_to_fee(db: AsyncSession, clinic_id: str, item: CatalogItem) -> FeeScheduleItem | None:
+    """Mirror billable procedure/drug/supply catalog rows onto the fee schedule Billing uses."""
+    kind = item.kind
+    if kind not in FEE_SYNC_KINDS and str(kind) not in {"procedure", "drug", "supply"}:
+        return None
+    fee = (
+        await db.execute(
+            select(FeeScheduleItem).where(
+                FeeScheduleItem.clinic_id == clinic_id, FeeScheduleItem.catalog_item_id == item.id
+            )
+        )
+    ).scalar_one_or_none()
+    if fee is None:
+        fee = (
+            await db.execute(
+                select(FeeScheduleItem).where(
+                    FeeScheduleItem.clinic_id == clinic_id, FeeScheduleItem.code == item.sku
+                )
+            )
+        ).scalar_one_or_none()
+    cat_row = None
+    if item.category_id:
+        cat_row = (
+            await db.execute(
+                select(CatalogCategory).where(
+                    CatalogCategory.id == item.category_id, CatalogCategory.clinic_id == clinic_id
+                )
+            )
+        ).scalar_one_or_none()
+    category_slug = cat_row.slug if cat_row else (
+        str(kind) if kind != CatalogItemKind.PROCEDURE else "general"
+    )
+    if fee is None:
+        fee = FeeScheduleItem(
+            clinic_id=clinic_id,
+            code=item.sku,
+            label=item.label,
+            category=category_slug,
+            unit_price=item.list_price,
+            currency=item.currency or "TZS",
+            is_active=bool(item.is_active),
+            billable=bool(item.billable),
+            notes=item.notes,
+            catalog_item_id=item.id,
+        )
+        db.add(fee)
+    else:
+        fee.catalog_item_id = item.id
+        fee.label = item.label
+        fee.unit_price = item.list_price
+        fee.is_active = bool(item.is_active)
+        fee.billable = bool(item.billable)
+        fee.notes = item.notes
+        fee.category = category_slug
+    await db.flush()
+    return fee
+
+
+async def decorate_fee_schedule(
+    db: AsyncSession, clinic_id: str, items: list[FeeScheduleItem]
+) -> list[FeeScheduleItem]:
+    """Attach catalog kind / warehouse on-hand for Billing UI (not persisted)."""
+    catalog_ids = [row.catalog_item_id for row in items if row.catalog_item_id]
+    catalogs: dict[str, CatalogItem] = {}
+    if catalog_ids:
+        rows = (
+            await db.execute(select(CatalogItem).where(CatalogItem.id.in_(catalog_ids)))
+        ).scalars().all()
+        catalogs = {row.id: row for row in rows}
+    from app.services import warehouse as stock
+
+    on_hand: dict[str, float] = {}
+    for fee in items:
+        cat = catalogs.get(fee.catalog_item_id) if fee.catalog_item_id else None
+        kind = str(cat.kind) if cat else None
+        fee.catalog_kind = kind
+        inv_id = cat.inventory_item_id if cat and sold_goods_kind(cat.kind) else None
+        fee.inventory_item_id = inv_id
+        fee.quantity_on_hand = 0.0
+        if inv_id and inv_id not in on_hand:
+            on_hand[inv_id] = await stock.on_hand_at(db, clinic_id, inv_id)
+        if inv_id:
+            fee.quantity_on_hand = on_hand.get(inv_id, 0.0)
+    return items
 
 
 async def sync_fee_schedule_catalog(db: AsyncSession, clinic_id: str) -> None:
@@ -328,37 +422,12 @@ async def create_catalog_item(
         drug_schedule=data.drug_schedule,
         unit_of_measure=data.unit_of_measure,
         vendor_fee_basis=data.vendor_fee_basis,
+        inventory_item_id=data.inventory_item_id,
     )
     db.add(item)
     await db.flush()
     await _set_office_rate(db, clinic_id, item, data.list_price, data.effective_from)
-    if item.kind == CatalogItemKind.PROCEDURE:
-        fee = (
-            await db.execute(
-                select(FeeScheduleItem).where(
-                    FeeScheduleItem.clinic_id == clinic_id, FeeScheduleItem.code == item.sku
-                )
-            )
-        ).scalar_one_or_none()
-        if fee is None:
-            fee = FeeScheduleItem(
-                clinic_id=clinic_id,
-                code=item.sku,
-                label=item.label,
-                category=(category.slug if category else "general"),
-                unit_price=item.list_price,
-                currency=item.currency,
-                is_active=item.is_active,
-                billable=item.billable,
-                notes=item.notes,
-                catalog_item_id=item.id,
-            )
-            db.add(fee)
-        else:
-            fee.catalog_item_id = item.id
-            fee.label = item.label
-            fee.unit_price = item.list_price
-        await db.flush()
+    await sync_catalog_item_to_fee(db, clinic_id, item)
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -395,26 +464,12 @@ async def update_catalog_item(
         ).scalar_one_or_none()
         if not category:
             raise NotFoundError("Catalog category")
-    for key in ("label", "kind", "list_price", "currency", "is_active", "billable", "notes", "category_id"):
+    for key in ("label", "kind", "list_price", "currency", "is_active", "billable", "notes", "category_id", "inventory_item_id"):
         if key in payload:
             setattr(item, key, payload[key])
     _apply_kind_fields(item, data)
     await db.flush()
-    fee = (
-        await db.execute(
-            select(FeeScheduleItem).where(
-                FeeScheduleItem.clinic_id == clinic_id, FeeScheduleItem.catalog_item_id == item.id
-            )
-        )
-    ).scalar_one_or_none()
-    if fee:
-        fee.label = item.label
-        fee.unit_price = item.list_price
-        fee.is_active = item.is_active
-        fee.billable = item.billable
-        fee.notes = item.notes
-        if item.category:
-            fee.category = item.category.slug
+    await sync_catalog_item_to_fee(db, clinic_id, item)
     await write_audit(
         db,
         clinic_id=clinic_id,

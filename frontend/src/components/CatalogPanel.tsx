@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
-import type { CatalogItem } from "@/lib/types";
+import type { CatalogItem, InventoryItem } from "@/lib/types";
 import { useUiPrefs } from "@/lib/uiPrefs";
 
 const KINDS = ["procedure", "drug", "supply", "lab"] as const;
@@ -14,10 +14,12 @@ const emptyForm = {
   extra: "",
   payer_name: "",
   payer_amount: "",
+  inventory_item_id: "",
 };
 
 export function CatalogPanel() {
   const [items, setItems] = useState<CatalogItem[]>([]);
+  const [stock, setStock] = useState<InventoryItem[]>([]);
   const [kind, setKind] = useState<(typeof KINDS)[number] | "all">("all");
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
@@ -29,6 +31,8 @@ export function CatalogPanel() {
   async function load() {
     const rows = await api<CatalogItem[]>("/api/v1/billing/catalog?active=true");
     setItems(rows);
+    const inv = await api<InventoryItem[]>("/api/v1/inventory?item_kind=stock").catch(() => []);
+    setStock(inv);
   }
 
   useEffect(() => {
@@ -56,6 +60,9 @@ export function CatalogPanel() {
     if (form.kind === "drug") body.ndc_code = form.extra.trim() || null;
     if (form.kind === "supply") body.unit_of_measure = form.extra.trim() || "unit";
     if (form.kind === "lab") body.vendor_fee_basis = form.extra.trim() || "per-unit";
+    if ((form.kind === "drug" || form.kind === "supply") && form.inventory_item_id) {
+      body.inventory_item_id = form.inventory_item_id;
+    }
     try {
       await api("/api/v1/billing/catalog", { method: "POST", body: JSON.stringify(body) });
       setForm(emptyForm);
@@ -143,6 +150,20 @@ export function CatalogPanel() {
             value={form.extra}
             onChange={(e) => setForm({ ...form, extra: e.target.value })}
           />
+          {(form.kind === "drug" || form.kind === "supply") && (
+            <select
+              className="input md:col-span-5"
+              value={form.inventory_item_id}
+              onChange={(e) => setForm({ ...form, inventory_item_id: e.target.value })}
+            >
+              <option value="">No warehouse link</option>
+              {stock.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.sku} · {row.name} ({row.quantity} {row.unit})
+                </option>
+              ))}
+            </select>
+          )}
           <button className="btn-primary md:col-span-5" type="submit">
             Add catalog item
           </button>

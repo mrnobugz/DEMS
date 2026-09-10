@@ -79,6 +79,8 @@ class RadiologyInvestigationItem(BaseModel):
     study_id: Optional[str] = None
     invoice_id: Optional[str] = None
     overview: Optional[str] = Field(default=None, description="Single-line summary for the chart")
+    photo_url: Optional[str] = Field(default=None, description="Imaging content URL after upload")
+    captured_at: Optional[str] = Field(default=None, description="ISO datetime when the image was uploaded")
 
 
 class VisitInvestigations(BaseModel):
@@ -100,6 +102,8 @@ class VisitInvestigations(BaseModel):
     photography_date: Optional[str] = None
     photography_tooth: Optional[str] = None
     photography_storage_key: Optional[str] = None
+    photography_url: Optional[str] = None
+    photography_study_id: Optional[str] = None
     study_models_date: Optional[str] = None
     study_models_photo_key: Optional[str] = None
     radiograph_lucency: Optional[str] = Field(

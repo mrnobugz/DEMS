@@ -322,6 +322,7 @@ export function ClerkshipIntakeFields({
   const showClinical = variant !== "reception";
   const paediatric = department === "paediatric";
   const omfs = department === "maxillofacial";
+  const ortho = department === "orthodontic";
   const age = ageFromDob(form.date_of_birth);
   const minor = isMinor(form);
   const gaps = required ? clerkshipGaps(form) : [];
@@ -799,7 +800,88 @@ export function ClerkshipIntakeFields({
       </>
       )}
 
-      {showClinical && !omfs && (
+      {showClinical && ortho && (
+      <>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Chief complaint</h4>
+        <p className="mb-1 text-xs text-muted">Filled from patient registration — confirm or complete.</p>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.chief_complaint}
+          onChange={(e) => set("chief_complaint", e.target.value)}
+          placeholder="Why they came for orthodontic assessment"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Medical history</h4>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {MEDICAL_LABELS.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-sm text-brand-900">
+              <input
+                type="checkbox"
+                checked={form.medical_history[key]}
+                onChange={(e) =>
+                  set("medical_history", { ...form.medical_history, [key]: e.target.checked })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className={fieldGrid}>
+          <div>
+            <label className="label">Allergy details</label>
+            <input
+              className="input"
+              value={form.allergies}
+              onChange={(e) => set("allergies", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Current medication</label>
+            <input
+              className="input"
+              value={form.current_medications}
+              onChange={(e) => set("current_medications", e.target.value)}
+            />
+          </div>
+        </div>
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Dental history</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.dental_history}
+          onChange={(e) => set("dental_history", e.target.value)}
+          placeholder="Previous ortho, extractions, trauma, habits, caries…"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Prenatal and postnatal history</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.developmental_history}
+          onChange={(e) => set("developmental_history", e.target.value)}
+          placeholder="Pregnancy, delivery, feeding, milestones, childhood illness…"
+        />
+      </section>
+      <section className={sectionClass}>
+        <h4 className={titleClass}>Family and social history</h4>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.family_social_history}
+          onChange={(e) => set("family_social_history", e.target.value)}
+          placeholder="Family malocclusion, siblings in treatment, school / occupation…"
+        />
+      </section>
+      </>
+      )}
+
+      {showClinical && !omfs && !ortho && (
       <>
       <section className={sectionClass}>
         <h4 className={titleClass}>

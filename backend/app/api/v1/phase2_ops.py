@@ -19,25 +19,19 @@ from app.models import (
     InvoiceStatus,
     Patient,
     Payment,
-    PurchaseOrder,
     Restoration,
     StaffLeave,
     StaffProfile,
     StaffShift,
-    Supplier,
     User,
 )
 from app.schemas import (
-    PurchaseOrderCreate,
-    PurchaseOrderOut,
     RxWarnOut,
     RxWarnRequest,
     StaffLeaveCreate,
     StaffLeaveOut,
     StaffShiftCreate,
     StaffShiftOut,
-    SupplierCreate,
-    SupplierOut,
 )
 from app.services import clinical_depth as depth
 
@@ -201,111 +195,6 @@ async def operational_report(
 # Looking at has_permission - reports:* covers reports:own via resource wildcard. Good.
 # For operational, only reports:* - accountant doesn't have it. Clinic admin does. Dentist doesn't.
 # Plan says dentist own for clinical - OK.
-
-@router.get("/inventory/suppliers", response_model=list[SupplierOut])
-async def list_suppliers(
-    db: DbSession,
-    clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:read"))],
-):
-    _ = user
-    rows = (
-        await db.execute(
-            select(Supplier).where(Supplier.clinic_id == clinic_id, Supplier.is_active.is_(True))
-        )
-    ).scalars().all()
-    return list(rows)
-
-
-@router.post("/inventory/suppliers", response_model=SupplierOut, status_code=201)
-async def create_supplier(
-    body: SupplierCreate,
-    db: DbSession,
-    clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:*"))],
-):
-    _ = user
-    s = Supplier(
-        clinic_id=clinic_id,
-        name=body.name,
-        contact_email=str(body.contact_email) if body.contact_email else None,
-        contact_phone=body.contact_phone,
-        notes=body.notes,
-    )
-    db.add(s)
-    await db.flush()
-    return s
-
-
-@router.post("/inventory/purchase-orders", response_model=PurchaseOrderOut, status_code=201)
-async def create_po(
-    body: PurchaseOrderCreate,
-    db: DbSession,
-    clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:*"))],
-):
-    _ = user
-    po = PurchaseOrder(
-        clinic_id=clinic_id,
-        supplier_id=body.supplier_id,
-        status="ordered",
-        ordered_at=datetime.now(UTC),
-        expected_at=body.expected_at,
-        notes=body.notes,
-        lines_json=json.dumps(body.lines),
-    )
-    db.add(po)
-    await db.flush()
-    return po
-
-
-@router.get("/inventory/purchase-orders", response_model=list[PurchaseOrderOut])
-async def list_pos(
-    db: DbSession,
-    clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:read"))],
-):
-    _ = user
-    rows = (
-        await db.execute(
-            select(PurchaseOrder)
-            .where(PurchaseOrder.clinic_id == clinic_id)
-            .order_by(PurchaseOrder.created_at.desc())
-        )
-    ).scalars().all()
-    return list(rows)
-
-
-@router.get("/inventory/expiring")
-async def expiring_stock(
-    db: DbSession,
-    clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:read"))],
-    days: int = Query(60, ge=1, le=365),
-):
-    _ = user
-    cutoff = date.today() + timedelta(days=days)
-    rows = (
-        await db.execute(
-            select(InventoryItem).where(
-                InventoryItem.clinic_id == clinic_id,
-                InventoryItem.expiry_date.is_not(None),
-                InventoryItem.expiry_date <= cutoff,
-                InventoryItem.is_active.is_(True),
-            )
-        )
-    ).scalars().all()
-    return [
-        {
-            "id": i.id,
-            "sku": i.sku,
-            "name": i.name,
-            "expiry_date": i.expiry_date.isoformat() if i.expiry_date else None,
-            "quantity": i.quantity,
-        }
-        for i in rows
-    ]
-
 
 @router.post("/pharmacy/warn", response_model=RxWarnOut)
 async def rx_warn(

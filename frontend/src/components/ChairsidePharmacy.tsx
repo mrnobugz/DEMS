@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import type { InventoryItem } from "@/lib/types";
 
 type Template = {
   id: string;
@@ -13,7 +14,7 @@ type Rx = {
   id: string;
   patient_id: string;
   status: string;
-  items: { drug_name: string; dose: string; quantity: string }[];
+  items: { drug_name: string; dose: string; quantity: string; inventory_item_id?: string | null }[];
   prescribed_at: string;
 };
 
@@ -21,18 +22,22 @@ export function ChairsidePharmacy({ patientId }: { patientId?: string }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [rx, setRx] = useState<Rx[]>([]);
   const [templateId, setTemplateId] = useState("");
+  const [stock, setStock] = useState<InventoryItem[]>([]);
+  const [stockId, setStockId] = useState("");
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
   async function load() {
-    const [t, r] = await Promise.all([
+    const [t, r, inv] = await Promise.all([
       api<Template[]>("/api/v1/pharmacy/templates"),
       patientId
         ? api<Rx[]>(`/api/v1/pharmacy/prescriptions?patient_id=${patientId}`)
         : Promise.resolve([] as Rx[]),
+      api<InventoryItem[]>("/api/v1/inventory?item_kind=stock").catch(() => []),
     ]);
     setTemplates(t);
     setRx(r);
+    setStock(inv);
     if (!templateId && t[0]) setTemplateId(t[0].id);
   }
 
@@ -65,7 +70,7 @@ export function ChairsidePharmacy({ patientId }: { patientId?: string }) {
               drug_name: tmpl.name,
               dose: tmpl.default_dose,
               quantity: tmpl.default_quantity,
-              instructions: null,
+              inventory_item_id: stockId || null,
             },
           ],
         }),
@@ -97,6 +102,17 @@ export function ChairsidePharmacy({ patientId }: { patientId?: string }) {
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name} · {t.default_dose}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            Warehouse SKU
+            <select className="input mt-1" value={stockId} onChange={(e) => setStockId(e.target.value)}>
+              <option value="">Not linked</option>
+              {stock.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.sku} · {i.quantity}
                 </option>
               ))}
             </select>

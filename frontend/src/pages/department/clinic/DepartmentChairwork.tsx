@@ -95,13 +95,13 @@ export function DepartmentChairwork({
         const form = formFromPatient(p);
         setPatient(p);
         setIntake(form);
-        setIntakeOpen(dept === "maxillofacial");
+        setIntakeOpen(dept === "maxillofacial" || dept === "orthodontic");
       })
       .catch(() => {
         setPatient(null);
         setIntake(null);
       });
-  }, [patientId]);
+  }, [patientId, dept]);
 
   async function saveIntake(e: FormEvent) {
     e.preventDefault();
@@ -198,7 +198,13 @@ export function DepartmentChairwork({
           </div>
 
           <RevealSection
-            title={dept === "maxillofacial" ? "Oral maxillofacial surgery" : "Clinical clerkship"}
+            title={
+              dept === "maxillofacial"
+                ? "Oral maxillofacial surgery"
+                : dept === "orthodontic"
+                  ? "Orthodontic clerkship"
+                  : "Clinical clerkship"
+            }
             hint={copy.exam}
             open={intakeOpen}
             onOpenChange={setIntakeOpen}
@@ -231,7 +237,7 @@ export function DepartmentChairwork({
 
           {dept !== "maxillofacial" && (
           <div className="grid gap-4 lg:grid-cols-2">
-            {dept !== "paediatric" && (
+            {dept !== "paediatric" && dept !== "orthodontic" && (
             <form className="glass-panel space-y-2" onSubmit={saveNote}>
               <div className="flex items-center justify-between">
                 <h3 className="font-display text-base font-bold">SOAP note</h3>

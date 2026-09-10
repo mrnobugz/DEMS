@@ -110,6 +110,38 @@ class InventoryItemKind(StrEnum):
     SERVICE = "service"
 
 
+class StockLocationKind(StrEnum):
+    STORE = "store"
+    DEPARTMENT = "department"
+    PHARMACY = "pharmacy"
+
+
+class StockMovementType(StrEnum):
+    RECEIVE = "receive"
+    ISSUE_DEPARTMENT = "issue_department"
+    ISSUE_PATIENT = "issue_patient"
+    RETURN = "return"
+    WRITEOFF = "writeoff"
+    STOCKTAKE = "stocktake"
+    ADJUST = "adjust"
+    TRANSFER = "transfer"
+
+
+class PurchaseOrderStatus(StrEnum):
+    DRAFT = "draft"
+    ORDERED = "ordered"
+    PARTIAL = "partial"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+
+class InvoiceLineKind(StrEnum):
+    PROCEDURE = "procedure"
+    SUPPLY = "supply"
+    DRUG = "drug"
+    SERVICE = "service"
+
+
 class RegistrationStatus(StrEnum):
     DRAFT = "draft"
     PENDING_PAYMENT = "pending_payment"
@@ -506,6 +538,10 @@ class InvoiceLineItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     unit_price: Mapped[float] = mapped_column(Float, default=0.0)
     total: Mapped[float] = mapped_column(Float, default=0.0)
     procedure_code: Mapped[Optional[str]] = mapped_column(String(40))
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id"), index=True, nullable=True
+    )
+    line_kind: Mapped[str] = mapped_column(String(20), default=InvoiceLineKind.PROCEDURE)
     chart_entry_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("dental_chart_entries.id"), index=True, nullable=True
     )
@@ -627,6 +663,9 @@ class CatalogItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     drug_schedule: Mapped[Optional[str]] = mapped_column(String(20))
     unit_of_measure: Mapped[Optional[str]] = mapped_column(String(40))
     vendor_fee_basis: Mapped[Optional[str]] = mapped_column(String(80))
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id"), index=True, nullable=True
+    )
 
     category: Mapped[Optional["CatalogCategory"]] = relationship()
     price_history: Mapped[list["CatalogPriceHistory"]] = relationship(
@@ -720,6 +759,7 @@ class InventoryItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     notes: Mapped[Optional[str]] = mapped_column(Text)
     expiry_date: Mapped[Optional[date]] = mapped_column(Date)
     supplier_id: Mapped[Optional[str]] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    track_lots: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class LabCase(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -899,6 +939,9 @@ class PrescriptionItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     dose: Mapped[str] = mapped_column(String(120), nullable=False)
     quantity: Mapped[str] = mapped_column(String(80), default="1")
     instructions: Mapped[Optional[str]] = mapped_column(Text)
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id"), index=True, nullable=True
+    )
 
     prescription: Mapped["Prescription"] = relationship(back_populates="items")
 
@@ -1056,6 +1099,80 @@ class PurchaseOrder(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     expected_at: Mapped[Optional[date]] = mapped_column(Date)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     lines_json: Mapped[Optional[str]] = mapped_column(Text)  # [{sku, qty, unit_cost}]
+
+    lines: Mapped[list["PurchaseOrderLine"]] = relationship(
+        back_populates="purchase_order", cascade="all, delete-orphan"
+    )
+
+
+class PurchaseOrderLine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "purchase_order_lines"
+
+    purchase_order_id: Mapped[str] = mapped_column(
+        ForeignKey("purchase_orders.id", ondelete="CASCADE"), index=True
+    )
+    inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    quantity_ordered: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity_received: Mapped[float] = mapped_column(Float, default=0.0)
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+
+    purchase_order: Mapped["PurchaseOrder"] = relationship(back_populates="lines")
+    inventory_item: Mapped["InventoryItem"] = relationship()
+
+
+class StockLocation(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "stock_locations"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_stock_location_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default=StockLocationKind.STORE, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class StockLot(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "stock_lots"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "inventory_item_id",
+            "location_id",
+            "lot_code",
+            name="uq_stock_lot_item_loc_code",
+        ),
+    )
+
+    inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    location_id: Mapped[str] = mapped_column(ForeignKey("stock_locations.id"), index=True)
+    lot_code: Mapped[str] = mapped_column(String(64), default="DEFAULT")
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date)
+    quantity: Mapped[float] = mapped_column(Float, default=0.0)
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+
+    inventory_item: Mapped["InventoryItem"] = relationship()
+    location: Mapped["StockLocation"] = relationship()
+
+
+class StockMovement(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "stock_movements"
+
+    inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    lot_id: Mapped[Optional[str]] = mapped_column(ForeignKey("stock_lots.id"), index=True)
+    from_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("stock_locations.id"))
+    to_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("stock_locations.id"))
+    movement_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit_cost_snapshot: Mapped[float] = mapped_column(Float, default=0.0)
+    reason: Mapped[Optional[str]] = mapped_column(String(200))
+    supplier_id: Mapped[Optional[str]] = mapped_column(ForeignKey("suppliers.id"))
+    purchase_order_id: Mapped[Optional[str]] = mapped_column(ForeignKey("purchase_orders.id"), index=True)
+    invoice_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoices.id"), index=True)
+    invoice_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoice_line_items.id"))
+    prescription_id: Mapped[Optional[str]] = mapped_column(ForeignKey("prescriptions.id"), index=True)
+    recorded_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+
+    inventory_item: Mapped["InventoryItem"] = relationship()
+    lot: Mapped[Optional["StockLot"]] = relationship()
 
 
 class StaffShift(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):

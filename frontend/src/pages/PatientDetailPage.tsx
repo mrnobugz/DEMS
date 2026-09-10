@@ -527,6 +527,7 @@ export function PatientDetailPage() {
         onSelect={setSelectedTooth}
         onMark={markTooth}
         patientId={id}
+        dentition={patient.destination_department === "paediatric" ? "primary" : "permanent"}
       />
 
       <RevealSection

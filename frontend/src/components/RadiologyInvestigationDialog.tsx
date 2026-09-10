@@ -1,5 +1,5 @@
 import { ClipboardEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, apiUpload, ApiError } from "@/lib/api";
+import { api, apiUpload, imagingContentUrl, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import type {
   FeeScheduleItem,
@@ -52,6 +52,14 @@ function fileFromDrop(e: DragEvent<HTMLElement>): File | null {
   return file || null;
 }
 
+function studyContentPath(studyId: string): string {
+  return `/api/v1/imaging/studies/${studyId}/content`;
+}
+
+function isBlobUrl(url?: string | null): boolean {
+  return Boolean(url && url.startsWith("blob:"));
+}
+
 type DraftRow = RadiologyInvestigationItem & {
   localId: string;
   file?: File | null;
@@ -88,6 +96,8 @@ function toSavedItem(row: DraftRow): RadiologyInvestigationItem {
     study_id: row.study_id || null,
     invoice_id: row.invoice_id || null,
     overview: row.overview || formatRadiologyOverview(row),
+    photo_url: row.photo_url || (row.study_id ? studyContentPath(row.study_id) : null),
+    captured_at: row.captured_at || null,
   };
 }
 
@@ -117,9 +127,11 @@ export function RadiologyInvestigationDialog({
       quantity: row.quantity || 1,
       localId: crypto.randomUUID(),
       overview: row.overview || formatRadiologyOverview(row),
+      photo_url: row.photo_url || (row.study_id ? studyContentPath(row.study_id) : null),
     })),
   );
   const [draft, setDraft] = useState(emptyDraft);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -147,9 +159,9 @@ export function RadiologyInvestigationDialog({
   useEffect(() => {
     return () => {
       queued.forEach((row) => {
-        if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
+        if (isBlobUrl(row.previewUrl)) URL.revokeObjectURL(row.previewUrl!);
       });
-      if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+      if (isBlobUrl(draft.previewUrl)) URL.revokeObjectURL(draft.previewUrl!);
     };
     // Revoke object URLs only when the dialog unmounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,7 +174,7 @@ export function RadiologyInvestigationDialog({
 
   function attachFile(file: File | null) {
     setDraft((prev) => {
-      if (prev.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      if (isBlobUrl(prev.previewUrl)) URL.revokeObjectURL(prev.previewUrl!);
       return {
         ...prev,
         file,
@@ -171,10 +183,10 @@ export function RadiologyInvestigationDialog({
     });
   }
 
-  function buildDraftRow(): DraftRow | null {
+  function buildDraftRow(existing?: DraftRow | null): DraftRow | null {
     if (!selected) return null;
     const next: DraftRow = {
-      localId: crypto.randomUUID(),
+      localId: existing?.localId || crypto.randomUUID(),
       fee_item_id: selected.id,
       type_label: selected.label,
       type_code: selected.code,
@@ -182,11 +194,13 @@ export function RadiologyInvestigationDialog({
       region: draft.region.trim() || null,
       quantity: Math.max(1, draft.quantity || 1),
       comment: draft.comment.trim() || null,
-      study_id: null,
-      invoice_id: null,
+      study_id: existing?.study_id || null,
+      invoice_id: existing?.invoice_id || null,
       overview: "",
       file: draft.file,
       previewUrl: draft.previewUrl,
+      photo_url: existing?.photo_url || null,
+      captured_at: existing?.captured_at || null,
     };
     next.overview = formatRadiologyOverview(next);
     return next;
@@ -194,12 +208,16 @@ export function RadiologyInvestigationDialog({
 
   function commitDraft(resetType: boolean): boolean {
     setError("");
-    const next = buildDraftRow();
+    const current = editingId ? queued.find((row) => row.localId === editingId) : null;
+    const next = buildDraftRow(current);
     if (!next) {
       setError("Choose a radiology type");
       return false;
     }
-    setQueued((prev) => [...prev, next]);
+    setQueued((prev) =>
+      editingId ? prev.map((row) => (row.localId === editingId ? next : row)) : [...prev, next],
+    );
+    setEditingId(null);
     setDraft(resetType ? emptyDraft() : { ...emptyDraft(), fee_item_id: selected?.id || "" });
     if (fileRef.current) fileRef.current.value = "";
     return true;
@@ -216,14 +234,44 @@ export function RadiologyInvestigationDialog({
   function removeQueued(localId: string) {
     setQueued((prev) => {
       const row = prev.find((item) => item.localId === localId);
-      if (row?.previewUrl) URL.revokeObjectURL(row.previewUrl);
+      if (isBlobUrl(row?.previewUrl)) URL.revokeObjectURL(row!.previewUrl!);
       return prev.filter((item) => item.localId !== localId);
+    });
+    if (editingId === localId) {
+      setEditingId(null);
+      setDraft(emptyDraft());
+    }
+  }
+
+  function editQueued(row: DraftRow) {
+    setError("");
+    setEditingId(row.localId);
+    setDraft({
+      fee_item_id: row.fee_item_id,
+      region: row.region || "",
+      quantity: row.quantity || 1,
+      comment: row.comment || "",
+      file: row.file || null,
+      previewUrl:
+        row.previewUrl ||
+        (row.study_id ? imagingContentUrl(row.study_id) : null),
     });
   }
 
-  async function uploadImage(row: DraftRow): Promise<string | null> {
-    if (!row.file) return row.study_id || null;
-    const study = await api<{ id: string }>("/api/v1/imaging/studies", {
+  function previewSrc(row: DraftRow): string | null {
+    if (row.previewUrl) return row.previewUrl;
+    if (row.study_id) return imagingContentUrl(row.study_id);
+    return null;
+  }
+
+  async function uploadImage(row: DraftRow): Promise<DraftRow> {
+    if (!row.file) {
+      if (row.study_id && !row.photo_url) {
+        return { ...row, photo_url: studyContentPath(row.study_id) };
+      }
+      return row;
+    }
+    const study = await api<{ id: string; captured_at: string }>("/api/v1/imaging/studies", {
       method: "POST",
       body: JSON.stringify({
         patient_id: patientId,
@@ -235,18 +283,35 @@ export function RadiologyInvestigationDialog({
     });
     const fd = new FormData();
     fd.append("file", row.file, row.file.name);
-    await apiUpload(`/api/v1/imaging/studies/${study.id}/upload`, fd);
-    return study.id;
+    const uploaded = await apiUpload<{ id: string; captured_at: string }>(
+      `/api/v1/imaging/studies/${study.id}/upload`,
+      fd,
+    );
+    const studyId = uploaded.id || study.id;
+    const captured = uploaded.captured_at || study.captured_at;
+    return {
+      ...row,
+      study_id: studyId,
+      photo_url: studyContentPath(studyId),
+      captured_at: captured,
+    };
   }
 
   async function saveAll() {
     setError("");
-    const pending = buildDraftRow();
+    const current = editingId ? queued.find((row) => row.localId === editingId) || null : null;
+    const pending = buildDraftRow(current);
     if (!pending && (draft.region.trim() || draft.comment.trim() || draft.file)) {
       setError("Choose a radiology type");
       return;
     }
-    const working = pending ? [...queued, pending] : queued;
+    const working = pending
+      ? editingId
+        ? queued.map((row) => (row.localId === editingId ? pending : row))
+        : queued.some((row) => row.localId === pending.localId)
+          ? queued
+          : [...queued, pending]
+      : queued;
     if (working.length === 0) {
       setError("Add at least one radiology type");
       return;
@@ -257,8 +322,7 @@ export function RadiologyInvestigationDialog({
       const uploaded: DraftRow[] = [];
       for (const row of working) {
         try {
-          const studyId = await uploadImage(row);
-          uploaded.push({ ...row, study_id: studyId });
+          uploaded.push(await uploadImage(row));
         } catch (err) {
           uploaded.push(row);
           onMessage(err instanceof ApiError ? err.message : "Image could not be uploaded");
@@ -326,7 +390,7 @@ export function RadiologyInvestigationDialog({
               Radiology
             </h3>
             <p className="text-xs text-muted">
-              Types and prices come from Clinic admin. Save generates the billing invoice.
+              Types and prices come from Clinic admin. Click a saved row to edit and preview the image.
             </p>
           </div>
           <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>
@@ -449,19 +513,48 @@ export function RadiologyInvestigationDialog({
 
         {queued.length > 0 && (
           <ul className="space-y-1.5">
-            {queued.map((row) => (
-              <li key={row.localId} className="ix-overview">
-                <span className="min-w-0 flex-1">{row.overview}</span>
-                <button
-                  type="button"
-                  className="btn-ghost text-xs"
-                  onClick={() => removeQueued(row.localId)}
-                  disabled={busy}
+            {queued.map((row) => {
+              const src = previewSrc(row);
+              return (
+                <li
+                  key={row.localId}
+                  className={`ix-overview ${editingId === row.localId ? "ix-overview--on" : ""}`}
                 >
-                  Remove
-                </button>
-              </li>
-            ))}
+                  {src ? (
+                    <img src={src} alt="" className="ix-thumb" />
+                  ) : (
+                    <span className="ix-thumb ix-thumb--empty" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{row.overview}</span>
+                    {row.captured_at && (
+                      <span className="block text-[11px] text-muted">
+                        {new Date(row.captured_at).toLocaleString()}
+                      </span>
+                    )}
+                    {row.photo_url && (
+                      <span className="block truncate font-mono text-[11px] text-muted">{row.photo_url}</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => editQueued(row)}
+                    disabled={busy}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => removeQueued(row.localId)}
+                    disabled={busy}
+                  >
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -469,7 +562,7 @@ export function RadiologyInvestigationDialog({
 
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-ghost" onClick={addRow} disabled={busy}>
-            Add
+            {editingId ? "Update" : "Add"}
           </button>
           <button type="button" className="btn-ghost" onClick={addAnother} disabled={busy}>
             Add another

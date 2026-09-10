@@ -384,10 +384,6 @@ html.chairside .input {
   padding: 0.85rem 1.2rem;
 }
 
-html.chairside .app-shell__aside {
-  display: none !important;
-}
-
 html.chairside .app-shell__header-title {
   display: none;
 }
@@ -1314,22 +1310,88 @@ html.chairside textarea.input {
   outline-offset: 2px;
 }
 
-.ix-drop__preview {
-  width: 100%;
-  max-height: 11rem;
-  object-fit: contain;
-  border-radius: 10px;
-  background: #0b1733;
-}
-
 .ix-overview {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.7rem;
-  border-radius: 10px;
-  border: 1px solid rgba(11, 95, 255, 0.14);
-  background: rgba(245, 249, 255, 0.9);
-  font-size: 0.82rem;
-  color: var(--demsta-brand-900);
+  gap: 0.65rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid var(--demsta-border);
+  background: var(--demsta-surface);
+}
+
+.ix-overview--on {
+  border-color: rgba(11, 95, 255, 0.45);
+  background: rgba(11, 95, 255, 0.06);
+}
+
+.ix-thumb {
+  width: 3.25rem;
+  height: 3.25rem;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #0b1733;
+}
+
+.ix-thumb--empty {
+  display: inline-block;
+  background: rgba(11, 95, 255, 0.08);
+}
+
+.ix-photo {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border-radius: 12px;
+  border: 1px solid var(--demsta-border);
+}
+
+.ix-photo .ix-drop__preview {
+  max-height: 8.5rem;
+}
+
+.odontogram-arch:focus-within .odontogram-tooth:focus {
+  outline: none;
+}
+
+.odontogram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--demsta-muted);
+}
+
+.odontogram-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.odontogram-legend__swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.odontogram-legend__swatch--x {
+  background: #e2e8f0;
+  position: relative;
+}
+
+.odontogram-legend__swatch--x::after {
+  content: "×";
+  display: block;
+  line-height: 0.65rem;
+  text-align: center;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.odontogram-legend__swatch--dash {
+  background: #fff;
+  border: 1.5px dashed #0284c7;
 }

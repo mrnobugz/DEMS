@@ -15,7 +15,7 @@ export function ProcedureInvoicePanel({
   patientId,
   onDone,
   title = "Bill procedures",
-  hint = "Use the admin catalog. Prices cannot be changed here.",
+  hint = "Use the admin catalog. Supplies and drugs deduct warehouse stock.",
   kind = "all",
 }: {
   patientId?: string;
@@ -68,7 +68,21 @@ export function ProcedureInvoicePanel({
   const total = picked.reduce((sum, row) => sum + row.unit_price * (qty[row.id] || 0), 0);
 
   function toggle(id: string) {
-    setQty((prev) => ({ ...prev, [id]: prev[id] ? 0 : 1 }));
+    const row = catalog.find((r) => r.id === id);
+    const onHand = row?.quantity_on_hand ?? 0;
+    const linked = Boolean(row?.inventory_item_id);
+    setQty((prev) => {
+      if (prev[id]) return { ...prev, [id]: 0 };
+      if (linked && onHand < 1) return prev;
+      return { ...prev, [id]: 1 };
+    });
+  }
+
+  function setRowQty(id: string, next: number) {
+    const row = catalog.find((r) => r.id === id);
+    const linked = Boolean(row?.inventory_item_id);
+    const max = linked ? Math.max(0, Math.floor(row?.quantity_on_hand || 0)) : 20;
+    setQty((prev) => ({ ...prev, [id]: Math.min(max, Math.max(1, next)) }));
   }
 
   async function submit(e: FormEvent) {
@@ -77,6 +91,15 @@ export function ProcedureInvoicePanel({
     setMsg("");
     if (!selected || picked.length === 0) {
       setError("Choose a patient and at least one procedure");
+      return;
+    }
+    const oversold = picked.find(
+      (row) =>
+        row.inventory_item_id &&
+        (qty[row.id] || 0) > (row.quantity_on_hand || 0),
+    );
+    if (oversold) {
+      setError(`Not enough stock for ${oversold.label} (${oversold.quantity_on_hand ?? 0} on hand)`);
       return;
     }
     setBusy(true);
@@ -140,14 +163,19 @@ export function ProcedureInvoicePanel({
         <ul className="max-h-56 space-y-1 overflow-auto">
           {catalog.map((row) => {
             const on = (qty[row.id] || 0) > 0;
+            const linked = Boolean(row.inventory_item_id);
+            const oos = linked && (row.quantity_on_hand || 0) < 1;
             return (
               <li key={row.id}>
-                <label className={`reg-sku ${on ? "reg-sku--on" : ""}`}>
-                  <input type="checkbox" checked={on} onChange={() => toggle(row.id)} />
+                <label className={`reg-sku ${on ? "reg-sku--on" : ""} ${oos ? "opacity-60" : ""}`}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(row.id)} disabled={oos && !on} />
                   <span className="min-w-0 flex-1">
                     <span className="block font-semibold text-brand-900">{row.label}</span>
                     <span className="font-mono text-[11px] text-muted">
-                      {row.code} · {row.category}
+                      {row.code} · {row.catalog_kind || row.category}
+                      {row.inventory_item_id != null && row.inventory_item_id !== ""
+                        ? ` · ${row.quantity_on_hand ?? 0} on hand`
+                        : ""}
                     </span>
                   </span>
                   <span className="text-xs font-bold">{money(row.unit_price)}</span>
@@ -155,15 +183,14 @@ export function ProcedureInvoicePanel({
                     <input
                       type="number"
                       min={1}
-                      max={20}
+                      max={
+                        row.inventory_item_id
+                          ? Math.max(1, Math.floor(row.quantity_on_hand || 0))
+                          : 20
+                      }
                       className="input w-16"
                       value={qty[row.id]}
-                      onChange={(e) =>
-                        setQty((prev) => ({
-                          ...prev,
-                          [row.id]: Math.max(1, Number(e.target.value) || 1),
-                        }))
-                      }
+                      onChange={(e) => setRowQty(row.id, Number(e.target.value) || 1)}
                     />
                   )}
                 </label>

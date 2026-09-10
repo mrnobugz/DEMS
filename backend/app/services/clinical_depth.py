@@ -305,7 +305,16 @@ async def record_inventory_usage(
     ).scalar_one_or_none()
     if not item:
         raise NotFoundError("Inventory item not found")
-    item.quantity = float(item.quantity) - float(quantity)
+    from app.services import warehouse as stock
+
+    await stock.consume_clinical(
+        db,
+        clinic_id,
+        actor_id,
+        inventory_item_id=inventory_item_id,
+        quantity=float(quantity),
+        reason=reason,
+    )
     usage = InventoryUsage(
         clinic_id=clinic_id,
         inventory_item_id=inventory_item_id,

@@ -253,6 +253,19 @@ export function BillingPage() {
     });
   }
 
+  async function voidInvoice(invoiceId: string) {
+    if (
+      !confirm(
+        "Void this unpaid invoice? Linked supplies and drugs will return to the warehouse.",
+      )
+    ) {
+      return;
+    }
+    await run(async () => {
+      await api(`/api/v1/billing/invoices/${invoiceId}/void`, { method: "POST" });
+    });
+  }
+
   async function createClaim(invoiceId: string) {
     await run(async () => {
       await api("/api/v1/billing/claims", {
@@ -531,6 +544,7 @@ export function BillingPage() {
                 <tr>
                   <th className="py-1">Code</th>
                   <th className="py-1">Label</th>
+                  <th className="py-1">Kind</th>
                   <th className="py-1 text-right">Price</th>
                 </tr>
               </thead>
@@ -541,6 +555,10 @@ export function BillingPage() {
                     <tr key={f.id} className="border-t border-brand-50">
                       <td className="py-1.5 font-mono text-brand-700">{f.code}</td>
                       <td className="py-1.5">{f.label}</td>
+                      <td className="py-1.5 text-xs text-muted">
+                        {f.catalog_kind || f.category}
+                        {f.inventory_item_id ? ` · ${f.quantity_on_hand ?? 0} on hand` : ""}
+                      </td>
                       <td className="py-1.5 text-right font-semibold">
                         {money(f.unit_price)}
                       </td>
@@ -602,7 +620,23 @@ export function BillingPage() {
                           Write off
                         </button>
                       )}
+                      {canManageCatalog && remaining > 0 && inv.amount_paid < 0.001 && inv.status !== "void" && (
+                        <button
+                          className="btn-ghost text-xs"
+                          onClick={() => void voidInvoice(inv.id)}
+                        >
+                          Void
+                        </button>
+                      )}
                     </div>
+                    {inv.line_items.some((li) => li.inventory_item_id) && (
+                      <div className="mt-1 text-[10px] text-muted">
+                        {inv.line_items
+                          .filter((li) => li.inventory_item_id)
+                          .map((li) => `${li.line_kind || "supply"} ×${li.quantity}`)
+                          .join(" · ")}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );

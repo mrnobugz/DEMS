@@ -109,6 +109,8 @@ export type RadiologyInvestigationItem = {
   study_id?: string | null;
   invoice_id?: string | null;
   overview?: string | null;
+  photo_url?: string | null;
+  captured_at?: string | null;
 };
 
 export type VisitInvestigations = {
@@ -127,6 +129,8 @@ export type VisitInvestigations = {
   photography_date?: string | null;
   photography_tooth?: string | null;
   photography_storage_key?: string | null;
+  photography_url?: string | null;
+  photography_study_id?: string | null;
   study_models_date?: string | null;
   study_models_photo_key?: string | null;
   radiograph_lucency?: string | null;
@@ -349,6 +353,82 @@ export type InventoryItem = {
   is_active: boolean;
   notes?: string | null;
   expiry_date?: string | null;
+  supplier_id?: string | null;
+  track_lots?: boolean;
+};
+
+export type StockLocation = {
+  id: string;
+  code: string;
+  name: string;
+  kind: string;
+  is_active: boolean;
+};
+
+export type StockMovement = {
+  id: string;
+  inventory_item_id: string;
+  lot_id?: string | null;
+  from_location_id?: string | null;
+  to_location_id?: string | null;
+  movement_type: string;
+  quantity: number;
+  unit_cost_snapshot: number;
+  reason?: string | null;
+  recorded_by_id?: string | null;
+  created_at: string;
+};
+
+export type WarehouseSupplier = {
+  id: string;
+  name: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+};
+
+export type PurchaseOrderLine = {
+  id: string;
+  inventory_item_id: string;
+  quantity_ordered: number;
+  quantity_received: number;
+  unit_cost: number;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  supplier_id: string;
+  status: string;
+  ordered_at?: string | null;
+  expected_at?: string | null;
+  notes?: string | null;
+  lines: PurchaseOrderLine[];
+  created_at: string;
+};
+
+export type WarehouseAnalysis = {
+  sku_count: number;
+  on_hand_value: number;
+  low_stock_count: number;
+  low_stock: { id: string; sku: string; name: string; quantity: number; reorder_level: number }[];
+  expiring_count: number;
+  expiring: {
+    lot_id: string;
+    inventory_item_id: string;
+    sku: string;
+    name: string;
+    location: string;
+    lot_code: string;
+    expiry_date: string | null;
+    quantity: number;
+  }[];
+  open_pos: number;
+  cogs_90d: number;
+  billed_supply_revenue: number;
+  usage_by_type: Record<string, number>;
+  usage_by_department: Record<string, number>;
+  dead_stock: { id: string; sku: string; name: string; quantity: number }[];
 };
 
 export type Appointment = {
@@ -413,6 +493,9 @@ export type FeeScheduleItem = {
   notes?: string | null;
   clinic_id: string;
   catalog_item_id?: string | null;
+  catalog_kind?: string | null;
+  inventory_item_id?: string | null;
+  quantity_on_hand?: number;
 };
 
 export type CatalogFeeRate = {
@@ -440,6 +523,7 @@ export type CatalogItem = {
   drug_schedule?: string | null;
   unit_of_measure?: string | null;
   vendor_fee_basis?: string | null;
+  inventory_item_id?: string | null;
   clinic_id: string;
   fee_rates: CatalogFeeRate[];
 };
@@ -545,6 +629,8 @@ export type Invoice = {
     total: number;
     procedure_code?: string | null;
     chart_entry_id?: string | null;
+    inventory_item_id?: string | null;
+    line_kind?: string;
     fee_charged?: number;
     estimated_insurance?: number;
     estimated_patient?: number;

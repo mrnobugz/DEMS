@@ -22,6 +22,8 @@ async def get_current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     if not token:
+        token = request.query_params.get("access_token")
+    if not token:
         raise UnauthorizedError()
     payload = safe_decode(token)
     if not payload or payload.get("type") != "access":

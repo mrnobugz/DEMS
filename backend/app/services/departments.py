@@ -538,8 +538,26 @@ async def create_inventory_item(
     if exists:
         raise ConflictError(f"SKU {data.sku} already exists")
     item = InventoryItem(clinic_id=clinic_id, **data.model_dump())
+    if item.item_kind == InventoryItemKind.SERVICE:
+        item.quantity = 0
+    opening = float(item.quantity or 0)
+    if item.item_kind == InventoryItemKind.STOCK:
+        item.quantity = 0
     db.add(item)
     await db.flush()
+    if item.item_kind == InventoryItemKind.STOCK and opening > 0:
+        from app.services import warehouse as stock
+
+        await stock.receive(
+            db,
+            clinic_id,
+            actor_id,
+            inventory_item_id=item.id,
+            quantity=opening,
+            unit_cost=float(item.unit_cost or 0),
+            expiry_date=item.expiry_date,
+            reason="opening-balance",
+        )
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -563,7 +581,9 @@ async def update_inventory_item(
     ).scalar_one_or_none()
     if not item:
         raise NotFoundError("Inventory item not found")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    payload.pop("quantity", None)
+    for k, v in payload.items():
         setattr(item, k, v)
     await db.flush()
     return item
@@ -581,20 +601,17 @@ async def adjust_inventory(
     ).scalar_one_or_none()
     if not item:
         raise NotFoundError("Inventory item not found")
-    if item.item_kind == InventoryItemKind.SERVICE:
-        raise ValidationAppError("Service items do not hold stock — edit the sale price instead")
-    item.quantity = float(item.quantity) + float(data.delta)
-    await db.flush()
-    await write_audit(
+    from app.services import warehouse as stock
+
+    return await stock.adjust(
         db,
-        clinic_id=clinic_id,
-        actor_id=actor_id,
-        action="adjust",
-        resource_type="inventory_item",
-        resource_id=item.id,
-        after={"delta": data.delta, "quantity": item.quantity, "reason": data.reason},
+        clinic_id,
+        actor_id,
+        inventory_item_id=item.id,
+        delta=float(data.delta),
+        reason=data.reason,
+        location_id=getattr(data, "location_id", None),
     )
-    return item
 
 
 # ── Lab ───────────────────────────────────────────────
@@ -921,13 +938,26 @@ async def create_prescription(
     db.add(rx)
     await db.flush()
     for item in data.items:
+        drug_name = item.drug_name
+        if item.inventory_item_id:
+            stock_item = (
+                await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.id == item.inventory_item_id, InventoryItem.clinic_id == clinic_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if not stock_item:
+                raise NotFoundError("Inventory item")
+            drug_name = stock_item.name
         db.add(
             PrescriptionItem(
                 prescription_id=rx.id,
-                drug_name=item.drug_name,
+                drug_name=drug_name,
                 dose=item.dose,
                 quantity=item.quantity,
                 instructions=item.instructions,
+                inventory_item_id=item.inventory_item_id,
             )
         )
     await db.flush()
@@ -940,7 +970,7 @@ async def create_prescription(
 
 
 async def update_prescription_status(
-    db: AsyncSession, clinic_id: str, rx_id: str, status: str
+    db: AsyncSession, clinic_id: str, actor_id: str, rx_id: str, status: str, bill: bool = False
 ) -> Prescription:
     rx = (
         await db.execute(
@@ -951,8 +981,62 @@ async def update_prescription_status(
     ).scalar_one_or_none()
     if not rx:
         raise NotFoundError("Prescription not found")
+    previous = rx.status
     rx.status = status
     await db.flush()
+    if status == PrescriptionStatus.DISPENSED and previous != PrescriptionStatus.DISPENSED:
+        from app.services import warehouse as stock
+        from app.schemas import InvoiceCreate, InvoiceLineCreate
+        from app.services.domain import create_invoice
+
+        await stock.ensure_locations(db, clinic_id)
+        bill_lines: list[InvoiceLineCreate] = []
+        for item in rx.items:
+            if not item.inventory_item_id:
+                continue
+            qty = stock.parse_qty(item.quantity)
+            try:
+                await stock.issue_patient(
+                    db,
+                    clinic_id,
+                    actor_id,
+                    inventory_item_id=item.inventory_item_id,
+                    quantity=qty,
+                    location_code="PHARM",
+                    prescription_id=rx.id,
+                    reason="pharmacy dispense",
+                )
+            except ValidationAppError:
+                await stock.issue_patient(
+                    db,
+                    clinic_id,
+                    actor_id,
+                    inventory_item_id=item.inventory_item_id,
+                    quantity=qty,
+                    location_code="MAIN",
+                    prescription_id=rx.id,
+                    reason="pharmacy dispense",
+                )
+            if bill:
+                inv_item = await stock.get_stock_item(db, clinic_id, item.inventory_item_id)
+                price = float(inv_item.sale_price or inv_item.unit_cost or 0)
+                bill_lines.append(
+                    InvoiceLineCreate(
+                        description=item.drug_name,
+                        quantity=max(int(qty), 1),
+                        unit_price=price,
+                        procedure_code=inv_item.sku,
+                        inventory_item_id=None,
+                        line_kind="drug",
+                    )
+                )
+        if bill and bill_lines:
+            await create_invoice(
+                db,
+                clinic_id,
+                actor_id,
+                InvoiceCreate(patient_id=rx.patient_id, line_items=bill_lines, notes="Pharmacy dispense"),
+            )
     return rx
 
 

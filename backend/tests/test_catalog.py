@@ -196,6 +196,11 @@ class CatalogCoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(supply.unit_of_measure, "scoop")
             stock = await dept.list_inventory(db, self.clinic_id)
             self.assertFalse(any(row.sku == "amox-500" for row in stock))
+            fees = await svc.list_fee_schedule(db, self.clinic_id)
+            codes = {row.code for row in fees}
+            self.assertIn("amox-500", codes)
+            self.assertIn("alginate-scoop", codes)
+            self.assertNotIn("pfm-crown-lab", codes)
 
 
 if __name__ == "__main__":

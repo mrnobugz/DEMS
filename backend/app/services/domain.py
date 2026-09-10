@@ -392,7 +392,9 @@ async def register_patient(
         )
 
     lines: list[InvoiceLineCreate] = []
-    stock_takes: list[tuple[InventoryItem, int]] = []
+    from app.services import warehouse as stock
+
+    await stock.ensure_locations(db, clinic_id)
     for selected in data.items:
         item = by_id[selected.inventory_item_id]
         qty = int(selected.quantity)
@@ -400,15 +402,18 @@ async def register_patient(
         if price <= 0:
             raise ValidationAppError(f"{item.name} has no sale price — set it in Warehouse")
         if item.item_kind == InventoryItemKind.STOCK:
-            if float(item.quantity) < qty:
+            on_hand = await stock.on_hand_at(db, clinic_id, item.id)
+            if on_hand + 1e-9 < qty:
                 raise ValidationAppError(f"Insufficient stock for {item.name}")
-            stock_takes.append((item, qty))
+        kind = "supply" if item.item_kind == InventoryItemKind.STOCK else "service"
         lines.append(
             InvoiceLineCreate(
                 description=item.name,
                 quantity=qty,
                 unit_price=price,
                 procedure_code=item.sku,
+                inventory_item_id=item.id if item.item_kind == InventoryItemKind.STOCK else None,
+                line_kind=kind,
             )
         )
 
@@ -421,9 +426,6 @@ async def register_patient(
             "Mark outstanding as Yes to finalize with a remaining balance, or pay the full amount"
         )
     outstanding = pay_in.outstanding or pay_in.amount + 0.001 < expected_total
-    for item, qty in stock_takes:
-        item.quantity = float(item.quantity) - qty
-
     patient = await _patient_for_registration(db, clinic_id, actor_id, data)
     invoice = await create_invoice(
         db,
@@ -1773,7 +1775,9 @@ async def list_fee_schedule(
     from app.services.catalog import sync_fee_schedule_catalog
 
     await sync_fee_schedule_catalog(db, clinic_id)
-    return items
+    from app.services.catalog import decorate_fee_schedule
+
+    return await decorate_fee_schedule(db, clinic_id, items)
 
 
 async def upsert_fee_item(
@@ -1892,8 +1896,10 @@ async def list_billable_chart_entries(
         if not fee or not fee.billable or fee.unit_price <= 0:
             continue
         unit_price = float(fee.unit_price)
+        catalog_kind = None
+        inventory_item_id = None
         if fee.catalog_item_id:
-            from app.services.catalog import get_catalog_item, resolve_fee_for_patient
+            from app.services.catalog import get_catalog_item, resolve_fee_for_patient, sold_goods_kind
 
             catalog_item = await get_catalog_item(db, clinic_id, fee.catalog_item_id)
             unit_price = await resolve_fee_for_patient(
@@ -1901,6 +1907,9 @@ async def list_billable_chart_entries(
             )
             if unit_price <= 0:
                 continue
+            catalog_kind = str(catalog_item.kind)
+            if sold_goods_kind(catalog_item.kind):
+                inventory_item_id = catalog_item.inventory_item_id
         out.append(
             {
                 "id": entry.id,
@@ -1916,6 +1925,8 @@ async def list_billable_chart_entries(
                 "fee_label": fee.label,
                 "billed_invoice_id": entry.billed_invoice_id,
                 "created_at": entry.created_at,
+                "catalog_kind": catalog_kind,
+                "inventory_item_id": inventory_item_id,
             }
         )
     return out
@@ -1947,6 +1958,7 @@ async def chart_to_cash(
         raise ValidationAppError("No unbilled chart procedures to invoice")
 
     from app.schemas import InvoiceLineCreate as ILC
+    from app.services.catalog import sold_goods_kind
 
     line_items = [
         ILC(
@@ -1957,6 +1969,8 @@ async def chart_to_cash(
             unit_price=float(b["unit_price"]),
             procedure_code=b["condition_code"],
             chart_entry_id=b["id"],
+            inventory_item_id=b.get("inventory_item_id") if sold_goods_kind(b.get("catalog_kind")) else None,
+            line_kind=sold_goods_kind(b.get("catalog_kind")) or "procedure",
         )
         for b in billable
     ]
@@ -2044,6 +2058,11 @@ async def invoice_from_procedures(
             raise ValidationAppError(f"{item.label} has no billable price — set it in Clinic admin")
         if catalog_item and catalog_item.tooth_required and not (selected.tooth_number or "").strip():
             raise ValidationAppError(f"{item.label} requires a tooth number")
+        from app.services.catalog import sold_goods_kind
+
+        sold = sold_goods_kind(catalog_item.kind) if catalog_item else None
+        inv_id = catalog_item.inventory_item_id if catalog_item and sold else None
+        kind = sold or "procedure"
         lines.append(
             InvoiceLineCreate(
                 description=item.label,
@@ -2051,6 +2070,8 @@ async def invoice_from_procedures(
                 unit_price=price,
                 procedure_code=item.code,
                 tooth_number=selected.tooth_number or None,
+                inventory_item_id=inv_id,
+                line_kind=kind,
             )
         )
     return await create_invoice(
@@ -2085,6 +2106,26 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
     subtotal = sum(li.quantity * li.unit_price for li in data.line_items)
     total = max(subtotal + data.tax - data.discount, 0)
     clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
+    from app.services import warehouse as stock
+
+    await stock.ensure_locations(db, clinic_id)
+    needed: dict[tuple[str, str], float] = {}
+    for li in data.line_items:
+        inv_id = getattr(li, "inventory_item_id", None)
+        if not inv_id:
+            continue
+        kind = getattr(li, "line_kind", None) or "supply"
+        loc = await stock.location_for_invoice_issue(
+            db, clinic_id, inv_id, float(li.quantity), kind
+        )
+        key = (inv_id, loc.id)
+        needed[key] = needed.get(key, 0.0) + float(li.quantity)
+    for (inv_id, loc_id), qty in needed.items():
+        have = await stock.on_hand_at(db, clinic_id, inv_id, loc_id)
+        if have + 1e-9 < qty:
+            item = await stock.get_stock_item(db, clinic_id, inv_id)
+            raise ValidationAppError(f"Insufficient stock for {item.sku}: need {qty}, have {have}")
+
     invoice = Invoice(
         clinic_id=clinic_id,
         patient_id=data.patient_id,
@@ -2101,19 +2142,34 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
     )
     db.add(invoice)
     await db.flush()
+
     for li in data.line_items:
-        db.add(
-            InvoiceLineItem(
-                invoice_id=invoice.id,
-                description=li.description,
-                tooth_number=li.tooth_number,
-                quantity=li.quantity,
-                unit_price=li.unit_price,
-                total=li.quantity * li.unit_price,
-                procedure_code=li.procedure_code,
-                chart_entry_id=getattr(li, "chart_entry_id", None),
-            )
+        line = InvoiceLineItem(
+            invoice_id=invoice.id,
+            description=li.description,
+            tooth_number=li.tooth_number,
+            quantity=li.quantity,
+            unit_price=li.unit_price,
+            total=li.quantity * li.unit_price,
+            procedure_code=li.procedure_code,
+            chart_entry_id=getattr(li, "chart_entry_id", None),
+            inventory_item_id=getattr(li, "inventory_item_id", None),
+            line_kind=getattr(li, "line_kind", None) or ("supply" if getattr(li, "inventory_item_id", None) else "procedure"),
         )
+        db.add(line)
+        await db.flush()
+        if line.inventory_item_id:
+            await stock.issue_for_invoice_line(
+                db,
+                clinic_id,
+                actor_id,
+                inventory_item_id=line.inventory_item_id,
+                quantity=float(line.quantity),
+                line_kind=line.line_kind,
+                invoice_id=invoice.id,
+                invoice_line_id=line.id,
+                reason="invoiced supply",
+            )
     await db.flush()
     from app.services.billing_ledger import apply_coverage_to_invoice
 

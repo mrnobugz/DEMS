@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { api } from "@/lib/api";
 import { StatGrid, useDepartmentHome } from "./FrontClinicalPages";
+import type { InventoryItem } from "@/lib/types";
 
 type Template = {
   id: string;
@@ -15,7 +16,7 @@ type Rx = {
   id: string;
   patient_id: string;
   status: string;
-  items: { drug_name: string; dose: string; quantity: string }[];
+  items: { drug_name: string; dose: string; quantity: string; inventory_item_id?: string | null }[];
   prescribed_at: string;
 };
 
@@ -26,17 +27,22 @@ export function PharmacyPage() {
   const [patients, setPatients] = useState<any[]>([]);
   const [patientId, setPatientId] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [stock, setStock] = useState<InventoryItem[]>([]);
+  const [stockId, setStockId] = useState("");
+  const [billOnDispense, setBillOnDispense] = useState(false);
   const [error, setError] = useState("");
 
   async function load() {
-    const [t, r, p] = await Promise.all([
+    const [t, r, p, inv] = await Promise.all([
       api<Template[]>("/api/v1/pharmacy/templates"),
       api<Rx[]>("/api/v1/pharmacy/prescriptions"),
       api<{ items: any[] }>("/api/v1/patients?limit=50"),
+      api<InventoryItem[]>("/api/v1/inventory?item_kind=stock").catch(() => []),
     ]);
     setTemplates(t);
     setRx(r);
     setPatients(p.items);
+    setStock(inv);
     if (!patientId && p.items[0]) setPatientId(p.items[0].id);
     if (!templateId && t[0]) setTemplateId(t[0].id);
   }
@@ -68,6 +74,7 @@ export function PharmacyPage() {
               dose: tmpl.default_dose,
               quantity: tmpl.default_quantity,
               instructions: null,
+              inventory_item_id: stockId || null,
             },
           ],
         }),
@@ -81,7 +88,7 @@ export function PharmacyPage() {
   async function markDispensed(id: string) {
     await api(`/api/v1/pharmacy/prescriptions/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ status: "dispensed" }),
+      body: JSON.stringify({ status: "dispensed", bill: billOnDispense }),
     });
     await load();
   }
@@ -94,7 +101,7 @@ export function PharmacyPage() {
       </div>
       {home && <StatGrid home={home} />}
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
+      <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-4" onSubmit={onCreate}>
         <label className="text-sm">
           Patient
           <select className="input mt-1" value={patientId} onChange={(e) => setPatientId(e.target.value)}>
@@ -111,6 +118,17 @@ export function PharmacyPage() {
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
+          Warehouse SKU
+          <select className="input mt-1" value={stockId} onChange={(e) => setStockId(e.target.value)}>
+            <option value="">Not linked</option>
+            {stock.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.sku} · {i.name} ({i.quantity})
               </option>
             ))}
           </select>
@@ -133,7 +151,13 @@ export function PharmacyPage() {
         </ul>
       </section>
       <section className="glass-panel rounded-3xl p-5">
-        <h3 className="font-display text-lg font-bold">Prescriptions</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-lg font-bold">Prescriptions</h3>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={billOnDispense} onChange={(e) => setBillOnDispense(e.target.checked)} />
+            Bill on dispense
+          </label>
+        </div>
         {rx.length === 0 ? (
           <EmptyState title="No prescriptions" />
         ) : (
@@ -143,7 +167,10 @@ export function PharmacyPage() {
                 <div>
                   <div className="font-semibold capitalize">{r.status}</div>
                   <div className="text-xs text-muted">
-                    {r.items.map((i) => i.drug_name).join(", ")}
+                    {r.items.map((i) => {
+                      const sku = stock.find((s) => s.id === i.inventory_item_id);
+                      return sku ? `${i.drug_name} · ${sku.sku} (${sku.quantity} ${sku.unit} left)` : i.drug_name;
+                    }).join(", ")}
                   </div>
                 </div>
                 {r.status === "active" && (

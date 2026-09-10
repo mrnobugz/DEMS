@@ -138,8 +138,22 @@ async def void_invoice(db: AsyncSession, clinic_id: str, actor_id: str, invoice_
     if float(invoice.amount_paid) > 0.001:
         raise ValidationAppError("Void payments first, or post a reversing adjustment")
     invoice.status = InvoiceStatus.VOID
+    from app.services import warehouse as stock
+
+    await stock.ensure_locations(db, clinic_id)
     for line in invoice.line_items:
         line.charge_status = ChargeStatus.VOID
+        if line.inventory_item_id:
+            await stock.return_stock(
+                db,
+                clinic_id,
+                actor_id,
+                inventory_item_id=line.inventory_item_id,
+                quantity=float(line.quantity),
+                invoice_id=invoice.id,
+                invoice_line_id=line.id,
+                reason="invoice void",
+            )
     await db.flush()
     await write_audit(
         db,

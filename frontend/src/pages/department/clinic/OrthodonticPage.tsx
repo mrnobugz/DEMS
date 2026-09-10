@@ -177,7 +177,7 @@ export function OrthodonticPage() {
     <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
         title="Orthodontic"
-        subtitle="Angle classification · appliances · adjustment cadence · retention"
+        subtitle="Clerkship sheet · history · extra-oral · intra-oral · models · photographs · appliance"
       />
       {overview && (
         <StatCards
@@ -193,6 +193,15 @@ export function OrthodonticPage() {
         />
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <section className="glass-panel rounded-3xl p-5">
+        <PatientSelect
+          patients={patients}
+          value={form.patient_id}
+          onChange={(id) => setForm({ ...form, patient_id: id })}
+          label="Patient for this clerkship"
+        />
+      </section>
 
       <DepartmentChairwork
         dept="orthodontic"
@@ -247,11 +256,8 @@ export function OrthodonticPage() {
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
         <div className="md:col-span-2">
-          <PatientSelect
-            patients={patients}
-            value={form.patient_id}
-            onChange={(id) => setForm({ ...form, patient_id: id })}
-          />
+          <p className="text-sm font-semibold text-brand-900">Appliance plan</p>
+          <p className="text-xs text-muted">After clerkship exam — Angle class, appliance, and review cadence.</p>
         </div>
         <label className="text-sm">
           Angle class

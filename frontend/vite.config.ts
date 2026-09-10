@@ -2,9 +2,31 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+function resolveSrcDir() {
+  const candidates = [
+    path.resolve(process.cwd(), "src"),
+    path.resolve(process.cwd(), "frontend", "src"),
+    typeof __dirname !== "undefined" ? path.resolve(__dirname, "src") : "",
+    fileURLToPath(new URL("./src", import.meta.url)),
+  ];
+  for (const dir of candidates) {
+    if (dir && fs.existsSync(path.join(dir, "App.tsx"))) {
+      return dir.replace(/\\/g, "/");
+    }
+  }
+  throw new Error(
+    `Could not locate frontend src (cwd=${process.cwd()}). Tried: ${candidates.filter(Boolean).join(", ")}`,
+  );
+}
+
+const srcDir = resolveSrcDir();
 
 export default defineConfig({
+  root: path.dirname(srcDir),
   plugins: [
     react(),
     tailwindcss(),
@@ -39,9 +61,9 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      { find: /^@\//, replacement: `${srcDir}/` },
+    ],
   },
   server: {
     port: 5173,
