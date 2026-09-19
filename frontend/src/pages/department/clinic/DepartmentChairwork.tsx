@@ -17,12 +17,13 @@ import { ClinicalExamPanel } from "@/components/ClinicalExamPanel";
 import { ConsentPad } from "@/components/ConsentPad";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { EmptyState } from "@/components/EmptyState";
+import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
 import { EndoPanel } from "@/components/EndoPanel";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { RevealSection } from "@/components/RevealSection";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { ChairQueueItem, Patient } from "@/lib/types";
+import type { ChairQueueItem, Patient, PatientVitalSign } from "@/lib/types";
 
 export type ClinicalDept = "restorative" | "maxillofacial" | "orthodontic" | "paediatric";
 
@@ -59,6 +60,7 @@ export function DepartmentChairwork({
   const [appts, setAppts] = useState<ChairQueueItem[]>([]);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [intake, setIntake] = useState<ClerkshipFormState | null>(null);
+  const [latestVitals, setLatestVitals] = useState<PatientVitalSign | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
@@ -87,19 +89,25 @@ export function DepartmentChairwork({
     if (!patientId) {
       setPatient(null);
       setIntake(null);
+      setLatestVitals(null);
       setIntakeOpen(false);
       return;
     }
-    api<Patient>(`/api/v1/patients/${patientId}`)
-      .then((p) => {
+    Promise.all([
+      api<Patient>(`/api/v1/patients/${patientId}`),
+      api<PatientVitalSign | null>(`/api/v1/patients/${patientId}/vitals/latest`).catch(() => null),
+    ])
+      .then(([p, vitals]) => {
         const form = formFromPatient(p);
         setPatient(p);
         setIntake(form);
+        setLatestVitals(vitals);
         setIntakeOpen(dept === "maxillofacial" || dept === "orthodontic");
       })
       .catch(() => {
         setPatient(null);
         setIntake(null);
+        setLatestVitals(null);
       });
   }, [patientId, dept]);
 
@@ -196,6 +204,7 @@ export function DepartmentChairwork({
               Full chart
             </Link>
           </div>
+          <PatientSafetyBanner patientId={patientId} />
 
           <RevealSection
             title={
@@ -219,6 +228,7 @@ export function DepartmentChairwork({
                   mode="edit"
                   variant="clinical"
                   department={dept}
+                  latestVitals={latestVitals}
                 />
                 <button className="btn-primary" type="submit">
                   Save intake

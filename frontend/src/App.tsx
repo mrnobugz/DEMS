@@ -16,6 +16,7 @@ import { ReportsPage } from "@/pages/ReportsPage";
 import { ClinicAdminPage } from "@/pages/department/ClinicAdminPage";
 import { FrontDeskPage, FrontDeskRegisterPage } from "@/pages/department/FrontClinicalPages";
 import { HygienePage } from "@/pages/department/HygienePage";
+import { VitalSignsPage } from "@/pages/department/VitalSignsPage";
 import { MaxillofacialPage } from "@/pages/department/clinic/MaxillofacialPage";
 import { OrthodonticPage } from "@/pages/department/clinic/OrthodonticPage";
 import { PaediatricPage } from "@/pages/department/clinic/PaediatricPage";
@@ -116,6 +117,14 @@ export default function App() {
           element={
             <RequireRole path="/hygiene">
               <HygienePage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/vitals"
+          element={
+            <RequireRole path="/vitals">
+              <VitalSignsPage />
             </RequireRole>
           }
         />

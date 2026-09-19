@@ -65,13 +65,30 @@ class PatientRepository(TenantRepository[Patient]):
         )
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
-    async def find_duplicate(self, *, phone: str | None, email: str | None) -> Patient | None:
-        if not phone and not email:
-            return None
+    async def find_duplicate(
+        self,
+        *,
+        phone: str | None,
+        email: str | None,
+        national_id: str | None = None,
+        exclude_id: str | None = None,
+    ) -> Patient | None:
         clauses = []
         if phone:
             clauses.append(Patient.phone == phone)
         if email:
             clauses.append(Patient.email == email)
-        stmt = self.scoped(select(Patient).where(or_(*clauses))).limit(1)
-        return (await self.db.execute(stmt)).scalar_one_or_none()
+        if national_id:
+            clauses.append(Patient.national_id == national_id)
+        if not clauses:
+            return None
+        stmt = self.scoped(
+            select(Patient).where(
+                Patient.is_active.is_(True),
+                Patient.merged_into_id.is_(None),
+                or_(*clauses),
+            )
+        )
+        if exclude_id:
+            stmt = stmt.where(Patient.id != exclude_id)
+        return (await self.db.execute(stmt.limit(1))).scalar_one_or_none()

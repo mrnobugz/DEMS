@@ -248,12 +248,17 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> tuple[User, st
 
 # ── Patients ──────────────────────────────────────────
 async def next_patient_code(db: AsyncSession, clinic_id: str) -> str:
-    from app.repositories.patients import PatientRepository
+    from app.services.config import allocate_number
 
-    year = datetime.now(UTC).year
-    repo = PatientRepository(db, clinic_id)
-    count = await repo.count()
-    return f"P{year}{count + 1:05d}"
+    try:
+        return await allocate_number(db, clinic_id, "patient")
+    except Exception:
+        from app.repositories.patients import PatientRepository
+
+        year = datetime.now(UTC).year
+        repo = PatientRepository(db, clinic_id)
+        count = await repo.count()
+        return f"P{year}{count + 1:05d}"
 
 
 async def create_patient(db: AsyncSession, clinic_id: str, actor_id: str, data: PatientCreate) -> Patient:
@@ -261,8 +266,10 @@ async def create_patient(db: AsyncSession, clinic_id: str, actor_id: str, data: 
     from app.schemas.clerkship import compose_address, dumps_block, flags_to_chronic_summary
 
     repo = PatientRepository(db, clinic_id)
-    if data.phone or data.email:
-        dup = await repo.find_duplicate(phone=data.phone, email=data.email)
+    if data.phone or data.email or data.national_id:
+        dup = await repo.find_duplicate(
+            phone=data.phone, email=data.email, national_id=data.national_id
+        )
         if dup:
             raise ConflictError(
                 "Possible duplicate patient found",
@@ -473,6 +480,12 @@ async def register_patient(
     patient.destination_department = data.destination_department
     patient.registration_finalized_at = datetime.now(UTC)
     await db.flush()
+    if data.draft_id:
+        from app.services import registration_drafts as drafts
+
+        await drafts.complete_draft(
+            db, clinic_id, actor_id, data.draft_id, patient_id=patient.id
+        )
     await write_audit(
         db,
         clinic_id=clinic_id,
@@ -943,6 +956,7 @@ async def check_conflicts(
     *,
     exclude_id: str | None = None,
     chair_number: int | None = None,
+    operatory_id: str | None = None,
 ) -> None:
     if ends_at <= starts_at:
         raise ValidationAppError("ends_at must be after starts_at")
@@ -964,6 +978,17 @@ async def check_conflicts(
             details=[{"appointment_id": row.id, "starts_at": row.starts_at.isoformat()}],
         )
 
+    if operatory_id is not None:
+        op_conflict = await db.execute(
+            select(Appointment).where(base, Appointment.operatory_id == operatory_id).limit(1)
+        )
+        orow = op_conflict.scalar_one_or_none()
+        if orow and orow.id != exclude_id:
+            raise ConflictError(
+                "Operatory already booked for this time window",
+                details=[{"appointment_id": orow.id, "operatory_id": operatory_id}],
+            )
+
     if chair_number is not None:
         chair_conflict = await db.execute(
             select(Appointment).where(base, Appointment.chair_number == chair_number).limit(1)
@@ -979,6 +1004,9 @@ async def check_conflicts(
 async def create_appointment(
     db: AsyncSession, clinic_id: str, actor_id: str, data: AppointmentCreate
 ) -> Appointment:
+    from app.services import config as cfg
+    from app.services import events as bus
+
     await get_patient(db, clinic_id, data.patient_id)
     color = data.color
     if data.appointment_type_id and not color:
@@ -993,6 +1021,18 @@ async def create_appointment(
         if atype:
             color = atype.color
 
+    dumped = data.model_dump(exclude={"color"})
+    operatory = await cfg.resolve_operatory(
+        db,
+        clinic_id,
+        operatory_id=dumped.get("operatory_id"),
+        chair_number=dumped.get("chair_number"),
+    )
+    if operatory:
+        dumped["operatory_id"] = operatory.id
+        if dumped.get("chair_number") is None:
+            dumped["chair_number"] = operatory.chair_number
+
     if not data.waitlist:
         await check_conflicts(
             db,
@@ -1000,9 +1040,10 @@ async def create_appointment(
             data.dentist_id,
             data.starts_at,
             data.ends_at,
-            chair_number=data.chair_number,
+            chair_number=dumped.get("chair_number"),
+            operatory_id=dumped.get("operatory_id"),
         )
-    appt = Appointment(clinic_id=clinic_id, color=color, **data.model_dump(exclude={"color"}))
+    appt = Appointment(clinic_id=clinic_id, color=color, **dumped)
     if color:
         appt.color = color
     db.add(appt)
@@ -1014,6 +1055,15 @@ async def create_appointment(
         action="create",
         resource_type="appointment",
         resource_id=appt.id,
+    )
+    await bus.publish(
+        db,
+        clinic_id=clinic_id,
+        event_type=bus.APPOINTMENT_CREATED,
+        aggregate_type="appointment",
+        aggregate_id=appt.id,
+        payload={"status": appt.status, "dentist_id": appt.dentist_id, "operatory_id": appt.operatory_id},
+        actor_id=actor_id,
     )
     return appt
 
@@ -1070,10 +1120,24 @@ async def update_appointment(
             raise ForbiddenError("You can only update your own appointments")
 
     payload = data.model_dump(exclude_unset=True)
+    if "operatory_id" in payload or "chair_number" in payload:
+        from app.services import config as cfg
+
+        operatory = await cfg.resolve_operatory(
+            db,
+            clinic_id,
+            operatory_id=payload.get("operatory_id", appt.operatory_id),
+            chair_number=payload.get("chair_number", appt.chair_number),
+        )
+        if operatory:
+            payload["operatory_id"] = operatory.id
+            payload.setdefault("chair_number", operatory.chair_number)
+
     starts = payload.get("starts_at", appt.starts_at)
     ends = payload.get("ends_at", appt.ends_at)
     dentist = payload.get("dentist_id", appt.dentist_id)
     chair = payload.get("chair_number", appt.chair_number)
+    operatory_id = payload.get("operatory_id", appt.operatory_id)
     will_waitlist = payload.get("waitlist", appt.waitlist)
     if (
         not will_waitlist
@@ -1082,13 +1146,22 @@ async def update_appointment(
             or "ends_at" in payload
             or "dentist_id" in payload
             or "chair_number" in payload
+            or "operatory_id" in payload
             or ("waitlist" in payload and not will_waitlist)
         )
     ):
         await check_conflicts(
-            db, clinic_id, dentist, starts, ends, exclude_id=appt.id, chair_number=chair
+            db,
+            clinic_id,
+            dentist,
+            starts,
+            ends,
+            exclude_id=appt.id,
+            chair_number=chair,
+            operatory_id=operatory_id,
         )
 
+    previous_status = appt.status
     if payload.get("status") == AppointmentStatus.NO_SHOW:
         appt.no_show = True
 
@@ -1104,6 +1177,23 @@ async def update_appointment(
         resource_id=appt.id,
         after=payload,
     )
+    if "status" in payload and payload["status"] != previous_status:
+        from app.services import events as bus
+
+        await bus.publish(
+            db,
+            clinic_id=clinic_id,
+            event_type=bus.APPOINTMENT_STATUS_CHANGED,
+            aggregate_type="appointment",
+            aggregate_id=appt.id,
+            payload={
+                "from": previous_status,
+                "to": appt.status,
+                "no_show": appt.no_show,
+                "operatory_id": appt.operatory_id,
+            },
+            actor_id=actor_id,
+        )
     return appt
 
 
@@ -1687,6 +1777,9 @@ DEFAULT_IMAGING_FEES = [row for row in DEFAULT_FEE_SCHEDULE if row[2] == "imagin
 
 
 async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
+    from app.services.config_setup import ensure_fee_schedules
+
+    default = await ensure_fee_schedules(db, clinic_id)
     count = (
         await db.execute(
             select(func.count())
@@ -1707,6 +1800,7 @@ async def ensure_fee_schedule(db: AsyncSession, clinic_id: str) -> None:
         db.add(
             FeeScheduleItem(
                 clinic_id=clinic_id,
+                fee_schedule_id=default.id,
                 code=code,
                 label=label,
                 category=category,
@@ -1735,15 +1829,18 @@ async def ensure_imaging_fees(db: AsyncSession, clinic_id: str) -> None:
     if not missing:
         return
     from app.core.config import get_settings
+    from app.services.config_setup import ensure_fee_schedules
 
     currency = get_settings().default_currency
     clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one_or_none()
     if clinic and clinic.currency:
         currency = clinic.currency
+    default = await ensure_fee_schedules(db, clinic_id)
     for code, label, category, price, billable in missing:
         db.add(
             FeeScheduleItem(
                 clinic_id=clinic_id,
+                fee_schedule_id=default.id,
                 code=code,
                 label=label,
                 category=category,
@@ -1762,10 +1859,13 @@ async def list_fee_schedule(
     *,
     billable: bool | None = None,
     active: bool | None = None,
+    fee_schedule_id: str | None = None,
 ) -> list[FeeScheduleItem]:
     await ensure_fee_schedule(db, clinic_id)
     await ensure_imaging_fees(db, clinic_id)
     q = select(FeeScheduleItem).where(FeeScheduleItem.clinic_id == clinic_id)
+    if fee_schedule_id:
+        q = q.where(FeeScheduleItem.fee_schedule_id == fee_schedule_id)
     if billable is not None:
         q = q.where(FeeScheduleItem.billable.is_(billable))
     if active is not None:
@@ -1783,10 +1883,15 @@ async def list_fee_schedule(
 async def upsert_fee_item(
     db: AsyncSession, clinic_id: str, actor_id: str, data: FeeScheduleItemCreate
 ) -> FeeScheduleItem:
+    from app.services.config_setup import ensure_fee_schedules
+
+    default = await ensure_fee_schedules(db, clinic_id)
+    schedule_id = data.fee_schedule_id or default.id
     existing = (
         await db.execute(
             select(FeeScheduleItem).where(
                 FeeScheduleItem.clinic_id == clinic_id,
+                FeeScheduleItem.fee_schedule_id == schedule_id,
                 FeeScheduleItem.code == data.code.strip().lower(),
             )
         )
@@ -1804,6 +1909,7 @@ async def upsert_fee_item(
     else:
         item = FeeScheduleItem(
             clinic_id=clinic_id,
+            fee_schedule_id=schedule_id,
             code=data.code.strip().lower(),
             label=data.label,
             category=data.category,
@@ -2088,10 +2194,15 @@ async def invoice_from_procedures(
 
 
 async def next_invoice_number(db: AsyncSession, clinic_id: str) -> str:
-    count = (
-        await db.execute(select(func.count()).select_from(Invoice).where(Invoice.clinic_id == clinic_id))
-    ).scalar_one()
-    return f"INV-{datetime.now(UTC).year}-{count + 1:05d}"
+    from app.services.config import allocate_number
+
+    try:
+        return await allocate_number(db, clinic_id, "invoice")
+    except Exception:
+        count = (
+            await db.execute(select(func.count()).select_from(Invoice).where(Invoice.clinic_id == clinic_id))
+        ).scalar_one()
+        return f"INV-{datetime.now(UTC).year}-{count + 1:05d}"
 
 
 async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: InvoiceCreate) -> Invoice:

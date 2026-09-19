@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { VitalSignsDetails } from "@/components/VitalSignsPanel";
 import type {
   MedicalHistoryFlags,
   PainAssessment,
   Patient,
+  PatientVitalSign,
   ReportedSymptoms,
 } from "@/lib/types";
 import { emptyMedicalHistory, emptyPain, emptySymptoms } from "@/lib/types";
@@ -305,6 +307,7 @@ type Props = {
   /** reception = front desk file opening; clinical = dentist after consult fee */
   variant?: ClerkshipVariant;
   department?: string;
+  latestVitals?: PatientVitalSign | null;
 };
 
 function Req({ show }: { show?: boolean }) {
@@ -317,6 +320,7 @@ export function ClerkshipIntakeFields({
   mode = "create",
   variant = "all",
   department,
+  latestVitals,
 }: Props) {
   const required = mode === "create" && variant !== "clinical";
   const showClinical = variant !== "reception";
@@ -363,6 +367,8 @@ export function ClerkshipIntakeFields({
           </span>
         </button>
       )}
+
+      {showClinical && <VitalSignsDetails reading={latestVitals ?? null} />}
 
       {showParticularsFields && (
       <>

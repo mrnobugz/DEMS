@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Generic, Optional, TypeVar
 
@@ -153,6 +154,7 @@ class PatientCreate(BaseModel):
     pain_assessment: Optional[PainAssessment] = None
     reported_symptoms: Optional[ReportedSymptoms] = None
     notes: Optional[str] = None
+    guarantor_patient_id: Optional[str] = None
 
 
 class PatientUpdate(BaseModel):
@@ -203,6 +205,8 @@ class PatientUpdate(BaseModel):
     notes: Optional[str] = None
     caries_risk_score: Optional[float] = None
     is_active: Optional[bool] = None
+    guarantor_patient_id: Optional[str] = None
+    medical_history_reviewed_at: Optional[datetime] = None
 
 
 class PatientOut(ORMModel):
@@ -266,6 +270,9 @@ class PatientOut(ORMModel):
     photo_storage_key: Optional[str] = Field(default=None, exclude=True)
     photo_content_type: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime
+    merged_into_id: Optional[str] = None
+    guarantor_patient_id: Optional[str] = None
+    medical_history_reviewed_at: Optional[datetime] = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -314,6 +321,87 @@ class PatientAssignDentist(BaseModel):
     dentist_id: Optional[str] = None  # null clears assignment
 
 
+class PatientSafetyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(min_length=1, max_length=20)
+    code: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=200)
+    notes: Optional[str] = None
+
+
+class PatientSafetyOut(ORMModel):
+    id: str
+    patient_id: str
+    kind: str
+    code: str
+    label: str
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class PatientSafetySummaryOut(BaseModel):
+    patient_id: str
+    pregnancy_trimester: Optional[int] = None
+    latex_allergy: bool = False
+    history_reviewed_at: Optional[datetime] = None
+    merged_into_id: Optional[str] = None
+    items: list[PatientSafetyOut] = Field(default_factory=list)
+    allergies_text: Optional[str] = None
+    conditions_text: Optional[str] = None
+    medications_text: Optional[str] = None
+
+
+class PatientMergeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    drop_id: str
+
+
+class VitalSignCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bp_systolic: Optional[int] = Field(default=None, ge=50, le=300)
+    bp_diastolic: Optional[int] = Field(default=None, ge=30, le=200)
+    pulse: Optional[int] = Field(default=None, ge=20, le=250)
+    temperature_c: Optional[float] = Field(default=None, ge=30, le=45)
+    spo2: Optional[int] = Field(default=None, ge=50, le=100)
+    respiratory_rate: Optional[int] = Field(default=None, ge=5, le=80)
+    height_cm: Optional[float] = Field(default=None, ge=30, le=280)
+    weight_kg: Optional[float] = Field(default=None, ge=1, le=400)
+    posture: Optional[str] = None
+    gait: Optional[str] = None
+    appearance: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=400)
+
+
+class VitalSignOut(ORMModel):
+    id: str
+    patient_id: str
+    recorded_by_id: Optional[str] = None
+    recorded_by_name: Optional[str] = None
+    recorded_at: datetime
+    bp_systolic: Optional[int] = None
+    bp_diastolic: Optional[int] = None
+    pulse: Optional[int] = None
+    temperature_c: Optional[float] = None
+    spo2: Optional[int] = None
+    respiratory_rate: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    posture: Optional[str] = None
+    gait: Optional[str] = None
+    appearance: Optional[str] = None
+    notes: Optional[str] = None
+    clinic_id: str
+    created_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def bmi(self) -> Optional[float]:
+        if not self.height_cm or not self.weight_kg or self.height_cm <= 0:
+            return None
+        metres = self.height_cm / 100.0
+        return round(self.weight_kg / (metres * metres), 1)
+
+
 # ── Appointments ──────────────────────────────────────
 class AppointmentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -321,6 +409,7 @@ class AppointmentCreate(BaseModel):
     dentist_id: str
     appointment_type_id: Optional[str] = None
     chair_number: Optional[int] = Field(default=None, ge=1, le=20)
+    operatory_id: Optional[str] = None
     starts_at: datetime
     ends_at: datetime
     reason: Optional[str] = None
@@ -334,6 +423,7 @@ class AppointmentUpdate(BaseModel):
     dentist_id: Optional[str] = None
     appointment_type_id: Optional[str] = None
     chair_number: Optional[int] = None
+    operatory_id: Optional[str] = None
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
     status: Optional[str] = None
@@ -349,6 +439,7 @@ class AppointmentOut(ORMModel):
     dentist_id: str
     appointment_type_id: Optional[str] = None
     chair_number: Optional[int] = None
+    operatory_id: Optional[str] = None
     starts_at: datetime
     ends_at: datetime
     status: str
@@ -372,6 +463,349 @@ class AppointmentTypeOut(ORMModel):
     duration_minutes: int
     color: str
     default_fee: float
+
+
+class OrgDepartmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    head_user_id: Optional[str] = None
+    sort_order: int = 0
+    notes: Optional[str] = None
+
+
+class OrgDepartmentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = None
+    head_user_id: Optional[str] = None
+    stock_location_id: Optional[str] = None
+    sort_order: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class OrgDepartmentOut(ORMModel):
+    id: str
+    clinic_id: str
+    code: str
+    name: str
+    head_user_id: Optional[str] = None
+    stock_location_id: Optional[str] = None
+    sort_order: int
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class OperatoryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    department_id: Optional[str] = None
+    chair_number: Optional[int] = Field(default=None, ge=1, le=40)
+    sort_order: int = 0
+    notes: Optional[str] = None
+
+
+class OperatoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = None
+    department_id: Optional[str] = None
+    chair_number: Optional[int] = None
+    sort_order: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class OperatoryOut(ORMModel):
+    id: str
+    clinic_id: str
+    department_id: Optional[str] = None
+    code: str
+    name: str
+    chair_number: Optional[int] = None
+    sort_order: int
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class WorkingHoursDayIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    day_of_week: int = Field(ge=0, le=6)
+    starts_on: str
+    ends_on: str
+
+
+class WorkingHoursReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    days: list[WorkingHoursDayIn]
+
+
+class WorkingHoursOut(ORMModel):
+    id: str
+    clinic_id: str
+    owner_type: str
+    owner_id: Optional[str] = None
+    day_of_week: int
+    starts_on: str
+    ends_on: str
+    is_active: bool
+
+
+class HolidayCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    holiday_date: date
+    name: str = Field(min_length=1, max_length=160)
+    notes: Optional[str] = None
+
+
+class HolidayOut(ORMModel):
+    id: str
+    clinic_id: str
+    holiday_date: date
+    name: str
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class SystemSettingUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=120)
+    value: str
+    scope: str = "clinic"
+    user_id: Optional[str] = None
+
+
+class SystemSettingOut(ORMModel):
+    id: str
+    clinic_id: Optional[str] = None
+    user_id: Optional[str] = None
+    scope: str
+    key: str
+    value: str
+
+
+class NumberSequenceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prefix: Optional[str] = None
+    padding: Optional[int] = Field(default=None, ge=1, le=10)
+    next_value: Optional[int] = Field(default=None, ge=1)
+    year_reset: Optional[bool] = None
+
+
+class NumberSequenceOut(ORMModel):
+    id: str
+    clinic_id: str
+    document_type: str
+    prefix: str
+    padding: int
+    next_value: int
+    year_reset: bool
+    current_year: int
+
+
+class DomainEventOut(ORMModel):
+    id: str
+    clinic_id: str
+    event_type: str
+    aggregate_type: str
+    aggregate_id: str
+    payload_json: str
+    occurred_at: datetime
+    published_at: Optional[datetime] = None
+    actor_id: Optional[str] = None
+
+
+class RolePermissionSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    permission_id: str = Field(min_length=1, max_length=80)
+    allowed: bool
+
+
+class RolePermissionOut(ORMModel):
+    id: str
+    clinic_id: str
+    role: str
+    permission_id: str
+    allowed: bool
+
+
+class ConfigCatalogCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    code: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=200)
+    sort_order: int = 0
+    extra_json: Optional[str] = None
+
+
+class ConfigCatalogUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    sort_order: Optional[int] = None
+    extra_json: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ConfigCatalogOut(ORMModel):
+    id: str
+    clinic_id: str
+    kind: str
+    code: str
+    label: str
+    extra_json: Optional[str] = None
+    sort_order: int
+    is_active: bool
+
+
+class ConfigTemplateUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(min_length=1, max_length=40)
+    key: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=160)
+    subject: Optional[str] = None
+    body: str = ""
+    is_active: Optional[bool] = None
+
+
+class ConfigTemplateOut(ORMModel):
+    id: str
+    clinic_id: str
+    kind: str
+    key: str
+    name: str
+    subject: Optional[str] = None
+    body: str
+    is_active: bool
+
+
+class FeeScheduleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    payer_kind: str = "cash"
+    currency: str = "TZS"
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_default: bool = False
+
+
+class FeeScheduleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    payer_kind: Optional[str] = None
+    currency: Optional[str] = None
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class FeeScheduleOut(ORMModel):
+    id: str
+    clinic_id: str
+    code: str
+    name: str
+    payer_kind: str
+    currency: str
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    is_default: bool
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class TaxRateUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    rate_bps: int = Field(ge=0, le=10000)
+    is_default: bool = False
+    is_active: Optional[bool] = None
+
+
+class TaxRateOut(ORMModel):
+    id: str
+    clinic_id: str
+    code: str
+    name: str
+    rate_bps: int
+    is_default: bool
+    is_active: bool
+
+
+class DiscountRuleUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    percent: float = Field(ge=0, le=100)
+    max_amount: Optional[float] = Field(default=None, ge=0)
+    requires_role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class DiscountRuleOut(ORMModel):
+    id: str
+    clinic_id: str
+    code: str
+    name: str
+    percent: float
+    max_amount: Optional[float] = None
+    requires_role: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class PaymentMethodConfigOut(ORMModel):
+    id: str
+    clinic_id: str
+    code: str
+    label: str
+    sort_order: int
+    is_active: bool
+
+
+class PaymentMethodToggle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_active: bool
+
+
+class ApprovalChainUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=160)
+    department_id: Optional[str] = None
+    category: Optional[str] = None
+    min_amount: float = Field(default=0, ge=0)
+    steps: list[dict] = Field(default_factory=list)
+    is_active: Optional[bool] = None
+
+
+class ApprovalChainOut(ORMModel):
+    id: str
+    clinic_id: str
+    name: str
+    department_id: Optional[str] = None
+    category: Optional[str] = None
+    min_amount: float
+    steps_json: str
+    steps: list[dict] = Field(default_factory=list)
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class ConfigImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(min_length=1, max_length=40)
+    csv_text: str = Field(min_length=1)
+    dry_run: bool = False
+
+
+class ConfigImportOut(BaseModel):
+    kind: str
+    dry_run: bool
+    created: int
+    updated: int
+    errors: list[str]
+    row_count: int
 
 
 # ── Clinical ──────────────────────────────────────────
@@ -805,6 +1239,7 @@ class FeeScheduleItemCreate(BaseModel):
     is_active: bool = True
     billable: bool = True
     notes: Optional[str] = None
+    fee_schedule_id: Optional[str] = None
 
 
 class FeeScheduleItemUpdate(BaseModel):
@@ -829,7 +1264,9 @@ class FeeScheduleItemOut(ORMModel):
     billable: bool
     notes: Optional[str] = None
     clinic_id: str
+    fee_schedule_id: Optional[str] = None
     effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
     catalog_item_id: Optional[str] = None
     catalog_kind: Optional[str] = None
     inventory_item_id: Optional[str] = None
@@ -1126,6 +1563,12 @@ class StaffCreate(BaseModel):
     specialty: Optional[str] = None
     title: Optional[str] = None
     department: Optional[str] = None
+    license_no: Optional[str] = None
+    default_operatory_id: Optional[str] = None
+    production_goal: Optional[float] = None
+    commission_rate_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_scheduling_provider: Optional[bool] = None
+    cert_expires_at: Optional[date] = None
     extra_permissions: list[str] = Field(default_factory=list)
     denied_permissions: list[str] = Field(default_factory=list)
 
@@ -1140,6 +1583,12 @@ class StaffUpdate(BaseModel):
     title: Optional[str] = None
     department: Optional[str] = None
     notes: Optional[str] = None
+    license_no: Optional[str] = None
+    default_operatory_id: Optional[str] = None
+    production_goal: Optional[float] = None
+    commission_rate_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_scheduling_provider: Optional[bool] = None
+    cert_expires_at: Optional[date] = None
     is_active: Optional[bool] = None
     extra_permissions: Optional[list[str]] = None
     denied_permissions: Optional[list[str]] = None
@@ -1158,6 +1607,12 @@ class StaffProfileOut(ORMModel):
     department: Optional[str] = None
     certifications_json: Optional[str] = None
     notes: Optional[str] = None
+    license_no: Optional[str] = None
+    default_operatory_id: Optional[str] = None
+    production_goal: Optional[float] = None
+    commission_rate_bps: int = 0
+    is_scheduling_provider: bool = True
+    cert_expires_at: Optional[date] = None
 
 
 class StaffOut(ORMModel):
@@ -1457,6 +1912,51 @@ class RegistrationConsent(BaseModel):
     guardian: bool = False
 
 
+class RegistrationDraftSave(BaseModel):
+    """Whole wizard state, stored verbatim so the front desk can resume it later."""
+
+    model_config = ConfigDict(extra="forbid")
+    patient_id: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, max_length=200)
+    summary: Optional[str] = Field(default=None, max_length=300)
+    step: int = Field(default=0, ge=0, le=20)
+    payload: dict = Field(default_factory=dict)
+
+
+class RegistrationDraftCancel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+class RegistrationDraftOut(ORMModel):
+    id: str
+    patient_id: Optional[str] = None
+    created_by_id: Optional[str] = None
+    created_by_name: Optional[str] = None
+    updated_by_id: Optional[str] = None
+    status: str
+    display_name: str
+    summary: Optional[str] = None
+    step: int = 0
+    payload_json: Optional[str] = Field(default=None, exclude=True)
+    cancel_reason: Optional[str] = None
+    closed_at: Optional[datetime] = None
+    clinic_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def payload(self) -> dict:
+        if not self.payload_json:
+            return {}
+        try:
+            data = json.loads(self.payload_json)
+        except json.JSONDecodeError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+
 class PatientRegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     patient_id: Optional[str] = None
@@ -1466,6 +1966,7 @@ class PatientRegisterRequest(BaseModel):
     appointment: RegistrationAppointment
     consent: RegistrationConsent
     destination_department: str
+    draft_id: Optional[str] = None
 
     @field_validator("destination_department")
     @classmethod

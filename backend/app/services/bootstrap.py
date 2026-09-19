@@ -27,6 +27,7 @@ from app.models import (
     InvoiceStatus,
     LabCase,
     LabCaseStatus,
+    Operatory,
     Patient,
     PatientInsurancePlan,
     Payment,
@@ -57,6 +58,13 @@ async def wipe_demo_data(db: AsyncSession) -> None:
     await apply_tenant_rls(db, None, bypass=True)
     # Child-first deletes for SQLite without full CASCADE coverage
     for table in (
+        "domain_events",
+        "working_hours",
+        "holidays",
+        "operatories",
+        "org_departments",
+        "number_sequences",
+        "system_settings",
         "prescription_items",
         "prescriptions",
         "drug_templates",
@@ -92,6 +100,9 @@ async def wipe_demo_data(db: AsyncSession) -> None:
         "ai_suggestions",
         "refresh_tokens",
         "audit_logs",
+        "patient_safety_items",
+        "patient_vital_signs",
+        "registration_drafts",
         "patients",
         "users",
         "clinics",
@@ -132,6 +143,41 @@ async def ensure_tzs_and_portal_demo(db: AsyncSession) -> None:
             clinic.currency = settings.default_currency
         if clinic.timezone == "UTC":
             clinic.timezone = "Africa/Dar_es_Salaam"
+    from app.services.config import ensure_clinic_config
+
+    for clinic in clinics:
+        await ensure_clinic_config(db, clinic.id)
+    await ensure_nurse_demo_user(db)
+
+
+async def ensure_nurse_demo_user(db: AsyncSession) -> None:
+    existing = (
+        await db.execute(select(User).where(User.email == "nurse@demsta.clinic"))
+    ).scalar_one_or_none()
+    if existing:
+        return
+    main = (await db.execute(select(Clinic).where(Clinic.code == settings.default_clinic_code))).scalar_one_or_none()
+    if not main:
+        return
+    nurse = create_user(
+        main.id,
+        email="nurse@demsta.clinic",
+        password="Demsta!Nurse1",
+        full_name="Faith Nkrumah",
+        role=Role.NURSE,
+    )
+    db.add(nurse)
+    await db.flush()
+    db.add(
+        StaffProfile(
+            clinic_id=main.id,
+            user_id=nurse.id,
+            title="Clinic Nurse",
+            department="nursing",
+            certifications_json='["BLS","Clinic Orientation"]',
+        )
+    )
+    await db.flush()
 
 
 async def seed_demo_fabric(db: AsyncSession) -> None:
@@ -159,6 +205,11 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
     db.add_all([main, east])
     await db.flush()
 
+    from app.services.config import ensure_clinic_config
+
+    await ensure_clinic_config(db, main.id)
+    await ensure_clinic_config(db, east.id)
+
     # Platform owner (null clinic)
     owner = create_user(
         None,
@@ -179,6 +230,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
         ("lab@demsta.clinic", "Demsta!Lab1", "Mei Tanaka", Role.LAB_TECH, "Fixed Pros", "Lab Technician", "lab"),
         ("pharmacy@demsta.clinic", "Demsta!Pharmacy1", "Grace Auma", Role.PHARMACY, None, "Pharmacy Tech", "pharmacy"),
         ("imaging@demsta.clinic", "Demsta!Imaging1", "David Kim", Role.IMAGING_TECH, "Oral Radiology", "Imaging Tech", "imaging"),
+        ("nurse@demsta.clinic", "Demsta!Nurse1", "Faith Nkrumah", Role.NURSE, None, "Clinic Nurse", "nursing"),
     ]
     users: dict[str, User] = {}
     for email, pwd, name, role, specialty, title, dept in staff_defs:
@@ -435,6 +487,11 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
     await db.flush()
 
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    chair_ops = {
+        o.chair_number: o.id
+        for o in (await db.execute(select(Operatory).where(Operatory.clinic_id == main.id))).scalars()
+        if o.chair_number
+    }
     appts = [
         Appointment(
             clinic_id=main.id,
@@ -442,6 +499,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             dentist_id=dentist.id,
             appointment_type_id=types[1].id,
             chair_number=1,
+            operatory_id=chair_ops.get(1),
             starts_at=now.replace(hour=9),
             ends_at=now.replace(hour=9) + timedelta(minutes=45),
             status="checked_in",
@@ -454,6 +512,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             dentist_id=dentist.id,
             appointment_type_id=types[0].id,
             chair_number=2,
+            operatory_id=chair_ops.get(2),
             starts_at=now.replace(hour=11),
             ends_at=now.replace(hour=11) + timedelta(minutes=20),
             status="scheduled",
@@ -466,6 +525,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             dentist_id=dentist.id,
             appointment_type_id=types[5].id,
             chair_number=1,
+            operatory_id=chair_ops.get(1),
             starts_at=now.replace(hour=14),
             ends_at=now.replace(hour=14) + timedelta(minutes=75),
             status="confirmed",
@@ -478,6 +538,7 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
             dentist_id=users["hygiene@demsta.clinic"].id,
             appointment_type_id=types[1].id,
             chair_number=3,
+            operatory_id=chair_ops.get(3),
             starts_at=now.replace(hour=10),
             ends_at=now.replace(hour=10) + timedelta(minutes=45),
             status="scheduled",

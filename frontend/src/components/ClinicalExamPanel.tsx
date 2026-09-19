@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Icd10Picker } from "@/components/Icd10Picker";
 import { RadiologyInvestigationDialog, formatRadiologyOverview } from "@/components/RadiologyInvestigationDialog";
+import { hasVitalsValues, readingToVisitVitals, vitalsSummary } from "@/components/VitalSignsPanel";
 import { api, apiUpload, imagingContentUrl, ApiError } from "@/lib/api";
 import type {
   ClinicalVisit,
   ExtraOralExam,
   IntraOralExam,
+  PatientVitalSign,
   RadiologyInvestigationItem,
   VisitDiagnosis,
   VisitInvestigations,
@@ -25,6 +27,9 @@ const emptyVitals = (): VisitVitals => ({
   bp_systolic: null,
   bp_diastolic: null,
   pulse: null,
+  temperature_c: null,
+  spo2: null,
+  respiratory_rate: null,
   height_cm: null,
   weight_kg: null,
   posture: "",
@@ -169,6 +174,7 @@ export function ClinicalExamPanel({
   const [complaint, setComplaint] = useState(chiefComplaint || "");
   const [status, setStatus] = useState("in_progress");
   const [vitals, setVitals] = useState(emptyVitals);
+  const [nurseVitals, setNurseVitals] = useState<PatientVitalSign | null>(null);
   const [extra, setExtra] = useState(emptyExtra);
   const [intra, setIntra] = useState(emptyIntra);
   const [ix, setIx] = useState(emptyIx);
@@ -183,8 +189,12 @@ export function ClinicalExamPanel({
   const ortho = department === "orthodontic";
 
   async function load() {
-    const rows = await api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`);
+    const [rows, latest] = await Promise.all([
+      api<ClinicalVisit[]>(`/api/v1/clinical/patients/${patientId}/visits`),
+      api<PatientVitalSign | null>(`/api/v1/patients/${patientId}/vitals/latest`).catch(() => null),
+    ]);
     setVisits(rows);
+    setNurseVitals(latest);
   }
 
   useEffect(() => {
@@ -200,13 +210,13 @@ export function ClinicalExamPanel({
     setVisitDate(new Date().toISOString().slice(0, 10));
     setComplaint(chiefComplaint || "");
     setStatus("in_progress");
-    setVitals(emptyVitals());
+    setVitals(readingToVisitVitals(nurseVitals));
     setExtra(emptyExtra());
     setIntra(emptyIntra());
     setIx(emptyIx());
     setDx(emptyDx());
     setNotes("");
-    setVitalsOpen(false);
+    setVitalsOpen(hasVitalsValues(nurseVitals));
     setRadioOpen(false);
   }
 
@@ -238,6 +248,9 @@ export function ClinicalExamPanel({
         bp_systolic: vitals.bp_systolic,
         bp_diastolic: vitals.bp_diastolic,
         pulse: vitals.pulse,
+        temperature_c: vitals.temperature_c,
+        spo2: vitals.spo2,
+        respiratory_rate: vitals.respiratory_rate,
         height_cm: vitals.height_cm,
         weight_kg: vitals.weight_kg,
         posture: cleanStr(vitals.posture),
@@ -412,6 +425,9 @@ export function ClinicalExamPanel({
                 {v.diagnosis?.working_diagnosis && (
                   <p className="text-xs text-brand-800">Dx: {v.diagnosis.working_diagnosis}</p>
                 )}
+                {hasVitalsValues(v.vitals) && (
+                  <p className="text-xs text-muted">{vitalsSummary(v.vitals)}</p>
+                )}
                 {v.diagnosis?.icd10_codes && v.diagnosis.icd10_codes.length > 0 && (
                   <p className="text-[11px] font-mono text-muted">
                     {v.diagnosis.icd10_codes.map((c) => c.code).join(" · ")}
@@ -428,6 +444,12 @@ export function ClinicalExamPanel({
 
       {open && (
         <form className="space-y-5 border-t border-brand-50 pt-4" onSubmit={onSave}>
+          {nurseVitals && !editingId && (
+            <p className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">
+              Nurse vitals from {new Date(nurseVitals.recorded_at).toLocaleString()}
+              {nurseVitals.recorded_by_name ? ` · ${nurseVitals.recorded_by_name}` : ""} — pre-filled below. Confirm or adjust.
+            </p>
+          )}
           {omfs && (
             <section className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700">
@@ -519,7 +541,11 @@ export function ClinicalExamPanel({
               <span className="reveal-toggle__text">
                 <span className="reveal-toggle__title">Vital signs</span>
                 <span className="reveal-toggle__hint">
-                  {omfs || ortho ? "BP, pulse" : "BP, pulse, height, weight, appearance"}
+                  {hasVitalsValues(vitals)
+                    ? vitalsSummary(vitals)
+                    : omfs || ortho
+                      ? "BP, pulse"
+                      : "BP, pulse, temperature, height, weight"}
                 </span>
               </span>
               <span className="reveal-toggle__action">{vitalsOpen ? "Hide" : "Show"}</span>
@@ -555,6 +581,34 @@ export function ClinicalExamPanel({
                   type="number"
                   value={vitals.pulse ?? ""}
                   onChange={(e) => setVitals({ ...vitals, pulse: numOrNull(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className="label">Temperature (°C)</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.1"
+                  value={vitals.temperature_c ?? ""}
+                  onChange={(e) => setVitals({ ...vitals, temperature_c: numOrNull(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className="label">SpO₂ (%)</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={vitals.spo2 ?? ""}
+                  onChange={(e) => setVitals({ ...vitals, spo2: numOrNull(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className="label">Respiratory rate</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={vitals.respiratory_rate ?? ""}
+                  onChange={(e) => setVitals({ ...vitals, respiratory_rate: numOrNull(e.target.value) })}
                 />
               </div>
               {!ortho && (

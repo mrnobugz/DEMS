@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.session import Base, TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
+from app.db.session import ActivatableMixin, Base, TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class AppointmentStatus(StrEnum):
@@ -146,6 +146,12 @@ class RegistrationStatus(StrEnum):
     DRAFT = "draft"
     PENDING_PAYMENT = "pending_payment"
     FINALIZED = "finalized"
+
+
+class RegistrationDraftStatus(StrEnum):
+    OPEN = "open"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
 
 
 class LabCaseStatus(StrEnum):
@@ -297,6 +303,13 @@ class Patient(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     has_outstanding: Mapped[bool] = mapped_column(Boolean, default=False)
     photo_storage_key: Mapped[Optional[str]] = mapped_column(String(500))
     photo_content_type: Mapped[Optional[str]] = mapped_column(String(80))
+    merged_into_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("patients.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    guarantor_patient_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("patients.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    medical_history_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     clinic: Mapped["Clinic"] = relationship(back_populates="patients")
     primary_dentist: Mapped[Optional["User"]] = relationship(foreign_keys=[primary_dentist_id])
@@ -330,6 +343,9 @@ class Appointment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     dentist_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     appointment_type_id: Mapped[Optional[str]] = mapped_column(ForeignKey("appointment_types.id"))
     chair_number: Mapped[Optional[int]] = mapped_column(Integer)
+    operatory_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("operatories.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default=AppointmentStatus.SCHEDULED, index=True)
@@ -609,7 +625,7 @@ class FeeScheduleItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
 
     __tablename__ = "fee_schedule_items"
     __table_args__ = (
-        UniqueConstraint("clinic_id", "code", name="uq_fee_schedule_clinic_code"),
+        UniqueConstraint("clinic_id", "fee_schedule_id", "code", name="uq_fee_schedule_items_clinic_sched_code"),
     )
 
     code: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
@@ -621,6 +637,10 @@ class FeeScheduleItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     billable: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     effective_from: Mapped[Optional[date]] = mapped_column(Date)
+    effective_to: Mapped[Optional[date]] = mapped_column(Date)
+    fee_schedule_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("fee_schedules.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     catalog_item_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("catalog_items.id"), index=True
     )
@@ -957,6 +977,14 @@ class StaffProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     department: Mapped[Optional[str]] = mapped_column(String(80))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     cert_expires_at: Mapped[Optional[date]] = mapped_column(Date)
+    license_no: Mapped[Optional[str]] = mapped_column(String(80))
+    is_scheduling_provider: Mapped[bool] = mapped_column(Boolean, default=True)
+    default_operatory_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("operatories.id", ondelete="SET NULL"), nullable=True
+    )
+    production_goal: Mapped[Optional[float]] = mapped_column(Float)
+    commission_rate_bps: Mapped[int] = mapped_column(Integer, default=0)
+    schedule_json: Mapped[Optional[str]] = mapped_column(Text)
 
     user: Mapped["User"] = relationship(back_populates="staff_profile")
 
@@ -1394,3 +1422,280 @@ class NotificationOutbox(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin)
     created_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     patient: Mapped[Optional["Patient"]] = relationship(back_populates="notifications")
+
+
+# ── Configurations (Wave 0 + C1) ─────────────────────────────────────────────
+
+
+class DomainEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Append-only outbox. Consumers must be idempotent on id."""
+
+    __tablename__ = "domain_events"
+    __table_args__ = (Index("ix_domain_events_clinic_type_occurred", "clinic_id", "event_type", "occurred_at"),)
+
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregate_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    actor_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+
+
+class SystemSetting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Scoped settings: platform → clinic → user. clinic_id null = platform."""
+
+    __tablename__ = "system_settings"
+    __table_args__ = (
+        UniqueConstraint("scope", "clinic_id", "user_id", "key", name="uq_system_settings_scope_owner_key"),
+        Index("ix_system_settings_clinic_key", "clinic_id", "key"),
+    )
+
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="clinic")
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class NumberSequence(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    __tablename__ = "number_sequences"
+    __table_args__ = (UniqueConstraint("clinic_id", "document_type", name="uq_number_sequences_clinic_type"),)
+
+    document_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    padding: Mapped[int] = mapped_column(Integer, default=5)
+    next_value: Mapped[int] = mapped_column(Integer, default=1)
+    year_reset: Mapped[bool] = mapped_column(Boolean, default=True)
+    current_year: Mapped[int] = mapped_column(Integer, default=lambda: datetime.now(UTC).year)
+
+
+class OrgDepartment(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    """Clinic organization unit (not the specialty navigation enum)."""
+
+    __tablename__ = "org_departments"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_org_departments_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    head_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    stock_location_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("stock_locations.id", ondelete="SET NULL"), nullable=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+    operatories: Mapped[list["Operatory"]] = relationship(back_populates="department")
+
+
+class Operatory(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "operatories"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_operatories_clinic_code"),)
+
+    department_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("org_departments.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    chair_number: Mapped[Optional[int]] = mapped_column(Integer)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+    department: Mapped[Optional["OrgDepartment"]] = relationship(back_populates="operatories")
+
+
+class WorkingHours(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    """owner_type: clinic | department | provider. owner_id null for clinic-wide."""
+
+    __tablename__ = "working_hours"
+
+    owner_type: Mapped[str] = mapped_column(String(20), nullable=False, default="clinic")
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)  # 0=Mon … 6=Sun
+    starts_on: Mapped[str] = mapped_column(String(5), nullable=False, default="08:00")
+    ends_on: Mapped[str] = mapped_column(String(5), nullable=False, default="17:00")
+
+
+class Holiday(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "holidays"
+    __table_args__ = (UniqueConstraint("clinic_id", "holiday_date", name="uq_holidays_clinic_date"),)
+
+    holiday_date: Mapped[date] = mapped_column(Date, nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+
+class RolePermission(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Clinic-editable role × permission matrix. Seeded from code defaults."""
+
+    __tablename__ = "role_permissions"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "role", "permission_id", name="uq_role_permissions_clinic_role_perm"),
+    )
+
+    role: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    permission_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    allowed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class FeeSchedule(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "fee_schedules"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_fee_schedules_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    payer_kind: Mapped[str] = mapped_column(String(32), default="cash")  # cash | corporate | insurance
+    currency: Mapped[str] = mapped_column(String(8), default="TZS")
+    effective_from: Mapped[Optional[date]] = mapped_column(Date)
+    effective_to: Mapped[Optional[date]] = mapped_column(Date)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+
+class TaxRate(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "tax_rates"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_tax_rates_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    rate_bps: Mapped[int] = mapped_column(Integer, default=0)  # 1800 = 18%
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class DiscountRule(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "discount_rules"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_discount_rules_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    percent: Mapped[float] = mapped_column(Float, default=0.0)
+    max_amount: Mapped[Optional[float]] = mapped_column(Float)
+    requires_role: Mapped[Optional[str]] = mapped_column(String(40))
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+
+class PaymentMethodConfig(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "payment_method_configs"
+    __table_args__ = (UniqueConstraint("clinic_id", "code", name="uq_payment_method_configs_clinic_code"),)
+
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ConfigCatalogEntry(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    """Coded lists: diagnosis extras, allergies, alerts, UoM, item categories, surfaces."""
+
+    __tablename__ = "config_catalog_entries"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "kind", "code", name="uq_config_catalog_clinic_kind_code"),
+        Index("ix_config_catalog_entries_clinic_kind", "clinic_id", "kind"),
+    )
+
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    extra_json: Mapped[Optional[str]] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ConfigTemplate(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "config_templates"
+    __table_args__ = (UniqueConstraint("clinic_id", "kind", "key", name="uq_config_templates_clinic_kind_key"),)
+
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    subject: Mapped[Optional[str]] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ApprovalChain(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    __tablename__ = "approval_chains"
+
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    department_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("org_departments.id", ondelete="SET NULL"), nullable=True
+    )
+    category: Mapped[Optional[str]] = mapped_column(String(80))
+    min_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+
+class PatientSafetyItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin, ActivatableMixin):
+    """Coded allergy / condition / medication / alert. Free-text patient fields stay as fallback."""
+
+    __tablename__ = "patient_safety_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "patient_id",
+            "kind",
+            "code",
+            name="uq_patient_safety_clinic_patient_kind_code",
+        ),
+    )
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(String(400))
+
+
+class RegistrationDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Unfinished front-desk registration. Resume later or cancel; rows are kept for audit."""
+
+    __tablename__ = "registration_drafts"
+    __table_args__ = (Index("ix_registration_drafts_clinic_status", "clinic_id", "status"),)
+
+    patient_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("patients.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    created_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    updated_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=RegistrationDraftStatus.OPEN, nullable=False, index=True
+    )
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Unnamed patient")
+    summary: Mapped[Optional[str]] = mapped_column(String(300))
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(300))
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class PatientVitalSign(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Nurse-recorded vitals for a registered patient. Latest reading feeds clerkship and exam."""
+
+    __tablename__ = "patient_vital_signs"
+    __table_args__ = (Index("ix_patient_vitals_clinic_patient_at", "clinic_id", "patient_id", "recorded_at"),)
+
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    recorded_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    bp_systolic: Mapped[Optional[int]] = mapped_column(Integer)
+    bp_diastolic: Mapped[Optional[int]] = mapped_column(Integer)
+    pulse: Mapped[Optional[int]] = mapped_column(Integer)
+    temperature_c: Mapped[Optional[float]] = mapped_column(Float)
+    spo2: Mapped[Optional[int]] = mapped_column(Integer)
+    respiratory_rate: Mapped[Optional[int]] = mapped_column(Integer)
+    height_cm: Mapped[Optional[float]] = mapped_column(Float)
+    weight_kg: Mapped[Optional[float]] = mapped_column(Float)
+    posture: Mapped[Optional[str]] = mapped_column(String(80))
+    gait: Mapped[Optional[str]] = mapped_column(String(80))
+    appearance: Mapped[Optional[str]] = mapped_column(String(80))
+    notes: Mapped[Optional[str]] = mapped_column(String(400))

@@ -1,0 +1,41 @@
+---
+description: Audit then improve UI/UX using HCI heuristics before shipping UI changes.
+alwaysApply: true
+---
+
+# HCI / GUI session process
+
+DEMSTA is a clinic OS (chairside + admin, touch and keyboard). Stack: React + Tailwind + existing CSS tokens. Do not invent a new visual language.
+
+When the task touches UI, layout, copy, or interaction:
+
+1. **Audit first** on the focus area. Output a table, then stop unless the user already said to implement:
+
+   | Issue | Location | Principle violated | Severity | Proposed fix |
+
+2. **Plan** critical → major → minor. Skip restyles that do not help a task. Configurations is the reference module (`ClinicAdminPage`, `config/ConfigUi.tsx`).
+3. **Implement** in small steps. Reuse `glass-panel`, `.btn-primary`, `.btn-ghost`, `.input`, `.label`, `EmptyState`, `ConfigStatus`, `ConfigField`, `ConfirmAction`, `--touch-min` (44px). No new UI libraries.
+4. **Verify** types/build and that existing flows still work. Flag any API/model change.
+5. **Summarize** changelog: what changed, which principle, what to do next.
+
+## Must-fix on every admin/config screen
+
+```tsx
+// ❌ unlabeled placeholder-only field, 32px tab, silent save, instant deactivate
+<input className="input" placeholder="code" />
+<button className="admin-tab">Fees</button>
+<button onClick={deactivate}>Deactivate</button>
+
+// ✅ visible label, 44px target, status, confirm irreversible-ish actions
+<label className="text-sm">
+  <span className="label">Code</span>
+  <input className="input" value={code} onChange={...} required />
+</label>
+```
+
+- One way to navigate a view (tabs **or** chips, not both).
+- Every load/save: loading, empty, error (`aria-live="polite"`), success.
+- Destructive/deactivate: confirm, then proceed. Prefer deactivate copy over “delete” when the API deactivates.
+- Do not rely on color alone; keep focus rings (`:focus-visible`).
+- Body copy ≥ 0.875rem in admin; primary controls ≥ `--touch-min`.
+- Keyboard: tablists support arrows; icon-only controls need `aria-label`.

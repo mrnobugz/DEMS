@@ -17,6 +17,7 @@ from app.api.v1 import (
     owner,
     patients,
     pharmacy,
+    config,
     phase2_ops,
     portal,
     specialty,
@@ -35,6 +36,7 @@ api_router.include_router(insurance.router)
 api_router.include_router(ops.router)
 api_router.include_router(owner.router)
 api_router.include_router(staff.router)
+api_router.include_router(config.router)
 api_router.include_router(inventory.router)
 api_router.include_router(lab.router)
 api_router.include_router(imaging.router)

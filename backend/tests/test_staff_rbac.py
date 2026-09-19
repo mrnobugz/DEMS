@@ -36,6 +36,8 @@ class RbacUnitTests(unittest.TestCase):
         self.assertTrue(has_permission(Role.DENTIST, "billing:create"))
         self.assertFalse(has_permission(Role.HYGIENIST, "billing:create"))
         self.assertTrue(has_permission(Role.CLINIC_ADMIN, "staff:*"))
+        self.assertTrue(has_permission(Role.NURSE, "clinical:vitals"))
+        self.assertFalse(has_permission(Role.NURSE, "clinical:*"))
         self.assertFalse(has_permission(Role.DENTIST, "staff:*"))
 
     def test_extra_grant(self) -> None:

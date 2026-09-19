@@ -15,6 +15,7 @@ class Role(StrEnum):
     LAB_TECH = "lab_tech"
     PHARMACY = "pharmacy"
     IMAGING_TECH = "imaging_tech"
+    NURSE = "nurse"
     PATIENT = "patient"
 
 
@@ -28,6 +29,7 @@ ROLE_LABELS: dict[Role, str] = {
     Role.LAB_TECH: "Lab technician",
     Role.PHARMACY: "Pharmacy",
     Role.IMAGING_TECH: "Imaging technician",
+    Role.NURSE: "Nurse",
     Role.PATIENT: "Patient portal",
 }
 
@@ -57,6 +59,7 @@ PERMISSION_CATALOG: tuple[PermissionDef, ...] = (
     PermissionDef("clinical:read", "Read clinical", "View charts, notes, and specialty work"),
     PermissionDef("clinical:*", "Full clinical", "Chart, diagnose, and complete clinical work"),
     PermissionDef("clinical:limited", "Limited clinical", "Hygiene-scoped charting only"),
+    PermissionDef("clinical:vitals", "Record vital signs", "Capture BP, pulse, temperature, and related vitals"),
     PermissionDef("clinical:own_read", "Own clinical read", "Portal view of own chart"),
     PermissionDef("billing:read", "Read billing", "View invoices, aging, and the fee catalog"),
     PermissionDef("billing:create", "Create invoices", "Generate invoices and record payments"),
@@ -76,6 +79,15 @@ PERMISSION_CATALOG: tuple[PermissionDef, ...] = (
     PermissionDef("reports:financial", "Financial reports", "Aging, cash-up, and revenue"),
     PermissionDef("reports:*", "Full reports", "Clinic-wide operational and financial reports"),
     PermissionDef("config:clinic", "Clinic settings", "Clinic-level configuration"),
+    PermissionDef("config:*", "Full configuration", "Organization, settings, sequences, and catalogs"),
+    PermissionDef("patients:merge", "Merge patients", "Merge duplicate patient records"),
+    PermissionDef("clinical:notes_read", "Read clinical notes", "View SOAP and progress notes"),
+    PermissionDef("clinical:notes_write", "Write clinical notes", "Create and amend clinical notes"),
+    PermissionDef("requisition:create", "Create requisitions", "Draft and submit store or purchase requisitions"),
+    PermissionDef("requisition:approve", "Approve requisitions", "Approve or reject requisitions"),
+    PermissionDef("requisition:fulfill", "Fulfill requisitions", "Issue stock against approved requisitions"),
+    PermissionDef("requisition:*", "Full requisition", "Requisition, approval, and fulfillment"),
+    PermissionDef("reports:patient_drilldown", "Patient-level reports", "Drill from aggregates to a named patient (audited)"),
     PermissionDef("ai:suggest", "AI suggestions", "Use assistive drafts and suggestions"),
     PermissionDef("ai:*", "Full AI", "Configure and use all AI assist features"),
     PermissionDef("departments:read", "Read departments", "See department queues and overviews"),
@@ -95,6 +107,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "patients:assign",
         "appointments:*",
         "clinical:read",
+        "clinical:vitals",
         "billing:*",
         "inventory:*",
         "lab:read",
@@ -103,6 +116,10 @@ PERMISSIONS: dict[Role, set[str]] = {
         "staff:*",
         "reports:*",
         "config:clinic",
+        "config:*",
+        "patients:merge",
+        "requisition:*",
+        "reports:patient_drilldown",
         "ai:*",
         "departments:read",
         "notifications:send",
@@ -119,6 +136,9 @@ PERMISSIONS: dict[Role, set[str]] = {
         "billing:create",
         "inventory:read",
         "inventory:issue",
+        "requisition:create",
+        "clinical:notes_read",
+        "clinical:notes_write",
         "lab:*",
         "pharmacy:*",
         "imaging:*",
@@ -135,6 +155,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "clinical:limited",
         "inventory:read",
         "inventory:issue",
+        "requisition:create",
         "departments:read",
     },
     Role.RECEPTIONIST: {
@@ -145,6 +166,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "billing:read",
         "inventory:read",
         "ai:suggest",
+        "requisition:create",
         "departments:read",
         "notifications:send",
         "notifications:read",
@@ -175,6 +197,12 @@ PERMISSIONS: dict[Role, set[str]] = {
         "imaging:*",
         "patients:read",
         "clinical:read",
+        "departments:read",
+    },
+    Role.NURSE: {
+        "patients:read",
+        "appointments:read",
+        "clinical:vitals",
         "departments:read",
     },
     Role.PATIENT: {
@@ -239,6 +267,8 @@ def permission_allowed(
     extra: list[str] | None,
     denied: list[str] | None,
     permission: str,
+    *,
+    role_grants: set[str] | None = None,
 ) -> bool:
     role_enum = parse_role(role)
     if role_enum is None:
@@ -247,7 +277,8 @@ def permission_allowed(
         return True
     if grants_cover(denied or [], permission):
         return False
-    if has_permission(role_enum, permission):
+    bag = role_grants if role_grants is not None else PERMISSIONS.get(role_enum, set())
+    if grants_cover(bag, permission):
         return True
     return grants_cover(extra or [], permission)
 
@@ -258,6 +289,7 @@ def user_has_permission(user: Any, permission: str) -> bool:
         parse_perm_list(getattr(user, "extra_permissions", None)),
         parse_perm_list(getattr(user, "denied_permissions", None)),
         permission,
+        role_grants=getattr(user, "_role_grants", None),
     )
 
 
@@ -265,20 +297,33 @@ def user_has_any_permission(user: Any, *permissions: str) -> bool:
     return any(user_has_permission(user, p) for p in permissions)
 
 
-def effective_permissions(role: Role | str, extra: list[str] | None, denied: list[str] | None) -> list[str]:
+def effective_permissions(
+    role: Role | str,
+    extra: list[str] | None,
+    denied: list[str] | None,
+    *,
+    role_grants: set[str] | None = None,
+) -> list[str]:
     role_enum = parse_role(role)
     if role_enum == Role.SUPER_ADMIN:
         return ["*"]
-    return [item.id for item in PERMISSION_CATALOG if permission_allowed(role_enum or "", extra, denied, item.id)]
+    return [
+        item.id
+        for item in PERMISSION_CATALOG
+        if permission_allowed(role_enum or "", extra, denied, item.id, role_grants=role_grants)
+    ]
 
 
 def user_access_payload(user: Any) -> dict[str, list[str]]:
     extras = parse_perm_list(getattr(user, "extra_permissions", None))
     denies = parse_perm_list(getattr(user, "denied_permissions", None))
+    grants = getattr(user, "_role_grants", None)
     return {
         "extra_permissions": extras,
         "denied_permissions": denies,
-        "effective_permissions": effective_permissions(getattr(user, "role", ""), extras, denies),
+        "effective_permissions": effective_permissions(
+            getattr(user, "role", ""), extras, denies, role_grants=grants
+        ),
     }
 
 

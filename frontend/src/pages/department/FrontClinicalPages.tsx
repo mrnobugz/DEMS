@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { RegistrationWizard } from "@/components/RegistrationWizard";
+import { UnfinishedRegistrations } from "@/components/UnfinishedRegistrations";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import type { ChairQueueItem } from "@/lib/types";
@@ -157,6 +158,7 @@ export function FrontDeskPage() {
             </ul>
           )}
         </section>
+        <UnfinishedRegistrations />
         <section className="glass-panel rounded-2xl p-4">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="font-display text-lg font-bold text-brand-900">

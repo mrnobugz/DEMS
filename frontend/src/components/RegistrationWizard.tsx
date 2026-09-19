@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Save, Sparkles } from "lucide-react";
+import { ConfirmAction } from "@/components/config/ConfigUi";
 import {
   ClerkshipIntakeFields,
   clerkshipGaps,
@@ -17,7 +18,14 @@ import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import { fetchPatientPhotoDataUrl, uploadPatientPhoto } from "@/lib/patientPhoto";
 import { registrationPrintData } from "@/lib/printRegistration";
-import type { InventoryItem, Page, Patient, PatientRegisterResult, RegistrationSlot } from "@/lib/types";
+import type {
+  InventoryItem,
+  Page,
+  Patient,
+  PatientRegisterResult,
+  RegistrationDraft,
+  RegistrationSlot,
+} from "@/lib/types";
 import { useUiPrefs } from "@/lib/uiPrefs";
 
 const DEPARTMENTS = [
@@ -44,6 +52,101 @@ const INSURERS = [
 
 type QtyMap = Record<string, number>;
 type MedicalStaff = { id: string; full_name: string; role?: string; specialty?: string };
+type PayerType = "self" | "insurance" | "other";
+
+/** Everything needed to reopen an unfinished registration. The identity photo is not kept. */
+type DraftPayload = {
+  version: 1;
+  step: number;
+  max_reached: number;
+  form: ClerkshipFormState;
+  existing_id: string;
+  existing_meta: { code: string; name: string } | null;
+  qty: QtyMap;
+  payer_type: PayerType;
+  method: string;
+  insurer: string;
+  insurer_name: string;
+  reference: string;
+  outstanding: boolean;
+  amount_paid: number;
+  service_name: string;
+  slot_date: string;
+  slot_start: string;
+  staff_id: string;
+  is_appointment: boolean;
+  consent: ConsentCapture | null;
+  department: string;
+};
+
+const PAYER_TYPES: readonly PayerType[] = ["self", "insurance", "other"];
+
+function draftLabel(form: ClerkshipFormState, meta: { name: string } | null) {
+  const typed = `${form.first_name} ${form.last_name}`.trim();
+  return typed || meta?.name?.trim() || "Unnamed patient";
+}
+
+function draftSummary(payload: DraftPayload, total: number, currency: string, locale: string) {
+  const parts = [`${STEP_META[payload.step]?.label ?? "Particulars"} (step ${payload.step + 1} of ${STEP_META.length})`];
+  if (payload.form.chief_complaint?.trim()) parts.push(payload.form.chief_complaint.trim());
+  if (total > 0) parts.push(`due ${formatMoney(total, currency, locale)}`);
+  return parts.join(" · ").slice(0, 300);
+}
+
+/** Reads back a stored payload defensively: an older or partial draft must still open. */
+function readDraftPayload(raw: unknown): DraftPayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (!data.form || typeof data.form !== "object") return null;
+  const str = (key: string, fallback = "") =>
+    typeof data[key] === "string" ? (data[key] as string) : fallback;
+  const num = (key: string, fallback = 0) =>
+    typeof data[key] === "number" && Number.isFinite(data[key]) ? (data[key] as number) : fallback;
+  const bool = (key: string, fallback: boolean) =>
+    typeof data[key] === "boolean" ? (data[key] as boolean) : fallback;
+  const payer = str("payer_type", "self") as PayerType;
+  const meta = data.existing_meta as { code?: unknown; name?: unknown } | null | undefined;
+  return {
+    version: 1,
+    step: Math.min(Math.max(Math.trunc(num("step")), 0), STEP_META.length - 1),
+    max_reached: Math.min(Math.max(Math.trunc(num("max_reached")), 0), STEP_META.length - 1),
+    form: { ...emptyClerkshipForm(), ...(data.form as Partial<ClerkshipFormState>) },
+    existing_id: str("existing_id"),
+    existing_meta:
+      meta && typeof meta.code === "string" && typeof meta.name === "string"
+        ? { code: meta.code, name: meta.name }
+        : null,
+    qty:
+      data.qty && typeof data.qty === "object"
+        ? Object.fromEntries(
+            Object.entries(data.qty as Record<string, unknown>)
+              .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+              .map(([k, v]) => [k, v as number]),
+          )
+        : {},
+    payer_type: PAYER_TYPES.includes(payer) ? payer : "self",
+    method: str("method", "cash"),
+    insurer: str("insurer", "jubilee"),
+    insurer_name: str("insurer_name"),
+    reference: str("reference"),
+    outstanding: bool("outstanding", false),
+    amount_paid: num("amount_paid"),
+    service_name: str("service_name"),
+    slot_date: str("slot_date") || todayInput(),
+    slot_start: str("slot_start"),
+    staff_id: str("staff_id"),
+    is_appointment: bool("is_appointment", true),
+    consent:
+      data.consent && typeof data.consent === "object"
+        ? (data.consent as ConsentCapture)
+        : null,
+    department: str("department"),
+  };
+}
+
+function savedAtLabel(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 function staffLabel(row: MedicalStaff) {
   const role = (row.role || "").replaceAll("_", " ");
@@ -218,6 +321,14 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
   const [result, setResult] = useState<PatientRegisterResult | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [draftId, setDraftId] = useState(() => params.get("draft") || "");
+  const [draftSavedAt, setDraftSavedAt] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
+  const [draftError, setDraftError] = useState("");
+  const [resuming, setResuming] = useState(() => Boolean(params.get("draft")));
+  const draftIdRef = useRef(draftId);
+  draftIdRef.current = draftId;
 
   useEffect(() => {
     api<InventoryItem[]>("/api/v1/inventory?billable_at_registration=true")
@@ -276,10 +387,11 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
       });
   }, [step, slotDate, isAppointment]);
 
-  function writeParams(nextStep: number, patientId = existingId) {
+  function writeParams(nextStep: number, patientId = existingId, draft = draftIdRef.current) {
     if (!syncUrl) return;
     const next: Record<string, string> = { step: String(nextStep) };
     if (patientId) next.patient = patientId;
+    if (draft) next.draft = draft;
     setParams(next, { replace: true });
   }
 
@@ -317,6 +429,164 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
     }
   }
 
+  function collectDraft(atStep = step): DraftPayload {
+    return {
+      version: 1,
+      step: atStep,
+      max_reached: Math.max(maxReached, atStep),
+      form,
+      existing_id: existingId,
+      existing_meta: existingMeta,
+      qty,
+      payer_type: payerType,
+      method,
+      insurer,
+      insurer_name: insurerName,
+      reference,
+      outstanding,
+      amount_paid: amountPaid,
+      service_name: serviceName,
+      slot_date: slotDate,
+      slot_start: slotStart,
+      staff_id: staffId,
+      is_appointment: isAppointment,
+      consent,
+      department,
+    };
+  }
+
+  function applyDraft(draft: RegistrationDraft) {
+    const payload = readDraftPayload(draft.payload);
+    if (!payload) {
+      setDraftError("This draft could not be opened. Start the registration again.");
+      return;
+    }
+    setForm(payload.form);
+    setExistingId(payload.existing_id);
+    setExistingMeta(payload.existing_meta);
+    setQty(payload.qty);
+    setPayerType(payload.payer_type);
+    setMethod(payload.method);
+    setInsurer(payload.insurer);
+    setInsurerName(payload.insurer_name);
+    setReference(payload.reference);
+    setOutstanding(payload.outstanding);
+    setAmountPaid(payload.amount_paid);
+    setServiceName(payload.service_name);
+    setSlotDate(payload.slot_date);
+    setSlotStart(payload.slot_start);
+    if (payload.staff_id) setStaffId(payload.staff_id);
+    setIsAppointment(payload.is_appointment);
+    setConsent(payload.consent);
+    setDepartment(payload.department);
+    setMaxReached(payload.max_reached);
+    setStep(payload.step);
+    setDraftId(draft.id);
+    draftIdRef.current = draft.id;
+    setDraftSavedAt(draft.updated_at);
+    setDraftNote("Unfinished registration reopened. Review each step before finalizing.");
+    setError("");
+    writeParams(payload.step, payload.existing_id, draft.id);
+    if (payload.existing_id) {
+      void fetchPatientPhotoDataUrl(payload.existing_id).then((url) => {
+        if (url) setPhotoDataUrl(url);
+      });
+    }
+  }
+
+  /** Writes the wizard state to the server. `quiet` is for the automatic save between steps. */
+  async function saveDraft(atStep = step, quiet = false): Promise<boolean> {
+    const payload = collectDraft(atStep);
+    const id = draftIdRef.current;
+    setDraftBusy(true);
+    setDraftError("");
+    if (!quiet) setDraftNote("");
+    try {
+      const saved = await api<RegistrationDraft>(
+        id ? `/api/v1/patients/registration-drafts/${id}` : "/api/v1/patients/registration-drafts",
+        {
+          method: id ? "PUT" : "POST",
+          body: JSON.stringify({
+            patient_id: existingId || null,
+            display_name: draftLabel(form, existingMeta),
+            summary: draftSummary(payload, total, currency, locale),
+            step: atStep,
+            payload,
+          }),
+        },
+      );
+      if (!id) {
+        setDraftId(saved.id);
+        draftIdRef.current = saved.id;
+        writeParams(atStep, existingId, saved.id);
+      }
+      setDraftSavedAt(saved.updated_at);
+      if (!quiet) setDraftNote("Saved. Reopen it from the Today board under unfinished registrations.");
+      return true;
+    } catch (err) {
+      setDraftError(
+        err instanceof ApiError ? err.message : "Could not save this registration as a draft",
+      );
+      return false;
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  function resetWizard(nextStep = 0) {
+    setForm(emptyClerkshipForm());
+    setExistingId("");
+    setExistingMeta(null);
+    setQty({});
+    setPayerType("self");
+    setMethod("cash");
+    setInsurer("jubilee");
+    setInsurerName("");
+    setReference("");
+    setOutstanding(false);
+    setAmountPaid(0);
+    setServiceName("");
+    setSlotDate(todayInput());
+    setSlotStart("");
+    setIsAppointment(true);
+    setConsent(null);
+    setDepartment("");
+    setPhotoDataUrl("");
+    setPhotoFile(null);
+    setDraftId("");
+    draftIdRef.current = "";
+    setDraftSavedAt("");
+    setError("");
+    setStep(nextStep);
+    setMaxReached(nextStep);
+    if (syncUrl) setParams({ step: String(nextStep) }, { replace: true });
+  }
+
+  async function cancelRegistration() {
+    const id = draftIdRef.current;
+    setDraftError("");
+    if (!id) {
+      resetWizard();
+      setDraftNote("Registration cleared. Nothing was saved.");
+      return;
+    }
+    setDraftBusy(true);
+    try {
+      await api<RegistrationDraft>(`/api/v1/patients/registration-drafts/${id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Cancelled at the front desk" }),
+      });
+      resetWizard();
+      setDraftNote("Registration cancelled. It is off the unfinished list.");
+    } catch (err) {
+      setDraftError(
+        err instanceof ApiError ? err.message : "Could not cancel this unfinished registration",
+      );
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
   function goTo(next: number) {
     if (next < 0 || next > maxReached || next >= STEP_META.length) return;
     setError("");
@@ -325,8 +595,32 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
   }
 
   useEffect(() => {
+    const id = params.get("draft");
+    if (!id) return;
+    setResuming(true);
+    api<RegistrationDraft>(`/api/v1/patients/registration-drafts/${id}`)
+      .then((draft) => {
+        if (draft.status !== "open") {
+          setDraftError(
+            draft.status === "completed"
+              ? "That registration was already finalized."
+              : "That unfinished registration was cancelled.",
+          );
+          return;
+        }
+        applyDraft(draft);
+      })
+      .catch((err) =>
+        setDraftError(
+          err instanceof ApiError ? err.message : "Could not open that unfinished registration",
+        ),
+      )
+      .finally(() => setResuming(false));
+  }, []);
+
+  useEffect(() => {
     const id = params.get("patient");
-    if (!id || existingMeta) return;
+    if (!id || existingMeta || params.get("draft")) return;
     api<Patient>(`/api/v1/patients/${id}`)
       .then(applyExisting)
       .catch(() => setError("Could not load that patient file"));
@@ -408,8 +702,14 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
           },
           consent,
           destination_department: department,
+          draft_id: draftIdRef.current || null,
         }),
       });
+      setDraftId("");
+      draftIdRef.current = "";
+      setDraftSavedAt("");
+      setDraftNote("");
+      setDraftError("");
       if (photoFile) {
         try {
           await uploadPatientPhoto(created.patient.id, photoFile);
@@ -492,22 +792,8 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
             className="btn-ghost"
             onClick={() => {
               setResult(null);
-              setForm(emptyClerkshipForm());
-              setExistingId("");
-              setExistingMeta(null);
-              setQty({});
-              setConsent(null);
-              setReference("");
-              setDepartment("");
-              setSlotStart("");
-              setIsAppointment(true);
-              setOutstanding(false);
-              setPayerType("self");
-              setPhotoDataUrl("");
-              setPhotoFile(null);
-              setStep(0);
-              setMaxReached(0);
-              if (syncUrl) setParams({ step: "0" }, { replace: true });
+              resetWizard();
+              setDraftNote("");
               onDone();
             }}
           >
@@ -520,6 +806,9 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
 
   const currentMeta = STEP_META[step];
   const progress = Math.round(((step + 1) / STEP_META.length) * 100);
+  const draftReady = Boolean(
+    form.first_name.trim() || form.last_name.trim() || existingId,
+  );
 
   return (
     <div className="reg-shell">
@@ -532,8 +821,11 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
             <p className="text-xs text-muted">{currentMeta.hint}</p>
           </div>
           <span className="text-xs font-semibold tabular-nums text-muted">
-            {step + 1}/{STEP_META.length}
+            {resuming ? "Opening draft…" : `${step + 1}/${STEP_META.length}`}
           </span>
+          {draftId && !resuming && (
+            <span className="status-pill status-pill--info">Unfinished registration</span>
+          )}
           <div className="reg-progress" aria-hidden>
             <span style={{ width: `${progress}%` }} />
           </div>
@@ -548,7 +840,11 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
               />
               <PatientIdentityPhoto
                 value={photoDataUrl}
-                persistHint="Saved to the patient file when you finalize"
+                persistHint={
+                  draftId && !photoDataUrl
+                    ? "Photos are not kept in a draft — take it again before finalizing"
+                    : "Saved to the patient file when you finalize"
+                }
                 onChange={(url, file) => {
                   setPhotoDataUrl(url);
                   setPhotoFile(file);
@@ -970,6 +1266,44 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
           <div className="reg-error">{error}</div>
         )}
         <footer className="reg-actions">
+          <div className="reg-draft">
+            <div className="reg-draft__actions">
+              <button
+                type="button"
+                className="btn-ghost inline-flex items-center gap-2"
+                disabled={draftBusy || !draftReady}
+                onClick={async () => {
+                  if (!(await saveDraft(step))) return;
+                  resetWizard();
+                  if (syncUrl) navigate("/front-desk");
+                  else onDone();
+                }}
+              >
+                <Save size={16} aria-hidden />
+                {draftBusy ? "Saving…" : "Save & finish later"}
+              </button>
+              {(draftId || draftReady) && (
+                <ConfirmAction
+                  label="Cancel registration"
+                  confirmLabel={draftId ? "Yes, cancel it" : "Yes, clear it"}
+                  onConfirm={cancelRegistration}
+                />
+              )}
+            </div>
+            <p className="reg-draft__note" role="status" aria-live="polite">
+              {draftError ? (
+                <span className="font-semibold text-red-700">{draftError}</span>
+              ) : draftNote ? (
+                <span className="font-semibold text-brand-800">{draftNote}</span>
+              ) : draftSavedAt ? (
+                `Draft saved ${savedAtLabel(draftSavedAt)} — safe to leave this screen.`
+              ) : draftReady ? (
+                "Not saved yet. Save it to finish this registration later."
+              ) : (
+                "Enter the patient name to be able to save an unfinished registration."
+              )}
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
             {step > 0 && (
               <button type="button" className="btn-ghost" onClick={() => goTo(step - 1)}>
@@ -988,6 +1322,7 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
                   setMaxReached((m) => Math.max(m, next));
                   setStep(next);
                   writeParams(next);
+                  void saveDraft(next, true);
                 }}
               >
                 Continue <ArrowRight size={16} />

@@ -70,6 +70,7 @@ Owner console: `/owner` — create clinics, chain KPIs, switch active clinic (`X
 | Clinic Admin | admin@demsta.clinic | Demsta!Admin1 | `/admin` |
 | Dentist | dentist@demsta.clinic | Demsta!Dentist1 | `/clinical` |
 | Hygienist | hygiene@demsta.clinic | Demsta!Hygiene1 | `/hygiene` |
+| Nurse | nurse@demsta.clinic | Demsta!Nurse1 | `/vitals` |
 | Receptionist | front@demsta.clinic | Demsta!Front1 | `/front-desk` |
 | Accountant | billing@demsta.clinic | Demsta!Billing1 | `/billing` |
 | Lab Tech | lab@demsta.clinic | Demsta!Lab1 | `/lab` |

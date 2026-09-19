@@ -45,9 +45,12 @@ async def list_fees(
     user: Annotated[User, Depends(require_permission("billing:read"))],
     billable: bool | None = Query(None),
     active: bool | None = Query(None),
+    fee_schedule_id: str | None = Query(None),
 ):
     _ = user
-    return await svc.list_fee_schedule(db, clinic_id, billable=billable, active=active)
+    return await svc.list_fee_schedule(
+        db, clinic_id, billable=billable, active=active, fee_schedule_id=fee_schedule_id
+    )
 
 
 @router.post("/fee-schedule", response_model=FeeScheduleItemOut, status_code=201)

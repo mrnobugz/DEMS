@@ -36,12 +36,12 @@ MODULE_CATALOG: tuple[ModuleDef, ...] = (
     ),
     ModuleDef(
         "admin",
-        "Clinic admin",
-        "Staff accounts, role permissions, and the procedure catalog for this clinic.",
+        "Configurations",
+        "Organization, staff, roles, and the procedure catalog for this clinic.",
         "settings-2",
         "/admin",
         20,
-        any_permission=("staff:*",),
+        any_permission=("staff:*", "config:clinic", "config:*"),
         roles=("clinic_admin", "super_admin"),
     ),
     ModuleDef(
@@ -103,6 +103,16 @@ MODULE_CATALOG: tuple[ModuleDef, ...] = (
         80,
         any_permission=("clinical:read", "clinical:limited"),
         roles=("hygienist", "dentist", "clinic_admin", "super_admin"),
+    ),
+    ModuleDef(
+        "vitals",
+        "Vital signs",
+        "Record BP, pulse, temperature, and related vitals for registered patients.",
+        "activity",
+        "/vitals",
+        75,
+        any_permission=("clinical:vitals", "clinical:*"),
+        roles=("nurse", "dentist", "clinic_admin", "super_admin"),
     ),
     ModuleDef(
         "imaging",

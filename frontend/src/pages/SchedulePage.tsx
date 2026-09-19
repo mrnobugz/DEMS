@@ -11,6 +11,7 @@ import { api, ApiError } from "@/lib/api";
 import { DayCalendar } from "@/components/DayCalendar";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import type { Appointment, AppointmentType, Page, Patient } from "@/lib/types";
+import type { Operatory } from "@/components/OrganizationPanel";
 
 type Dentist = { id: string; full_name: string; role: string; specialty?: string | null };
 type ViewMode = "day" | "week";
@@ -23,6 +24,7 @@ export function SchedulePage() {
   const [types, setTypes] = useState<AppointmentType[]>([]);
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [operatories, setOperatories] = useState<Operatory[]>([]);
   const [slots, setSlots] = useState<Array<{ starts_at: string; ends_at: string; score: number; reason: string }>>([]);
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [error, setError] = useState("");
@@ -31,6 +33,7 @@ export function SchedulePage() {
     dentist_id: "",
     appointment_type_id: "",
     chair_number: "1",
+    operatory_id: "",
     starts_at: "",
     duration: "30",
     reason: "",
@@ -46,7 +49,7 @@ export function SchedulePage() {
   }, [day, view, weekStart]);
 
   async function load() {
-    const [a, t, d, p, w] = await Promise.all([
+    const [a, t, d, p, w, ops] = await Promise.all([
       api<Appointment[]>(
         `/api/v1/appointments?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`,
       ),
@@ -56,12 +59,21 @@ export function SchedulePage() {
       api<Appointment[]>(
         `/api/v1/appointments?waitlist=true&start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(addDays(parseISO(range.end), 14).toISOString())}`,
       ),
+      api<Operatory[]>("/api/v1/config/operatories").catch(() => []),
     ]);
     setAppointments(a.filter((x) => !x.waitlist));
     setWaitlist(w.filter((x) => x.waitlist));
     setTypes(t);
     setDentists(d);
     setPatients(p.items);
+    setOperatories(ops);
+    if (!form.operatory_id && ops[0]) {
+      setForm((f) => ({
+        ...f,
+        operatory_id: ops[0].id,
+        chair_number: ops[0].chair_number ? String(ops[0].chair_number) : f.chair_number,
+      }));
+    }
     if (!form.dentist_id && d[0]) setForm((f) => ({ ...f, dentist_id: d[0].id }));
     if (!form.patient_id && p.items[0]) setForm((f) => ({ ...f, patient_id: p.items[0].id }));
     if (!form.appointment_type_id && t[0]) {
@@ -102,7 +114,8 @@ export function SchedulePage() {
           patient_id: form.patient_id,
           dentist_id: form.dentist_id,
           appointment_type_id: form.appointment_type_id || null,
-          chair_number: Number(form.chair_number),
+          chair_number: Number(form.chair_number) || null,
+          operatory_id: form.operatory_id || null,
           starts_at: starts.toISOString(),
           ends_at: ends.toISOString(),
           reason: form.reason || null,
@@ -307,14 +320,37 @@ export function SchedulePage() {
               </div>
               <div>
                 <label className="label">Chair</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={form.chair_number}
-                  onChange={(e) => setForm({ ...form, chair_number: e.target.value })}
-                />
+                {operatories.length > 0 ? (
+                  <select
+                    className="input"
+                    value={form.operatory_id}
+                    onChange={(e) => {
+                      const op = operatories.find((x) => x.id === e.target.value);
+                      setForm({
+                        ...form,
+                        operatory_id: e.target.value,
+                        chair_number: op?.chair_number ? String(op.chair_number) : form.chair_number,
+                      });
+                    }}
+                  >
+                    <option value="">Select chair</option>
+                    {operatories.map((op) => (
+                      <option key={op.id} value={op.id}>
+                        {op.name}
+                        {op.chair_number ? ` (#${op.chair_number})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={form.chair_number}
+                    onChange={(e) => setForm({ ...form, chair_number: e.target.value })}
+                  />
+                )}
               </div>
             </div>
             <div>

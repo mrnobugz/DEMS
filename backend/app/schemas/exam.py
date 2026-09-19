@@ -12,6 +12,9 @@ class VisitVitals(BaseModel):
     bp_systolic: Optional[int] = Field(default=None, ge=50, le=300)
     bp_diastolic: Optional[int] = Field(default=None, ge=30, le=200)
     pulse: Optional[int] = Field(default=None, ge=20, le=250)
+    temperature_c: Optional[float] = Field(default=None, ge=30, le=45)
+    spo2: Optional[int] = Field(default=None, ge=50, le=100)
+    respiratory_rate: Optional[int] = Field(default=None, ge=5, le=80)
     height_cm: Optional[float] = Field(default=None, ge=30, le=280)
     weight_kg: Optional[float] = Field(default=None, ge=1, le=400)
     posture: Optional[str] = None

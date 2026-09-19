@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   ArrowUpRight,
   Baby,
   BarChart3,
@@ -45,6 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   braces: Braces,
   baby: Baby,
   "user-round-cog": UserRoundCog,
+  activity: Activity,
   scan: Scan,
   "flask-conical": FlaskConical,
   pill: Pill,

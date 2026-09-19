@@ -7,6 +7,7 @@ import { printHtmlDocument } from "@/lib/printRegistration";
 import { useUiPrefs } from "@/lib/uiPrefs";
 import { CatalogPanel } from "@/components/CatalogPanel";
 import { EmptyState } from "@/components/EmptyState";
+import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
 import { ProcedureCatalogAdmin } from "@/components/ProcedureCatalogAdmin";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import type {
@@ -470,6 +471,7 @@ export function BillingPage() {
               ))}
             </select>
           </div>
+          <PatientSafetyBanner patientId={form.patient_id || undefined} />
           {billable.length === 0 ? (
             <EmptyState
               title="No unbilled chart work"

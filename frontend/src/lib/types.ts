@@ -47,11 +47,26 @@ export type VisitVitals = {
   bp_systolic?: number | null;
   bp_diastolic?: number | null;
   pulse?: number | null;
+  temperature_c?: number | null;
+  spo2?: number | null;
+  respiratory_rate?: number | null;
   height_cm?: number | null;
   weight_kg?: number | null;
   posture?: string | null;
   gait?: string | null;
   appearance?: string | null;
+};
+
+export type PatientVitalSign = VisitVitals & {
+  id: string;
+  patient_id: string;
+  recorded_by_id?: string | null;
+  recorded_by_name?: string | null;
+  recorded_at: string;
+  notes?: string | null;
+  bmi?: number | null;
+  clinic_id: string;
+  created_at: string;
 };
 
 export type ExtraOralExam = {
@@ -257,6 +272,12 @@ export type StaffMember = {
     department?: string | null;
     title?: string | null;
     notes?: string | null;
+    license_no?: string | null;
+    default_operatory_id?: string | null;
+    production_goal?: number | null;
+    commission_rate_bps?: number;
+    is_scheduling_provider?: boolean;
+    cert_expires_at?: string | null;
   } | null;
 };
 
@@ -335,6 +356,9 @@ export type Patient = {
   has_outstanding?: boolean;
   has_photo?: boolean;
   created_at: string;
+  merged_into_id?: string | null;
+  guarantor_patient_id?: string | null;
+  medical_history_reviewed_at?: string | null;
 };
 
 export type InventoryItem = {
@@ -437,6 +461,7 @@ export type Appointment = {
   dentist_id: string;
   appointment_type_id?: string | null;
   chair_number?: number | null;
+  operatory_id?: string | null;
   starts_at: string;
   ends_at: string;
   status: string;
@@ -492,6 +517,7 @@ export type FeeScheduleItem = {
   billable: boolean;
   notes?: string | null;
   clinic_id: string;
+  fee_schedule_id?: string | null;
   catalog_item_id?: string | null;
   catalog_kind?: string | null;
   inventory_item_id?: string | null;
@@ -708,6 +734,26 @@ export type PatientRegisterResult = {
   is_appointment?: boolean;
   medical_staff_id?: string | null;
   medical_staff_name?: string | null;
+};
+
+export type RegistrationDraftStatus = "open" | "cancelled" | "completed";
+
+export type RegistrationDraft = {
+  id: string;
+  patient_id?: string | null;
+  created_by_id?: string | null;
+  created_by_name?: string | null;
+  updated_by_id?: string | null;
+  status: RegistrationDraftStatus;
+  display_name: string;
+  summary?: string | null;
+  step: number;
+  payload: Record<string, unknown>;
+  cancel_reason?: string | null;
+  closed_at?: string | null;
+  clinic_id: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ChairQueueItem = {

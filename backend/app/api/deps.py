@@ -73,6 +73,11 @@ async def get_current_user(
     request.state.user_id = user.id
     # Request-scoped effective clinic for handlers still reading user.clinic_id patterns
     object.__setattr__(user, "_effective_clinic_id", effective_clinic)
+    if effective_clinic:
+        from app.services.config_setup import role_grants_for
+
+        grants = await role_grants_for(db, effective_clinic, user.role)
+        object.__setattr__(user, "_role_grants", grants)
     return user
 
 

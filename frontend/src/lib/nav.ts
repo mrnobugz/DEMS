@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   Baby,
   Building2,
   CalendarDays,
@@ -198,6 +199,13 @@ const ALL: NavEntry[] = [
     anyPermission: ["clinical:read", "clinical:limited"],
   },
   {
+    to: "/vitals",
+    labelKey: "vitals",
+    icon: Activity,
+    roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["clinical:vitals", "clinical:*"],
+  },
+  {
     to: "/imaging",
     labelKey: "imaging",
     icon: Scan,
@@ -279,6 +287,13 @@ const ALL: NavEntry[] = [
 const ADMIN_ITEMS: NavItem[] = [
   {
     to: "/admin",
+    labelKey: "adminOrg",
+    icon: Building2,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*", "config:clinic", "config:*"],
+  },
+  {
+    to: "/admin?view=staff",
     labelKey: "adminUsers",
     icon: Users,
     roles: ["clinic_admin", "super_admin"],
@@ -292,11 +307,25 @@ const ADMIN_ITEMS: NavItem[] = [
     anyPermission: ["staff:*"],
   },
   {
-    to: "/admin?view=procedures",
-    labelKey: "adminProcedures",
+    to: "/admin?view=clinical",
+    labelKey: "adminClinical",
+    icon: Stethoscope,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*", "config:clinic", "config:*"],
+  },
+  {
+    to: "/admin?view=fees",
+    labelKey: "adminFees",
     icon: ClipboardPlus,
     roles: ["clinic_admin", "super_admin"],
-    anyPermission: ["staff:*"],
+    anyPermission: ["staff:*", "config:clinic", "config:*", "billing:*"],
+  },
+  {
+    to: "/admin?view=templates",
+    labelKey: "adminTemplates",
+    icon: PenLine,
+    roles: ["clinic_admin", "super_admin"],
+    anyPermission: ["staff:*", "config:clinic", "config:*"],
   },
   {
     to: "/admin?view=ops",
@@ -369,6 +398,13 @@ const MODULE_DEFS: ModuleDef[] = [
     icon: UserRoundCog,
     roles: ["hygienist", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["clinical:read", "clinical:limited"],
+  }),
+  singletonModule("vitals", "vitals", "/vitals", {
+    to: "/vitals",
+    labelKey: "vitals",
+    icon: Activity,
+    roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["clinical:vitals", "clinical:*"],
   }),
   singletonModule("imaging", "imaging", "/imaging", {
     to: "/imaging",
@@ -531,6 +567,8 @@ export function roleHomeLabel(role: string | undefined | null): string {
       return "Clinical";
     case "hygienist":
       return "Hygiene bay";
+    case "nurse":
+      return "Vital signs";
     case "receptionist":
       return "Front desk";
     case "accountant":

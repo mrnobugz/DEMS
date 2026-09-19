@@ -23,6 +23,7 @@ class AssignmentScopeTests(unittest.TestCase):
         self.assertTrue(is_assignment_scoped_role(Role.DENTIST))
         self.assertTrue(is_assignment_scoped_role(Role.HYGIENIST))
         self.assertFalse(is_assignment_scoped_role(Role.RECEPTIONIST))
+        self.assertFalse(is_assignment_scoped_role(Role.NURSE))
         self.assertFalse(is_assignment_scoped_role(Role.CLINIC_ADMIN))
 
     def test_assign_permission(self) -> None:

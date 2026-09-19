@@ -127,6 +127,13 @@ def drop_constraint_if_present(name: str, table: str, *, type_: str = "foreignke
         batch.drop_constraint(name, type_=type_)
 
 
+def create_unique_constraint_if_missing(name: str, table: str, columns: Sequence[str]) -> None:
+    if not has_table(table) or has_constraint(table, name) or has_index(table, name):
+        return
+    with op.batch_alter_table(table) as batch:
+        batch.create_unique_constraint(name, list(columns))
+
+
 def set_column_nullable(
     table: str,
     column: str,

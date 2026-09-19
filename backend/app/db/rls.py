@@ -39,6 +39,16 @@ TENANT_TABLES = (
     "staff_shifts",
     "staff_leaves",
     "patient_insurance_plans",
+    "org_departments",
+    "operatories",
+    "working_hours",
+    "holidays",
+    "system_settings",
+    "number_sequences",
+    "domain_events",
+    "patient_safety_items",
+    "patient_vital_signs",
+    "registration_drafts",
 )
 
 

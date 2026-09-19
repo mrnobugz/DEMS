@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import type { Operatory } from "@/components/OrganizationPanel";
 import { api, ApiError } from "@/lib/api";
 import { hasEffectivePermission } from "@/lib/nav";
 import type { PermissionCatalogItem, RoleCatalogItem, StaffMember } from "@/lib/types";
@@ -21,6 +22,7 @@ const FALLBACK_ROLES: RoleCatalogItem[] = [
   "clinic_admin",
   "dentist",
   "hygienist",
+  "nurse",
   "receptionist",
   "accountant",
   "lab_tech",
@@ -57,7 +59,17 @@ function emptyUser(role = "receptionist"): StaffMember {
     extra_permissions: [],
     denied_permissions: [],
     effective_permissions: [],
-    profile: { department: "front-desk", title: "", notes: "" },
+    profile: {
+      department: "front-desk",
+      title: "",
+      notes: "",
+      license_no: "",
+      is_scheduling_provider: true,
+      production_goal: null,
+      commission_rate_bps: 0,
+      cert_expires_at: "",
+      default_operatory_id: "",
+    },
   };
 }
 
@@ -155,15 +167,18 @@ export function StaffUserManager({
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const [operatories, setOperatories] = useState<Operatory[]>([]);
 
   useEffect(() => {
     Promise.all([
       api<RoleCatalogItem[]>("/api/v1/staff/roles"),
       api<PermissionCatalogItem[]>("/api/v1/staff/permissions"),
+      api<Operatory[]>("/api/v1/config/operatories").catch(() => []),
     ])
-      .then(([r, p]) => {
+      .then(([r, p, o]) => {
         setRoles(r);
         setCatalog(p);
+        setOperatories(o);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load roles"));
   }, []);
@@ -253,6 +268,11 @@ export function StaffUserManager({
             specialty: draft.specialty || null,
             title: draft.profile?.title || null,
             department: draft.profile?.department || null,
+            license_no: draft.profile?.license_no || null,
+            default_operatory_id: draft.profile?.default_operatory_id || null,
+            production_goal: draft.profile?.production_goal ?? null,
+            commission_rate_bps: draft.profile?.commission_rate_bps ?? 0,
+            is_scheduling_provider: draft.profile?.is_scheduling_provider ?? true,
             extra_permissions: lists.extra_permissions,
             denied_permissions: lists.denied_permissions,
           }),
@@ -272,6 +292,12 @@ export function StaffUserManager({
             title: draft.profile?.title || null,
             department: draft.profile?.department || null,
             notes: draft.profile?.notes || null,
+            license_no: draft.profile?.license_no || null,
+            default_operatory_id: draft.profile?.default_operatory_id || null,
+            production_goal: draft.profile?.production_goal ?? null,
+            commission_rate_bps: draft.profile?.commission_rate_bps ?? 0,
+            is_scheduling_provider: draft.profile?.is_scheduling_provider ?? true,
+            cert_expires_at: draft.profile?.cert_expires_at || null,
             is_active: draft.is_active,
             extra_permissions: lists.extra_permissions,
             denied_permissions: lists.denied_permissions,
@@ -480,6 +506,78 @@ export function StaffUserManager({
                   value={draft.phone || ""}
                   onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
                 />
+              </label>
+              <label className="text-xs">
+                <span className="label">License / provider no.</span>
+                <input
+                  className="input"
+                  value={draft.profile?.license_no || ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, profile: { ...draft.profile, license_no: e.target.value } })
+                  }
+                />
+              </label>
+              <label className="text-xs">
+                <span className="label">Default chair</span>
+                <select
+                  className="input"
+                  value={draft.profile?.default_operatory_id || ""}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      profile: { ...draft.profile, default_operatory_id: e.target.value },
+                    })
+                  }
+                >
+                  <option value="">—</option>
+                  {operatories.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs">
+                <span className="label">Cert expires</span>
+                <input
+                  className="input"
+                  type="date"
+                  value={draft.profile?.cert_expires_at || ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, profile: { ...draft.profile, cert_expires_at: e.target.value } })
+                  }
+                />
+              </label>
+              <label className="text-xs">
+                <span className="label">Production goal</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={draft.profile?.production_goal ?? ""}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      profile: {
+                        ...draft.profile,
+                        production_goal: e.target.value ? Number(e.target.value) : null,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={draft.profile?.is_scheduling_provider !== false}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      profile: { ...draft.profile, is_scheduling_provider: e.target.checked },
+                    })
+                  }
+                />
+                Appears on the appointment book
               </label>
               {!creating && (
                 <label className="flex items-center gap-2 text-xs">

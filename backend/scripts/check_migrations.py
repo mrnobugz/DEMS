@@ -39,6 +39,24 @@ REQUIRED_TABLES = {
     "catalog_items",
     "catalog_price_history",
     "catalog_fee_rates",
+    "org_departments",
+    "operatories",
+    "working_hours",
+    "holidays",
+    "system_settings",
+    "number_sequences",
+    "domain_events",
+    "role_permissions",
+    "fee_schedules",
+    "tax_rates",
+    "discount_rules",
+    "payment_method_configs",
+    "config_catalog_entries",
+    "config_templates",
+    "approval_chains",
+    "patient_safety_items",
+    "patient_vital_signs",
+    "registration_drafts",
 }
 REQUIRED_PATIENT_COLUMNS = {
     "hospital_reg_number",
@@ -56,12 +74,15 @@ REQUIRED_PATIENT_COLUMNS = {
     "history_of_presenting_complaint",
     "photo_storage_key",
     "photo_content_type",
+    "merged_into_id",
+    "guarantor_patient_id",
 }
 REQUIRED_APPOINTMENT_COLUMNS = {
     "queue_number",
     "service_name",
     "department",
     "is_appointment",
+    "operatory_id",
 }
 REQUIRED_INVENTORY_COLUMNS = {
     "sale_price",
@@ -84,7 +105,7 @@ REQUIRED_INVOICE_LINE_COLUMNS = {
     "actual_patient",
     "charge_status",
 }
-HEAD_REVISION = "020_catalog_core"
+HEAD_REVISION = "026_registration_drafts"
 
 
 def _use_database(db_path: pathlib.Path) -> None:

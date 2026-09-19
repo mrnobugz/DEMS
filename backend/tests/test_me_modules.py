@@ -45,6 +45,13 @@ class MeModulesTests(unittest.TestCase):
         self.assertIn("reports", keys)
         self.assertNotIn("restorative", keys)
 
+    def test_nurse_gets_vitals_not_clinical_departments(self) -> None:
+        keys = {row["key"] for row in modules_for_user(_User(Role.NURSE))}
+        self.assertIn("vitals", keys)
+        self.assertIn("patients", keys)
+        self.assertNotIn("restorative", keys)
+        self.assertNotIn("admin", keys)
+
 
 if __name__ == "__main__":
     unittest.main()

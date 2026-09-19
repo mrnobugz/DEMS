@@ -144,6 +144,43 @@ class RegistrationCheckoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("FEE-XRAY", skus)
             self.assertEqual(created.sale_price, 20000)
 
+    async def test_finalize_closes_the_saved_draft(self) -> None:
+        from app.schemas import RegistrationDraftSave
+        from app.services import registration_drafts as drafts
+
+        async with self.Session() as db:
+            await dept.ensure_registration_catalog(db, self.clinic_id)
+            catalog = await dept.list_inventory(db, self.clinic_id, billable_at_registration=True)
+            item = next(row for row in catalog if row.sku == "FEE-CONSULT")
+            draft = await drafts.save_draft(
+                db,
+                self.clinic_id,
+                self.front_id,
+                RegistrationDraftSave(
+                    display_name="Asha Mwamba",
+                    step=2,
+                    payload={"form": {"first_name": "Asha", "last_name": "Mwamba"}},
+                ),
+            )
+            result = await svc.register_patient(
+                db,
+                self.clinic_id,
+                self.front_id,
+                PatientRegisterRequest(
+                    patient=self._patient("Asha", "Mwamba"),
+                    items=[RegistrationLineItem(inventory_item_id=item.id, quantity=1)],
+                    payment=RegistrationPayment(amount=item.sale_price, payer_type="self", method="cash"),
+                    appointment=self._booking(item.name),
+                    consent=self._consent(),
+                    destination_department="restorative",
+                    draft_id=draft.id,
+                ),
+            )
+            closed = await drafts.get_draft(db, self.clinic_id, draft.id)
+            self.assertEqual(closed.status, "completed")
+            self.assertEqual(closed.patient_id, result.patient.id)
+            self.assertEqual(await drafts.list_drafts(db, self.clinic_id), [])
+
     async def test_finalize_registration_requires_payment_and_routes(self) -> None:
         async with self.Session() as db:
             await dept.ensure_registration_catalog(db, self.clinic_id)

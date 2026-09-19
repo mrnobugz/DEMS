@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
 import { api } from "@/lib/api";
 import { StatGrid, useDepartmentHome } from "./FrontClinicalPages";
 import type { InventoryItem } from "@/lib/types";
@@ -101,6 +102,7 @@ export function PharmacyPage() {
       </div>
       {home && <StatGrid home={home} />}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {patientId && <PatientSafetyBanner patientId={patientId} />}
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-4" onSubmit={onCreate}>
         <label className="text-sm">
           Patient

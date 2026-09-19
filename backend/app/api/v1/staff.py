@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.api.deps import ClinicId, DbSession, require_permission
-from app.core.rbac import catalog_payload, roles_payload
+from app.core.rbac import catalog_payload
 from app.models import User
 from app.schemas import (
     PermissionCatalogOut,
@@ -13,6 +13,7 @@ from app.schemas import (
     StaffPasswordReset,
     StaffUpdate,
 )
+from app.services import config_setup as setup
 from app.services import departments as dept
 
 router = APIRouter(prefix="/staff", tags=["staff"])
@@ -20,9 +21,11 @@ router = APIRouter(prefix="/staff", tags=["staff"])
 
 @router.get("/roles", response_model=list[RoleCatalogOut])
 async def list_roles(
+    db: DbSession,
+    clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("staff:*"))],
 ):
-    return roles_payload(user.role)
+    return await setup.matrix_payload(db, clinic_id, user.role)
 
 
 @router.get("/permissions", response_model=list[PermissionCatalogOut])
@@ -41,6 +44,7 @@ async def list_staff(
 ):
     _ = user
     users = await dept.list_clinic_staff(db, clinic_id)
+    await dept.attach_role_grants(db, clinic_id, users)
     return [dept.to_staff_out(u) for u in users]
 
 
@@ -53,6 +57,7 @@ async def invite_staff(
 ):
     created = await dept.create_staff(db, clinic_id, user, body)
     loaded = await dept.get_clinic_staff(db, clinic_id, created.id)
+    await dept.attach_role_grants(db, clinic_id, [loaded])
     return dept.to_staff_out(loaded)
 
 
@@ -65,6 +70,7 @@ async def get_staff(
 ):
     _ = user
     loaded = await dept.get_clinic_staff(db, clinic_id, staff_id)
+    await dept.attach_role_grants(db, clinic_id, [loaded])
     return dept.to_staff_out(loaded)
 
 
@@ -77,6 +83,7 @@ async def patch_staff(
     user: Annotated[User, Depends(require_permission("staff:*"))],
 ):
     updated = await dept.update_staff(db, clinic_id, user, staff_id, body)
+    await dept.attach_role_grants(db, clinic_id, [updated])
     return dept.to_staff_out(updated)
 
 

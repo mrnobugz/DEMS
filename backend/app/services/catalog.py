@@ -205,8 +205,12 @@ async def sync_catalog_item_to_fee(db: AsyncSession, clinic_id: str, item: Catal
         str(kind) if kind != CatalogItemKind.PROCEDURE else "general"
     )
     if fee is None:
+        from app.services.config_setup import ensure_fee_schedules
+
+        default = await ensure_fee_schedules(db, clinic_id)
         fee = FeeScheduleItem(
             clinic_id=clinic_id,
+            fee_schedule_id=default.id,
             code=item.sku,
             label=item.label,
             category=category_slug,

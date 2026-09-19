@@ -21,13 +21,16 @@ import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
 import { ObjectsPanel, type ObjectLayerKey } from "@/components/viz/ObjectsPanel";
 import { PERMANENT_LOWER, PERMANENT_UPPER, TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { PatientIdentityPhoto } from "@/components/PatientIdentityPhoto";
+import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
+import { PatientSafetyPanel } from "@/components/PatientSafetyPanel";
+import { VitalSignsDetails } from "@/components/VitalSignsPanel";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fetchPatientPhotoDataUrl, uploadPatientPhoto } from "@/lib/patientPhoto";
 import { printPatientCard, registrationPrintData } from "@/lib/printRegistration";
 import { formatMoney } from "@/lib/i18n";
 import { useUiPrefs } from "@/lib/uiPrefs";
-import type { ChartEntry, ClinicalNote, Patient, PerioExam, TreatmentPlan } from "@/lib/types";
+import type { ChartEntry, ClinicalNote, Patient, PatientVitalSign, PerioExam, TreatmentPlan } from "@/lib/types";
 
 type Dentist = { id: string; full_name: string; role: string };
 
@@ -89,6 +92,8 @@ export function PatientDetailPage() {
   const [msg, setMsg] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [latestVitals, setLatestVitals] = useState<PatientVitalSign | null>(null);
+  const isNurse = user?.role === "nurse";
 
   // Latest chart entry per tooth → 3D status colors (mirrors the 2D Odontogram)
   const chart3dColors = useMemo(() => {
@@ -122,17 +127,19 @@ export function PatientDetailPage() {
   }, [chart]);
 
   async function reload() {
-    const [p, c, n, t, pe, d] = await Promise.all([
+    const [p, c, n, t, pe, d, vitals] = await Promise.all([
       api<Patient>(`/api/v1/patients/${id}`),
-      api<ChartEntry[]>(`/api/v1/clinical/patients/${id}/chart`),
-      api<ClinicalNote[]>(`/api/v1/clinical/patients/${id}/notes`),
-      api<TreatmentPlan[]>(`/api/v1/clinical/patients/${id}/treatment-plans`),
-      api<PerioExam[]>(`/api/v1/clinical/patients/${id}/perio`),
+      api<ChartEntry[]>(`/api/v1/clinical/patients/${id}/chart`).catch(() => [] as ChartEntry[]),
+      api<ClinicalNote[]>(`/api/v1/clinical/patients/${id}/notes`).catch(() => [] as ClinicalNote[]),
+      api<TreatmentPlan[]>(`/api/v1/clinical/patients/${id}/treatment-plans`).catch(() => [] as TreatmentPlan[]),
+      api<PerioExam[]>(`/api/v1/clinical/patients/${id}/perio`).catch(() => [] as PerioExam[]),
       canAssign
         ? api<Dentist[]>("/api/v1/staff/dentists").catch(() => [])
         : Promise.resolve([] as Dentist[]),
+      api<PatientVitalSign | null>(`/api/v1/patients/${id}/vitals/latest`).catch(() => null),
     ]);
     setPatient(p);
+    setLatestVitals(vitals);
     if (p.has_photo) {
       const url = await fetchPatientPhotoDataUrl(p.id);
       setPhotoDataUrl(url || "");
@@ -384,8 +391,10 @@ export function PatientDetailPage() {
             <p className="mt-1 text-sm text-muted">
               {patient.phone || "No phone"} · {patient.email || "No email"}
               {patient.town_city ? ` · ${patient.town_city}` : ""}
-              {patient.allergies ? ` · Allergies: ${patient.allergies}` : ""}
             </p>
+            <div className="mt-2">
+              <PatientSafetyBanner patientId={patient.id} />
+            </div>
             <p className="mt-1 text-sm text-brand-800">
               <span className="font-semibold">Primary dentist:</span>{" "}
               {patient.primary_dentist_name || "Unassigned"}
@@ -471,6 +480,9 @@ export function PatientDetailPage() {
         </div>
       </div>
 
+      <PatientSafetyPanel patient={patient} onChanged={reload} />
+      <VitalSignsDetails reading={latestVitals} />
+
       {intakeOpen && intakeForm && (
         <form className="glass-panel space-y-3" onSubmit={saveIntake}>
           <div>
@@ -507,6 +519,7 @@ export function PatientDetailPage() {
             mode="edit"
             variant={user?.role === "receptionist" ? "reception" : "all"}
             department={patient.destination_department || undefined}
+            latestVitals={latestVitals}
           />
           <button className="btn-primary">Save intake</button>
         </form>
@@ -514,12 +527,14 @@ export function PatientDetailPage() {
 
       {msg && <div className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">{msg}</div>}
 
+      {!isNurse && (
       <ClinicalExamPanel
         patientId={id}
         chiefComplaint={patient.chief_complaint}
         onMessage={setMsg}
         department={patient.destination_department || undefined}
       />
+      )}
 
       <Odontogram
         entries={chart}

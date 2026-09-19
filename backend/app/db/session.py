@@ -1,9 +1,9 @@
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, MetaData, String, event, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, MetaData, String, event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -49,6 +49,14 @@ class TenantMixin:
         index=True,
         nullable=False,
     )
+
+
+class ActivatableMixin:
+    """Deactivate referenced config instead of deleting it."""
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    deactivated_by_id: Mapped[Optional[str]] = mapped_column(String(36))
 
 
 engine_kwargs: dict[str, Any] = {

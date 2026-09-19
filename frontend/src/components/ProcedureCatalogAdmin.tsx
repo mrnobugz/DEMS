@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ConfigStatus } from "@/components/config/ConfigUi";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import type { FeeScheduleItem } from "@/lib/types";
@@ -86,6 +87,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
         method: "PATCH",
         body: JSON.stringify(body),
       });
+      setMsg("Procedure saved");
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not update procedure");
@@ -97,7 +99,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
       <div className="clin-head">
         <div>
           <h3 className="font-display text-base font-bold text-brand-900">Billing procedures</h3>
-          <p className="text-xs text-muted">Admin-owned procedure SKUs. Prices are versioned in the catalog fee schedule.</p>
+          <p className="text-sm text-muted">Admin-owned procedure SKUs. Prices are versioned in the catalog fee schedule.</p>
         </div>
         <p className="text-[11px] text-muted">
           {visible.length} shown · {items.length} total
@@ -160,13 +162,16 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
       </form>
 
       <div className="admin-toolbar">
-        <input
-          className="input"
-          type="search"
-          placeholder="Filter code or name…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <label className="config-field flex-1">
+          <span className="label">Filter</span>
+          <input
+            className="input"
+            type="search"
+            placeholder="Code or name…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
         <label className="flex items-center gap-1.5 text-xs text-muted">
           <input
             type="checkbox"
@@ -180,6 +185,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
         <button
           type="button"
           className={`admin-chip ${category === "all" ? "admin-chip--on" : ""}`}
+          aria-pressed={category === "all"}
           onClick={() => setCategory("all")}
         >
           All
@@ -189,6 +195,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
             key={c}
             type="button"
             className={`admin-chip ${category === c ? "admin-chip--on" : ""}`}
+            aria-pressed={category === c}
             onClick={() => setCategory(c)}
           >
             {c}
@@ -196,8 +203,7 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
         ))}
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {msg && <p className="text-sm text-brand-700">{msg}</p>}
+      <ConfigStatus error={error} ok={msg} />
 
       <div className="admin-scroll">
         <table className="admin-table">
@@ -257,10 +263,10 @@ export function ProcedureCatalogAdmin({ onCount }: { onCount?: (n: number) => vo
           </tbody>
         </table>
         {visible.length === 0 && (
-          <p className="px-1 py-3 text-xs text-muted">No procedures match this filter.</p>
+          <p className="px-1 py-3 text-sm text-muted">No procedures match this filter. Clear the search or add a code above.</p>
         )}
       </div>
-      <p className="text-[11px] text-muted">Change a price and leave the field to save.</p>
+      <p className="text-xs text-muted">Change a price and leave the field to save.</p>
     </section>
   );
 }

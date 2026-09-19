@@ -20,6 +20,7 @@ from app.core.rbac import (
     user_access_payload,
 )
 from app.core.security import hash_password
+from app.services.config_setup import role_grants_for
 from app.models import (
     Appointment,
     AppointmentStatus,
@@ -167,6 +168,15 @@ async def list_clinic_staff(db: AsyncSession, clinic_id: str) -> list[User]:
     return list(result.scalars().all())
 
 
+async def attach_role_grants(db: AsyncSession, clinic_id: str, users: list[User]) -> None:
+    cache: dict[str, set[str] | None] = {}
+    for user in users:
+        role = user.role
+        if role not in cache:
+            cache[role] = await role_grants_for(db, clinic_id, role)
+        object.__setattr__(user, "_role_grants", cache[role])
+
+
 def to_staff_out(user: User) -> StaffOut:
     profile = None
     if user.staff_profile:
@@ -253,6 +263,12 @@ async def create_staff(db: AsyncSession, clinic_id: str, actor: User, data: Staf
         title=data.title,
         specialty=data.specialty,
         department=data.department,
+        license_no=data.license_no,
+        default_operatory_id=data.default_operatory_id,
+        production_goal=data.production_goal,
+        commission_rate_bps=data.commission_rate_bps or 0,
+        is_scheduling_provider=True if data.is_scheduling_provider is None else data.is_scheduling_provider,
+        cert_expires_at=data.cert_expires_at,
     )
     db.add(profile)
     await db.flush()
@@ -350,6 +366,17 @@ async def update_staff(
         profile.department = payload["department"]
     if "notes" in payload:
         profile.notes = payload["notes"]
+    for key in (
+        "license_no",
+        "default_operatory_id",
+        "production_goal",
+        "is_scheduling_provider",
+        "cert_expires_at",
+    ):
+        if key in payload:
+            setattr(profile, key, payload[key])
+    if "commission_rate_bps" in payload and payload["commission_rate_bps"] is not None:
+        profile.commission_rate_bps = payload["commission_rate_bps"]
 
     await db.flush()
     await db.refresh(user, attribute_names=["staff_profile"])
