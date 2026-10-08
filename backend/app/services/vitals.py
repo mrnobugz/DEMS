@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationAppError
-from app.models import PatientVitalSign, RegistrationStatus, User
-from app.schemas import VitalSignCreate, VitalSignOut
+from app.models import Patient, PatientVitalSign, User
+from app.schemas import PatientOut, VitalSignCreate, VitalSignOut, VitalsWorklistItemOut
 from app.services.domain import get_patient, write_audit
 
 
@@ -105,8 +105,8 @@ async def record_vitals(
     actor: User | None = None,
 ) -> VitalSignOut:
     patient = await get_patient(db, clinic_id, patient_id, actor=actor)
-    if patient.registration_status != RegistrationStatus.FINALIZED:
-        raise ValidationAppError("Record vitals after the patient is registered")
+    if not patient.is_active or patient.merged_into_id:
+        raise ValidationAppError("This patient file is closed")
     payload = data.model_dump()
     if not any(value not in (None, "") for value in payload.values()):
         raise ValidationAppError("Enter at least one vital sign")
@@ -129,6 +129,98 @@ async def record_vitals(
         after={"patient_id": patient.id, "bmi": _bmi(row.height_cm, row.weight_kg)},
     )
     return to_out(row, await _name_for(db, actor_id))
+
+
+def _patient_search(q: str):
+    like = f"%{q.strip()}%"
+    return or_(
+        Patient.first_name.ilike(like),
+        Patient.middle_name.ilike(like),
+        Patient.last_name.ilike(like),
+        Patient.patient_code.ilike(like),
+        Patient.hospital_reg_number.ilike(like),
+        Patient.national_id.ilike(like),
+        Patient.phone.ilike(like),
+        Patient.insurance_number.ilike(like),
+        Patient.email.ilike(like),
+        Patient.chief_complaint.ilike(like),
+    )
+
+
+async def list_worklist(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    q: str | None = None,
+    status: str = "needed",
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[VitalsWorklistItemOut], int]:
+    """Every active patient file. A search ignores the needed/recorded tab so any name can be found."""
+    if status not in ("needed", "recorded", "all"):
+        raise ValidationAppError("Status must be needed, recorded, or all")
+    latest = (
+        select(
+            PatientVitalSign.patient_id.label("patient_id"),
+            func.max(PatientVitalSign.recorded_at).label("recorded_at"),
+        )
+        .where(PatientVitalSign.clinic_id == clinic_id)
+        .group_by(PatientVitalSign.patient_id)
+        .subquery()
+    )
+    filters = [
+        Patient.clinic_id == clinic_id,
+        Patient.is_active.is_(True),
+        Patient.merged_into_id.is_(None),
+    ]
+    searching = bool(q and q.strip())
+    if searching:
+        filters.append(_patient_search(q or ""))
+    if not searching and status == "needed":
+        filters.append(latest.c.recorded_at.is_(None))
+    elif not searching and status == "recorded":
+        filters.append(latest.c.recorded_at.is_not(None))
+
+    total = int(
+        (
+            await db.execute(
+                select(func.count(Patient.id))
+                .select_from(Patient)
+                .outerjoin(latest, latest.c.patient_id == Patient.id)
+                .where(*filters)
+            )
+        ).scalar_one()
+        or 0
+    )
+    if status == "recorded":
+        order = (latest.c.recorded_at.desc(), Patient.last_name.asc())
+    elif status == "needed":
+        order = (Patient.created_at.desc(), Patient.last_name.asc())
+    else:
+        order = (
+            case((latest.c.recorded_at.is_(None), 0), else_=1),
+            Patient.created_at.desc(),
+        )
+
+    rows = (
+        await db.execute(
+            select(Patient, latest.c.recorded_at)
+            .outerjoin(latest, latest.c.patient_id == Patient.id)
+            .where(*filters)
+            .order_by(*order)
+            .limit(min(limit, 100))
+            .offset(max(offset, 0))
+        )
+    ).all()
+    items = [
+        VitalsWorklistItemOut(
+            patient=PatientOut.model_validate(patient),
+            has_vitals=recorded_at is not None,
+            last_recorded_at=recorded_at,
+        )
+        for patient, recorded_at in rows
+    ]
+    return items, total
 
 
 async def move_vitals_on_merge(

@@ -14,7 +14,7 @@ print("Alembic migrations applied.")
 PY
 fi
 
-exec uvicorn app.main:app \
+exec uvicorn app.asgi:application \
   --host 0.0.0.0 \
   --port "${PORT}" \
   --workers "${WORKERS}" \

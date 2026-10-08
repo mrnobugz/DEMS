@@ -196,6 +196,41 @@ export type ClinicalVisit = {
   created_at: string;
 };
 
+export type ClinicalRecordRow = {
+  patient_id: string;
+  patient_code: string;
+  full_name: string;
+  sex?: string | null;
+  age_years?: number | null;
+  phone?: string | null;
+  town_city?: string | null;
+  department?: string | null;
+  primary_dentist_name?: string | null;
+  visit_count: number;
+  first_visit_date?: string | null;
+  last_visit_date?: string | null;
+  last_visit_status?: string | null;
+  last_chief_complaint?: string | null;
+  last_examiner_name?: string | null;
+  has_outstanding: boolean;
+};
+
+export type ClinicalRecordSummary = {
+  visit_count: number;
+  note_count: number;
+  treatment_plan_count: number;
+  first_visit_date?: string | null;
+  last_visit_date?: string | null;
+};
+
+export type ClinicalRecordDetail = {
+  patient: Patient;
+  visits: ClinicalVisit[];
+  examiner_names: Record<string, string>;
+  latest_vitals?: PatientVitalSign | null;
+  summary: ClinicalRecordSummary;
+};
+
 export const emptyMedicalHistory = (): MedicalHistoryFlags => ({
   diabetes: false,
   hypertension: false,
@@ -361,6 +396,12 @@ export type Patient = {
   medical_history_reviewed_at?: string | null;
 };
 
+export type VitalsWorklistItem = {
+  patient: Patient;
+  has_vitals: boolean;
+  last_recorded_at?: string | null;
+};
+
 export type InventoryItem = {
   id: string;
   sku: string;
@@ -379,6 +420,10 @@ export type InventoryItem = {
   expiry_date?: string | null;
   supplier_id?: string | null;
   track_lots?: boolean;
+  requires_expiry?: boolean;
+  store_on_hand?: number;
+  quantity_requested_open?: number;
+  quantity_issued_open?: number;
 };
 
 export type StockLocation = {
@@ -423,6 +468,7 @@ export type PurchaseOrderLine = {
 export type PurchaseOrder = {
   id: string;
   supplier_id: string;
+  supplier_name?: string | null;
   status: string;
   ordered_at?: string | null;
   expected_at?: string | null;
@@ -432,6 +478,7 @@ export type PurchaseOrder = {
 };
 
 export type WarehouseAnalysis = {
+  period_days?: number;
   sku_count: number;
   on_hand_value: number;
   low_stock_count: number;
@@ -447,12 +494,80 @@ export type WarehouseAnalysis = {
     expiry_date: string | null;
     quantity: number;
   }[];
+  expiry_buckets?: { expired: number; within_30: number; within_90: number };
   open_pos: number;
+  open_requisitions?: number;
   cogs_90d: number;
   billed_supply_revenue: number;
   usage_by_type: Record<string, number>;
   usage_by_department: Record<string, number>;
+  usage_by_week?: { week_start: string; quantity: number; cost: number }[];
+  value_by_category?: Record<string, number>;
+  top_skus?: { id: string; sku: string; name: string; quantity: number; cost: number }[];
+  requisition_counts?: { submitted: number; approved: number; fulfilled: number; rejected: number };
+  stats?: {
+    stock_cover_days: number | null;
+    low_stock_share: number;
+    fill_rate: number | null;
+  };
   dead_stock: { id: string; sku: string; name: string; quantity: number }[];
+  categories?: string[];
+  departments?: { code: string; name: string }[];
+};
+
+export type RequisitionLine = {
+  id: string;
+  inventory_item_id: string;
+  quantity_requested: number;
+  quantity_issued: number;
+  quantity_outstanding?: number;
+  notes?: string | null;
+  sku?: string | null;
+  item_name?: string | null;
+  unit?: string | null;
+  on_hand?: number | null;
+  store_on_hand?: number | null;
+  shortfall?: number;
+  reorder_level?: number | null;
+};
+
+export type Requisition = {
+  id: string;
+  req_number: string;
+  status: string;
+  department: string;
+  destination_location_id?: string | null;
+  destination_location_name?: string | null;
+  requested_by_id?: string | null;
+  requested_by_name?: string | null;
+  approved_by_name?: string | null;
+  notes?: string | null;
+  reject_reason?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  fulfilled_at?: string | null;
+  created_at: string;
+  lines: RequisitionLine[];
+};
+
+export type WarehouseAlerts = {
+  low_stock: {
+    id: string;
+    sku: string;
+    name: string;
+    quantity: number;
+    reorder_level: number;
+    kind: string;
+  }[];
+  expiring: WarehouseAnalysis["expiring"];
+  expired: WarehouseAnalysis["expiring"];
+  open_requisitions: number;
+};
+
+export type SupplierHistory = {
+  supplier: WarehouseSupplier;
+  purchase_orders: PurchaseOrder[];
+  receives: StockMovement[];
 };
 
 export type Appointment = {

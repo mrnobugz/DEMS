@@ -1,22 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from "react-router-dom";
-import { ArrowLeft, LayoutDashboard, LogOut, Menu, MonitorSmartphone, X } from "lucide-react";
-import { DemstaLogo } from "./DemstaLogo";
-import { OfflineBanner } from "./OfflineBanner";
+import { ArrowLeft, CalendarPlus, LayoutDashboard, LogOut, Menu, PanelLeft, Search, UserPlus } from "lucide-react";
+import { AppearanceMenu } from "@/components/AppearanceMenu";
+import { CommandPalette } from "@/components/CommandPalette";
+import { DemstaLogo } from "@/components/DemstaLogo";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { Avatar } from "@/components/ui/avatar";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { IconButton } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { t, type StringKey } from "@/lib/i18n";
-import { MODULES_DASHBOARD_PATH, moduleNavForPath, roleHomeLabel } from "@/lib/nav";
+import {
+  MODULES_DASHBOARD_PATH,
+  breadcrumbFor,
+  canAccessPath,
+  isNavGroup,
+  navForRole,
+  type NavItem,
+} from "@/lib/nav";
+import { cn } from "@/lib/utils";
 import { useUiPrefs } from "@/lib/uiPrefs";
 
 type ClinicRow = { id: string; name: string; code: string };
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition ${
-    isActive
-      ? "bg-brand-500 text-white shadow-lg shadow-brand-500/25"
-      : "text-muted hover:bg-brand-50 hover:text-brand-700"
-  }`;
+const DASHBOARD_ITEM: NavItem = {
+  to: MODULES_DASHBOARD_PATH,
+  labelKey: "dashboard",
+  icon: LayoutDashboard,
+};
 
 function navTargetActive(to: string, location: { pathname: string; search: string }) {
   const [path, qs] = to.split("?");
@@ -31,10 +45,6 @@ function navTargetActive(to: string, location: { pathname: string; search: strin
   return !location.search || location.search === "?";
 }
 
-function prefersDesktopSidebar() {
-  return typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
-}
-
 const SKIP_HISTORY_PATHS = new Set(["/", "/home", "/clinical"]);
 
 function locationKey(pathname: string, search: string) {
@@ -45,26 +55,153 @@ function isInAppView(key: string) {
   return !key.startsWith("/login") && !key.startsWith("/portal");
 }
 
-export function AppShell() {
+function ShellLink({
+  item,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  onNavigate: () => void;
+}) {
+  const location = useLocation();
+  const label = t(item.labelKey as StringKey);
+  const active = navTargetActive(item.to, location);
+  const link = (
+    <NavLink
+      to={item.to}
+      aria-label={label}
+      className={() => cn("shell-link", active && "shell-link--on")}
+      onClick={onNavigate}
+    >
+      <item.icon size={18} aria-hidden />
+      {!collapsed && <span className="truncate">{label}</span>}
+    </NavLink>
+  );
+  if (!collapsed) return link;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ShellNav({
+  collapsed,
+  onNavigate,
+  clinics,
+}: {
+  collapsed: boolean;
+  onNavigate: () => void;
+  clinics: ClinicRow[];
+}) {
   const { user, clear, activeClinicId, setActiveClinicId } = useAuth();
+  const navigate = useNavigate();
+  const entries = navForRole(user?.role, user?.effective_permissions).filter((entry) => {
+    if (isNavGroup(entry)) return true;
+    return entry.to !== MODULES_DASHBOARD_PATH;
+  });
+  const clinicName = clinics.find((clinic) => clinic.id === activeClinicId)?.name;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 p-2">
+      <div className={cn("flex items-center gap-2 px-1", collapsed && "justify-center")}>
+        <DemstaLogo withWordmark={!collapsed} size={collapsed ? 36 : 40} />
+      </div>
+      {!collapsed && (
+        <div className="px-1">
+          <p className="truncate text-sm font-semibold text-ink">{clinicName || "DEMSTA"}</p>
+          <p className="truncate text-xs capitalize text-muted">{user?.role?.replaceAll("_", " ")}</p>
+        </div>
+      )}
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Main">
+        <ShellLink item={DASHBOARD_ITEM} collapsed={collapsed} onNavigate={onNavigate} />
+        {entries.map((entry) => {
+          if (!isNavGroup(entry)) {
+            return <ShellLink key={entry.to} item={entry} collapsed={collapsed} onNavigate={onNavigate} />;
+          }
+          return (
+            <div key={entry.labelKey} className="mt-3">
+              {!collapsed && (
+                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                  {t(entry.labelKey as StringKey)}
+                </p>
+              )}
+              <div className="flex flex-col gap-0.5">
+                {entry.children.map((child) => (
+                  <ShellLink key={child.to} item={child} collapsed={collapsed} onNavigate={onNavigate} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </nav>
+      <div className={cn("mt-auto space-y-2 rounded-2xl bg-brand-50 p-2", collapsed && "px-1")}>
+        <div className={cn("flex items-center gap-2", collapsed && "justify-center")}>
+          <Avatar name={user?.full_name || "Staff"} />
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-ink">{user?.full_name}</div>
+              <div className="truncate text-xs capitalize text-muted">{user?.role?.replaceAll("_", " ")}</div>
+            </div>
+          )}
+        </div>
+        {!collapsed && user?.role === "super_admin" && clinics.length > 0 && (
+          <label className="block text-sm">
+            <span className="label">Active clinic</span>
+            <select
+              className="input text-xs"
+              value={activeClinicId ?? ""}
+              onChange={(event) => setActiveClinicId(event.target.value || null)}
+            >
+              <option value="">— select —</option>
+              {clinics.map((clinic) => (
+                <option key={clinic.id} value={clinic.id}>
+                  {clinic.code} · {clinic.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button
+          type="button"
+          className={cn("btn-ghost w-full", collapsed && "px-2")}
+          aria-label={t("signOut")}
+          onClick={() => {
+            clear();
+            navigate("/login");
+          }}
+        >
+          <LogOut size={16} aria-hidden />
+          {!collapsed && t("signOut")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function AppShell() {
+  const { user, clear } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
-  const compactWorkspace =
-    location.pathname.startsWith("/front-desk/register") ||
-    location.pathname.startsWith("/clinical/") ||
-    location.pathname.startsWith("/patients/") ||
-    location.pathname.startsWith("/admin") ||
-    location.pathname.startsWith("/inventory") ||
-    location.pathname.startsWith("/billing");
-  const modulesLanding = location.pathname.startsWith(MODULES_DASHBOARD_PATH);
-  const moduleNav = moduleNavForPath(location.pathname, user?.role, user?.effective_permissions);
   const chairside = useUiPrefs((s) => s.chairside);
-  const toggleChairside = useUiPrefs((s) => s.toggleChairside);
+  const collapsed = useUiPrefs((s) => s.sidebarCollapsed);
+  const toggleCollapsed = useUiPrefs((s) => s.toggleSidebarCollapsed);
   const [clinics, setClinics] = useState<ClinicRow[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(() => !modulesLanding && prefersDesktopSidebar());
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [linkPending, setLinkPending] = useState(false);
   const viewStackRef = useRef<string[]>([]);
+  const mainRef = useRef<HTMLElement>(null);
   const [canGoBack, setCanGoBack] = useState(false);
+
+  const showNewPatient = canAccessPath(user?.role, "/front-desk", user?.effective_permissions);
+  const showNewAppointment = canAccessPath(user?.role, "/schedule", user?.effective_permissions);
+  const crumbs = breadcrumbFor(location.pathname, location.search, user?.role, user?.effective_permissions).map(
+    (crumb) => ({ to: crumb.to, label: t(crumb.labelKey as StringKey) }),
+  );
 
   useEffect(() => {
     if (user?.role !== "super_admin") return;
@@ -74,17 +211,27 @@ export function AppShell() {
   }, [user?.role]);
 
   useEffect(() => {
-    if (modulesLanding) {
-      setSidebarOpen(false);
-      return;
-    }
-    if (prefersDesktopSidebar()) setSidebarOpen(true);
-  }, [modulesLanding]);
+    mainRef.current?.scrollTo(0, 0);
+    setMobileOpen(false);
+    setLinkPending(false);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
-    if (SKIP_HISTORY_PATHS.has(location.pathname) || location.pathname.startsWith("/clinic/")) {
-      return;
+    function onClick(event: MouseEvent) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      const anchor = (event.target as HTMLElement | null)?.closest("a");
+      if (!anchor || anchor.target === "_blank") return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (`${url.pathname}${url.search}` === `${location.pathname}${location.search}`) return;
+      setLinkPending(true);
     }
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (SKIP_HISTORY_PATHS.has(location.pathname) || location.pathname.startsWith("/clinic/")) return;
     const key = locationKey(location.pathname, location.search);
     if (!isInAppView(key)) return;
     const stack = viewStackRef.current;
@@ -105,40 +252,13 @@ export function AppShell() {
     setCanGoBack(stack.length > 1 || location.pathname !== MODULES_DASHBOARD_PATH);
   }, [location.pathname, location.search, navigationType]);
 
-  const showSidebar = sidebarOpen && !modulesLanding;
-  const moduleTitle = moduleNav
-    ? t(moduleNav.titleKey as StringKey)
-    : roleHomeLabel(user?.role);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setSidebarOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (!showSidebar || prefersDesktopSidebar()) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [showSidebar]);
-
-  function closeSidebarIfNarrow() {
-    if (!prefersDesktopSidebar()) setSidebarOpen(false);
-  }
-
   function goBack() {
     const stack = viewStackRef.current;
-    let i = stack.length - 2;
-    while (i >= 0 && !isInAppView(stack[i])) i -= 1;
-    if (i >= 0) {
-      const prev = stack[i];
-      viewStackRef.current = stack.slice(0, i + 1);
+    let index = stack.length - 2;
+    while (index >= 0 && !isInAppView(stack[index])) index -= 1;
+    if (index >= 0) {
+      const prev = stack[index];
+      viewStackRef.current = stack.slice(0, index + 1);
       setCanGoBack(viewStackRef.current.length > 1 || prev.split("?")[0] !== MODULES_DASHBOARD_PATH);
       navigate(prev);
       return;
@@ -151,188 +271,83 @@ export function AppShell() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="app-frame">
       <a href="#main-content" className="skip-link">
         {t("skipToContent")}
       </a>
       <OfflineBanner />
-
-      <div className={showSidebar ? "lg:grid lg:grid-cols-[260px_1fr]" : ""}>
-        {showSidebar && (
-          <button
-            type="button"
-            className="app-shell__backdrop fixed inset-0 z-40 bg-ink/40 lg:hidden"
-            aria-label={t("closeMenu")}
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        {!modulesLanding && (
-          <aside
-            id="app-sidebar"
-            className={`app-shell__aside glass-panel fixed inset-y-3 left-3 z-50 flex w-[min(280px,calc(100vw-1.5rem))] flex-col rounded-3xl p-5 transition-transform duration-200 lg:static lg:z-auto lg:m-3 lg:w-auto ${
-              showSidebar ? "translate-x-0" : "pointer-events-none -translate-x-[120%] lg:hidden"
-            }`}
-            aria-label={moduleTitle}
-            aria-hidden={!showSidebar}
-          >
-            <DemstaLogo withWordmark size={44} />
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              {moduleTitle}
-            </p>
-            <nav className="mt-8 flex flex-1 flex-col gap-1.5 overflow-y-auto" aria-label={moduleTitle}>
-              <NavLink
-                to={MODULES_DASHBOARD_PATH}
-                end
-                className={navLinkClass}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <LayoutDashboard size={18} aria-hidden />
-                {t("dashboard")}
-              </NavLink>
-              {moduleNav && moduleNav.items.length > 0 && (
-                <div className="my-1 h-px bg-brand-100" role="separator" />
-              )}
-              {moduleNav?.items.map(({ to, labelKey, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={() => navLinkClass({ isActive: navTargetActive(to, location) })}
-                  onClick={closeSidebarIfNarrow}
-                >
-                  <Icon size={18} aria-hidden />
-                  {t(labelKey as StringKey)}
+      <div className="app-frame__body">
+        <aside
+          id="app-sidebar"
+          className={cn("app-shell__aside hidden lg:flex", collapsed && "app-shell__aside--collapsed")}
+          aria-label="Main"
+        >
+          <ShellNav collapsed={collapsed} onNavigate={() => undefined} clinics={clinics} />
+        </aside>
+        <div className="app-frame__stage">
+          <header className="app-frame__header flex items-center gap-2 px-3 py-2 lg:px-5">
+            <IconButton className="lg:hidden" aria-label={t("openMenu")} aria-expanded={mobileOpen} aria-controls="app-sidebar" onClick={() => setMobileOpen(true)}>
+              <Menu size={18} aria-hidden />
+            </IconButton>
+            <IconButton
+              className="hidden lg:inline-flex"
+              aria-label={collapsed ? t("expandSidebar") : t("collapseSidebar")}
+              aria-pressed={collapsed}
+              onClick={() => toggleCollapsed()}
+            >
+              <PanelLeft size={18} aria-hidden />
+            </IconButton>
+            <Breadcrumb items={crumbs} />
+            <div className="ml-auto flex items-center gap-2">
+              {showNewAppointment && (
+                <NavLink to="/schedule" className="btn-primary hidden xl:inline-flex">
+                  <CalendarPlus size={16} aria-hidden /> {t("newAppointment")}
                 </NavLink>
-              ))}
-            </nav>
-            <div className="mt-auto space-y-2 rounded-2xl bg-brand-50 p-3">
-              <div className="text-sm font-semibold text-ink">{user?.full_name}</div>
-              <div className="text-xs capitalize text-muted">
-                {user?.role?.replaceAll("_", " ")}
-              </div>
-              {user?.role === "super_admin" && clinics.length > 0 && (
-                <label className="block text-[11px] font-semibold text-muted">
-                  Active clinic
-                  <select
-                    className="input mt-1 text-xs"
-                    value={activeClinicId ?? ""}
-                    onChange={(e) => setActiveClinicId(e.target.value || null)}
-                  >
-                    <option value="">— select —</option>
-                    {clinics.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} · {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               )}
-              <button
-                type="button"
-                className="btn-ghost flex w-full items-center justify-center gap-2 text-sm"
-                aria-pressed={chairside}
-                title={t("chairsideHint")}
-                onClick={() => toggleChairside()}
-              >
-                <MonitorSmartphone size={16} aria-hidden />
-                {chairside ? t("chairsideOn") : t("chairsideOff")}
-              </button>
-              <button
-                type="button"
-                className="btn-ghost flex w-full items-center justify-center gap-2 text-sm"
-                onClick={() => {
-                  clear();
-                  navigate("/login");
-                }}
-              >
-                <LogOut size={16} aria-hidden /> {t("signOut")}
-              </button>
-            </div>
-          </aside>
-        )}
-
-        <div className="flex min-h-screen flex-col">
-          <header
-            className={`flex items-center justify-between gap-3 px-4 lg:px-8 ${
-              modulesLanding || compactWorkspace ? "py-2" : "py-4"
-            }`}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              {!modulesLanding && (
-                <button
-                  type="button"
-                  className="btn-ghost shrink-0 px-2.5"
-                  aria-label={sidebarOpen ? t("closeMenu") : t("openMenu")}
-                  aria-expanded={sidebarOpen}
-                  aria-controls="app-sidebar"
-                  onClick={() => setSidebarOpen((open) => !open)}
-                >
-                  {sidebarOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
-                </button>
+              {showNewPatient && (
+                <NavLink to="/front-desk/register?step=0" className="btn-ghost hidden lg:inline-flex">
+                  <UserPlus size={16} aria-hidden /> {t("newPatient")}
+                </NavLink>
               )}
-              <div className={showSidebar ? "lg:hidden" : ""}>
-                <DemstaLogo withWordmark size={modulesLanding ? 40 : 36} />
-              </div>
-            </div>
-            {!modulesLanding && !compactWorkspace && (
-              <div className="app-shell__header-title hidden min-w-0 lg:block">
-                <p className="text-sm text-muted">{t("clinicOps")}</p>
-                <h1 className="font-display truncate text-2xl font-bold text-brand-900">
-                  {moduleTitle}
-                </h1>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className={`btn-ghost text-xs ${chairside ? "bg-brand-50" : ""} ${showSidebar ? "lg:hidden" : ""}`}
-                aria-pressed={chairside}
-                onClick={() => toggleChairside()}
-              >
-                <MonitorSmartphone size={16} aria-hidden />
-                <span className="sr-only">{chairside ? t("chairsideOn") : t("chairsideOff")}</span>
+              <button type="button" className="btn-ghost hidden min-w-44 sm:inline-flex" onClick={() => setCommandOpen(true)}>
+                <Search size={16} aria-hidden />
+                <span className="text-muted">{t("searchPages")}</span>
+                <kbd className="ml-2 rounded-md border border-border px-1.5 py-0.5 font-mono text-[10px]">Ctrl K</kbd>
               </button>
-              {chairside && (
-                <span className="status-pill status-pill--info hidden sm:inline-flex">
-                  Chairside
-                </span>
-              )}
-              <div className="rounded-full border border-brand-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-brand-700">
-                DEMSTA · Live
-              </div>
+              <IconButton className="sm:hidden" aria-label={t("searchPages")} onClick={() => setCommandOpen(true)}>
+                <Search size={16} aria-hidden />
+              </IconButton>
+              <AppearanceMenu />
               <button
                 type="button"
-                className="btn-ghost flex items-center gap-2 text-sm"
+                className="btn-ghost px-2.5"
+                aria-label={t("signOut")}
                 onClick={() => {
                   clear();
                   navigate("/login");
                 }}
               >
                 <LogOut size={16} aria-hidden />
-                <span className="hidden sm:inline">{t("signOut")}</span>
               </button>
             </div>
           </header>
-
-          <main
-            id="main-content"
-            className={`app-shell__main flex-1 overflow-visible px-4 ${
-              modulesLanding
-                ? "pb-24 lg:px-10 lg:pb-12"
-                : compactWorkspace
-                  ? "pb-24 lg:px-6 lg:pb-10"
-                  : "pb-24 lg:px-8 lg:pb-12"
-            }`}
-            tabIndex={-1}
-          >
+          {linkPending && <div className="nav-progress" role="progressbar" aria-label="Loading page" />}
+          <main id="main-content" ref={mainRef} className="app-shell__main" tabIndex={-1}>
             <Outlet />
           </main>
         </div>
       </div>
 
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent title="Navigation">
+          <ShellNav collapsed={false} onNavigate={() => setMobileOpen(false)} clinics={clinics} />
+        </SheetContent>
+      </Sheet>
+      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+
       <button
         type="button"
-        className={`app-back-fab ${showSidebar ? "app-back-fab--with-sidebar" : ""}`}
+        className={cn("app-back-fab app-back-fab--with-sidebar", collapsed && "app-back-fab--collapsed")}
         aria-label={t("goBack")}
         title={t("goBack")}
         disabled={!canGoBack}

@@ -25,7 +25,7 @@ export function HygienePage() {
   return (
     <div className="animate-rise space-y-6">
       <div>
-        <h2 className="font-display text-3xl font-bold text-brand-900">Hygiene bay</h2>
+        <h2 className="font-display text-2xl font-bold text-brand-900">Hygiene bay</h2>
         <p className="text-sm text-muted">Recall due list driven by perio risk bands.</p>
       </div>
       {home && <StatGrid home={home} />}
@@ -51,7 +51,7 @@ export function HygienePage() {
                     Risk {r.perio_risk_band || "—"} · due {r.hygiene_recall_due}
                   </div>
                 </div>
-                <span className="status-pill status-pill--warn">Recall</span>
+                <span className="status-pill status-pill--warning">Recall</span>
               </li>
             ))}
           </ul>

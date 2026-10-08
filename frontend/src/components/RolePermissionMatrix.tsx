@@ -4,7 +4,7 @@ import { api, ApiError } from "@/lib/api";
 import { hasEffectivePermission } from "@/lib/nav";
 import type { PermissionCatalogItem, RoleCatalogItem } from "@/lib/types";
 
-const LOCKED = new Set(["super_admin", "patient"]);
+const LOCKED = new Set(["super_admin", "patient", "clinic_admin"]);
 
 export function RolePermissionMatrix() {
   const [roles, setRoles] = useState<RoleCatalogItem[]>([]);
@@ -66,7 +66,7 @@ export function RolePermissionMatrix() {
       <div>
         <h3 className="font-display text-base font-bold text-brand-900">Roles & permissions</h3>
         <p className="text-sm text-muted">
-          Edit the clinic matrix, then grant or deny extras on a person. Core clinic-admin access cannot be revoked.
+          Edit the clinic matrix, then grant or deny extras on a person. Clinic admin keeps every clinic permission. Patient portal access stays on the patient role.
         </p>
       </div>
       <ConfigStatus loading={loading} error={error} ok={ok} />

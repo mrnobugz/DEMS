@@ -5,6 +5,8 @@
 __pycache__/
 *.pyc
 *.db
+django.sqlite3
+backend/staticfiles/
 .demsta.db
 demsta.db
 node_modules/

@@ -1,20 +1,44 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ConfigField, ConfigStatus, onTabListKeyDown } from "@/components/config/ConfigUi";
 import { EmptyState } from "@/components/EmptyState";
 import {
   VitalSignsDetails,
   VitalSignsForm,
   draftToPayload,
   emptyVitalsDraft,
+  readingToDraft,
   type VitalSignsDraft,
 } from "@/components/VitalSignsPanel";
+import { Pagination } from "@/components/ui/pagination";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api, ApiError } from "@/lib/api";
-import type { Appointment, Page, Patient, PatientVitalSign } from "@/lib/types";
+import type { Page, Patient, PatientVitalSign, VitalsWorklistItem } from "@/lib/types";
+
+const TABS = [
+  { id: "needed", label: "Need vitals" },
+  { id: "recorded", label: "Recorded" },
+  { id: "all", label: "All patients" },
+] as const;
+
+type Tab = (typeof TABS)[number]["id"];
+
+const PAGE_SIZES = [10, 20] as const;
+
+function whenLabel(iso?: string | null) {
+  if (!iso) return "";
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? iso : at.toLocaleString();
+}
 
 export function VitalSignsPage() {
   const [query, setQuery] = useState("");
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [today, setToday] = useState<Appointment[]>([]);
+  const [debounced, setDebounced] = useState("");
+  const [tab, setTab] = useState<Tab>("needed");
+  const [rows, setRows] = useState<VitalsWorklistItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState<(typeof PAGE_SIZES)[number]>(10);
+  const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Patient | null>(null);
   const [latest, setLatest] = useState<PatientVitalSign | null>(null);
   const [history, setHistory] = useState<PatientVitalSign[]>([]);
@@ -23,50 +47,68 @@ export function VitalSignsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  useAnnounce(error);
+  useAnnounce(ok);
 
-  async function loadDirectory(search = "") {
-    const [page, appts] = await Promise.all([
-      api<Page<Patient>>(`/api/v1/patients?limit=40&q=${encodeURIComponent(search)}`),
-      api<Appointment[]>(
-        `/api/v1/appointments?start=${encodeURIComponent(dayStart())}&end=${encodeURIComponent(dayEnd())}`,
-      ).catch(() => [] as Appointment[]),
-    ]);
-    setPatients(page.items.filter((p) => p.registration_status === "finalized"));
-    setToday(appts.filter((a) => a.patient && a.patient.registration_status === "finalized"));
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(query.trim()), 280);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    setOffset(0);
+  }, [debounced, tab, limit]);
+
+  async function loadWorklist(nextOffset = offset) {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        status: debounced ? "all" : tab,
+        limit: String(limit),
+        offset: String(nextOffset),
+      });
+      if (debounced) params.set("q", debounced);
+      const page = await api<Page<VitalsWorklistItem>>(`/api/v1/patients/vitals-worklist?${params}`);
+      setRows(page.items);
+      setTotal(page.total);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load patients");
+    } finally {
+      setLoading(false);
+    }
   }
+
+  useEffect(() => {
+    void loadWorklist(offset);
+  }, [debounced, tab, limit, offset]);
 
   async function openPatient(row: Patient) {
     setSelected(row);
     setError("");
     setOk("");
-    setDraft(emptyVitalsDraft());
-    const [last, rows] = await Promise.all([
+    const [last, list] = await Promise.all([
       api<PatientVitalSign | null>(`/api/v1/patients/${row.id}/vitals/latest`),
       api<PatientVitalSign[]>(`/api/v1/patients/${row.id}/vitals`),
     ]);
     setLatest(last);
-    setHistory(rows);
+    setHistory(list);
+    setDraft(last ? readingToDraft(last) : emptyVitalsDraft());
   }
 
-  useEffect(() => {
-    setLoading(true);
-    loadDirectory("")
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load patients"))
-      .finally(() => setLoading(false));
-  }, []);
-
   const selectedName = selected ? `${selected.first_name} ${selected.last_name}` : "";
+  const pageCount = Math.max(1, Math.ceil(total / limit));
+  const pageIndex = total === 0 ? 0 : Math.floor(offset / limit);
+  const from = total === 0 ? 0 : offset + 1;
+  const to = offset + rows.length;
+  const updating = Boolean(latest);
 
-  const queuePatients = useMemo(() => {
-    const seen = new Set<string>();
-    const rows: Patient[] = [];
-    for (const appt of today) {
-      if (!appt.patient || seen.has(appt.patient.id)) continue;
-      seen.add(appt.patient.id);
-      rows.push(appt.patient);
-    }
-    return rows;
-  }, [today]);
+  const emptyHint = useMemo(() => {
+    if (debounced) return "Try another name, file number, or phone.";
+    if (tab === "needed") return "Every file already has a reading, or there are no patient files yet.";
+    if (tab === "recorded") return "No recorded vitals yet. Capture a first reading on Need vitals.";
+    return "No patient files yet. They appear here as soon as they exist in Patients.";
+  }, [debounced, tab]);
 
   async function onSave(e: FormEvent) {
     e.preventDefault();
@@ -80,9 +122,10 @@ export function VitalSignsPage() {
         body: JSON.stringify(draftToPayload(draft)),
       });
       setLatest(saved);
-      setHistory((rows) => [saved, ...rows]);
-      setDraft(emptyVitalsDraft());
-      setOk(`Vital signs saved for ${selectedName}`);
+      setHistory((list) => [saved, ...list]);
+      setDraft(readingToDraft(saved));
+      setOk(updating ? `Updated reading saved for ${selectedName}` : `Vital signs saved for ${selectedName}`);
+      await loadWorklist(offset);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save vital signs");
     } finally {
@@ -91,87 +134,137 @@ export function VitalSignsPage() {
   }
 
   return (
-    <div className="clin-shell animate-rise space-y-3">
+    <div className="clin-shell admin-shell animate-rise space-y-3">
       <div>
         <h2 className="font-display text-xl font-bold text-brand-900">Vital signs</h2>
         <p className="text-sm text-muted">
-          Record BP, pulse, temperature, and related readings for a registered patient. They appear on clerkship details and the clinical exam.
+          Search every patient file, including drafts. Capture a first reading, or open a recorded file to update it.
         </p>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(16rem,22rem)_1fr]">
-        <section className="glass-panel space-y-3">
-          <label className="text-sm">
-            <span className="label">Find registered patient</span>
+      <div className="grid gap-3 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
+        <section className="glass-panel space-y-3 p-4">
+          <ConfigField label="Find a patient" hint="Searches every file: name, file number, phone, or complaint">
             <input
               className="input"
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void loadDirectory(query).catch((err) =>
-                    setError(err instanceof ApiError ? err.message : "Search failed"),
-                  );
-                }
-              }}
+              autoComplete="off"
+              placeholder="e.g. Amina, P-1042, 0712…"
             />
-          </label>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => void loadDirectory(query)}
+          </ConfigField>
+
+          <div
+            className="admin-tabs"
+            role="tablist"
+            aria-label="Vitals worklist"
+            onKeyDown={(e) =>
+              onTabListKeyDown(
+                e,
+                TABS.map((row) => row.id),
+                tab,
+                (id) => {
+                  setTab(id);
+                  queueMicrotask(() => document.getElementById(`vitals-tab-${id}`)?.focus());
+                },
+              )
+            }
           >
-            Search
-          </button>
-          <div role="status" aria-live="polite">
-            {loading && <p className="text-sm text-muted">Loading…</p>}
-            {error && <p className="text-sm font-semibold text-red-700">{error}</p>}
-            {ok && <p className="text-sm font-semibold text-brand-800">{ok}</p>}
+            {TABS.map((row) => (
+              <button
+                key={row.id}
+                id={`vitals-tab-${row.id}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === row.id}
+                tabIndex={tab === row.id ? 0 : -1}
+                className={`admin-tab ${tab === row.id ? "admin-tab--on" : ""}`}
+                onClick={() => setTab(row.id)}
+              >
+                {row.label}
+              </button>
+            ))}
           </div>
-          {queuePatients.length > 0 && (
-            <div>
-              <h3 className="text-sm font-bold text-brand-900">Today’s queue</h3>
-              <ul className="admin-list">
-                {queuePatients.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className="btn-ghost text-sm" onClick={() => void openPatient(p)}>
-                      {p.patient_code} · {p.first_name} {p.last_name}
-                    </button>
-                  </li>
-                ))}
+
+          <ConfigStatus loading={loading} error={error} ok={ok} />
+
+          {rows.length === 0 && !loading ? (
+            <EmptyState title="No patients in this list" hint={emptyHint} />
+          ) : (
+            <>
+              <ul className="vitals-list">
+                {rows.map((row, index) => {
+                  const p = row.patient;
+                  const on = selected?.id === p.id;
+                  return (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        className={`vitals-row ${on ? "vitals-row--on" : ""}`}
+                        onClick={() => void openPatient(p)}
+                      >
+                        <span className="rec-num" aria-hidden>
+                          {offset + index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 text-left">
+                          <span className="block font-semibold text-brand-900">
+                            {p.first_name} {p.last_name}
+                          </span>
+                          <span className="block text-sm text-muted">
+                            {p.patient_code}
+                            {p.phone ? ` · ${p.phone}` : ""}
+                            {p.chief_complaint ? ` · ${p.chief_complaint}` : ""}
+                          </span>
+                          {row.has_vitals && row.last_recorded_at && (
+                            <span className="block text-sm text-muted">Last {whenLabel(row.last_recorded_at)}</span>
+                          )}
+                        </span>
+                        <span className={`status-pill ${row.has_vitals ? "status-pill--success" : "status-pill--warning"}`}>
+                          {row.has_vitals ? "Recorded" : "Needed"}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
-            </div>
-          )}
-          <div>
-            <h3 className="text-sm font-bold text-brand-900">Registered patients</h3>
-            {patients.length === 0 && !loading ? (
-              <EmptyState
-                title="No registered patients"
-                hint="Finalize registration at the front desk, then search here."
-              />
-            ) : (
-              <ul className="admin-list">
-                {patients.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      className={`btn-ghost text-sm ${selected?.id === p.id ? "font-bold text-brand-800" : ""}`}
-                      onClick={() => void openPatient(p)}
+              <div className="rec-pager">
+                <p className="rec-pager__info" role="status" aria-live="polite">
+                  {total === 0 ? "No patients" : `Showing ${from}–${to} of ${total} · page ${pageIndex + 1} of ${pageCount}`}
+                </p>
+                <div className="rec-pager__controls">
+                  <label className="text-sm">
+                    <span className="label">Per page</span>
+                    <select
+                      className="input"
+                      value={limit}
+                      onChange={(e) => setLimit(Number(e.target.value) as (typeof PAGE_SIZES)[number])}
                     >
-                      {p.patient_code} · {p.first_name} {p.last_name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                      {PAGE_SIZES.map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Pagination
+                    page={pageIndex + 1}
+                    pageCount={pageCount}
+                    disabled={loading}
+                    onPage={(page) => setOffset(Math.max(0, (page - 1) * limit))}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </section>
 
-        <section className="glass-panel space-y-3">
+        <section className="glass-panel space-y-3 p-4">
           {!selected ? (
-            <EmptyState title="Select a patient" hint="Search or pick from today’s queue, then enter vital signs." />
+            <EmptyState
+              title="Select a patient"
+              hint="Type in the search bar or pick someone who still needs vitals, or open a recorded file to update."
+            />
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -186,12 +279,28 @@ export function VitalSignsPage() {
                   Open clerkship
                 </Link>
               </div>
-              <VitalSignsDetails reading={latest} hint="This reading is shown on clerkship details and pre-filled in the clinical exam." />
+              <VitalSignsDetails
+                reading={latest}
+                hint={
+                  latest
+                    ? "Saving stores a new reading. Last values are filled in so you can correct them."
+                    : "No reading yet. Enter the first set of vital signs."
+                }
+              />
               <form className="space-y-3" onSubmit={onSave}>
-                <h4 className="reg-section__title">New reading</h4>
+                <h4 className="reg-section__title">{updating ? "Update reading" : "First reading"}</h4>
                 <VitalSignsForm draft={draft} onChange={setDraft} />
+                {latest && (
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => setDraft(readingToDraft(latest))}
+                  >
+                    Fill from last reading
+                  </button>
+                )}
                 <button className="btn-primary" type="submit" disabled={saving}>
-                  {saving ? "Saving…" : "Save vital signs"}
+                  {saving ? "Saving…" : updating ? "Save updated reading" : "Save vital signs"}
                 </button>
               </form>
               {history.length > 1 && (
@@ -201,8 +310,8 @@ export function VitalSignsPage() {
                     {history.slice(1, 8).map((row) => (
                       <li key={row.id}>
                         <div>
-                          <div className="font-semibold">{new Date(row.recorded_at).toLocaleString()}</div>
-                          <div className="text-xs text-muted">
+                          <div className="font-semibold text-sm">{whenLabel(row.recorded_at)}</div>
+                          <div className="text-sm text-muted">
                             {row.bp_systolic != null ? `BP ${row.bp_systolic}/${row.bp_diastolic}` : "—"}
                             {row.pulse != null ? ` · ${row.pulse} bpm` : ""}
                           </div>
@@ -218,16 +327,4 @@ export function VitalSignsPage() {
       </div>
     </div>
   );
-}
-
-function dayStart() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function dayEnd() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.toISOString();
 }

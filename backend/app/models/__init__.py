@@ -135,11 +135,23 @@ class PurchaseOrderStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class RequisitionStatus(StrEnum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FULFILLED = "fulfilled"
+    CANCELLED = "cancelled"
+
+
 class InvoiceLineKind(StrEnum):
     PROCEDURE = "procedure"
     SUPPLY = "supply"
     DRUG = "drug"
     SERVICE = "service"
+    CONSULTATION = "consultation"
+    LAB = "lab"
+    IMAGING = "imaging"
 
 
 class RegistrationStatus(StrEnum):
@@ -166,6 +178,7 @@ class LabCaseStatus(StrEnum):
 class PrescriptionStatus(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
+    PARTIAL = "partial"
     DISPENSED = "dispensed"
     CANCELLED = "cancelled"
 
@@ -780,6 +793,7 @@ class InventoryItem(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     expiry_date: Mapped[Optional[date]] = mapped_column(Date)
     supplier_id: Mapped[Optional[str]] = mapped_column(ForeignKey("suppliers.id"), index=True)
     track_lots: Mapped[bool] = mapped_column(Boolean, default=False)
+    requires_expiry: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class LabCase(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -928,6 +942,14 @@ class DrugTemplate(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     default_dose: Mapped[str] = mapped_column(String(120), nullable=False)
     default_quantity: Mapped[str] = mapped_column(String(80), default="1")
     instructions: Mapped[Optional[str]] = mapped_column(Text)
+    form: Mapped[str] = mapped_column(String(40), default="tablet", server_default="tablet", nullable=False)
+    strength: Mapped[Optional[str]] = mapped_column(String(80))
+    route: Mapped[str] = mapped_column(String(40), default="oral", server_default="oral", nullable=False)
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    reorder_level: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
+    is_controlled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -941,10 +963,20 @@ class Prescription(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     prescribed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+    rx_number: Mapped[Optional[str]] = mapped_column(String(40), index=True)
+    verified_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    dispensed_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    dispensed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    invoice_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoices.id", ondelete="SET NULL"), index=True)
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(300))
 
     patient: Mapped["Patient"] = relationship()
-    prescribed_by: Mapped[Optional["User"]] = relationship()
+    prescribed_by: Mapped[Optional["User"]] = relationship(foreign_keys="Prescription.prescribed_by_id")
     items: Mapped[list["PrescriptionItem"]] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan"
+    )
+    dispenses: Mapped[list["DispenseEvent"]] = relationship(
         back_populates="prescription", cascade="all, delete-orphan"
     )
 
@@ -958,12 +990,91 @@ class PrescriptionItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     drug_name: Mapped[str] = mapped_column(String(200), nullable=False)
     dose: Mapped[str] = mapped_column(String(120), nullable=False)
     quantity: Mapped[str] = mapped_column(String(80), default="1")
+    frequency: Mapped[Optional[str]] = mapped_column(String(80))
+    days: Mapped[Optional[int]] = mapped_column(Integer)
+    start_date: Mapped[Optional[date]] = mapped_column(Date)
+    end_date: Mapped[Optional[date]] = mapped_column(Date)
     instructions: Mapped[Optional[str]] = mapped_column(Text)
     inventory_item_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("inventory_items.id"), index=True, nullable=True
     )
+    drug_template_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("drug_templates.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    quantity_dispensed: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
+    line_status: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending", nullable=False)
 
     prescription: Mapped["Prescription"] = relationship(back_populates="items")
+
+
+class DispenseEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """One fill (or part of a fill) taken from the pharmacy shelf."""
+
+    __tablename__ = "dispense_events"
+
+    prescription_id: Mapped[str] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE"), index=True
+    )
+    prescription_item_id: Mapped[str] = mapped_column(
+        ForeignKey("prescription_items.id", ondelete="CASCADE"), index=True
+    )
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity_returned: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
+    lot_code: Mapped[Optional[str]] = mapped_column(String(64))
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date)
+    unit_price: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
+    label_text: Mapped[Optional[str]] = mapped_column(Text)
+    invoice_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoices.id", ondelete="SET NULL"), index=True)
+    dispensed_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    notes: Mapped[Optional[str]] = mapped_column(String(300))
+
+    prescription: Mapped["Prescription"] = relationship(back_populates="dispenses")
+    item: Mapped["PrescriptionItem"] = relationship()
+
+
+class PharmacySale(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Walk-in counter sale. Stock leaves the pharmacy shelf and the invoice is paid."""
+
+    __tablename__ = "pharmacy_sales"
+
+    sale_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    invoice_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoices.id", ondelete="SET NULL"), index=True)
+    sold_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(32), default="completed", index=True)
+    subtotal: Mapped[float] = mapped_column(Float, default=0.0)
+    total: Mapped[float] = mapped_column(Float, default=0.0)
+    amount_paid: Mapped[float] = mapped_column(Float, default=0.0)
+    amount_tendered: Mapped[float] = mapped_column(Float, default=0.0)
+    change_due: Mapped[float] = mapped_column(Float, default=0.0)
+    payment_method: Mapped[str] = mapped_column(String(40), default=PaymentMethod.CASH)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(80))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    patient: Mapped["Patient"] = relationship()
+    invoice: Mapped[Optional["Invoice"]] = relationship()
+    lines: Mapped[list["PharmacySaleLine"]] = relationship(
+        back_populates="sale", cascade="all, delete-orphan"
+    )
+
+
+class PharmacySaleLine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "pharmacy_sale_lines"
+
+    sale_id: Mapped[str] = mapped_column(ForeignKey("pharmacy_sales.id", ondelete="CASCADE"), index=True)
+    inventory_item_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    description: Mapped[str] = mapped_column(String(200), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price: Mapped[float] = mapped_column(Float, default=0.0)
+    line_total: Mapped[float] = mapped_column(Float, default=0.0)
+
+    sale: Mapped["PharmacySale"] = relationship(back_populates="lines")
+    inventory_item: Mapped[Optional["InventoryItem"]] = relationship()
 
 
 class StaffProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
@@ -1131,6 +1242,61 @@ class PurchaseOrder(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     lines: Mapped[list["PurchaseOrderLine"]] = relationship(
         back_populates="purchase_order", cascade="all, delete-orphan"
     )
+    supplier: Mapped["Supplier"] = relationship()
+
+    @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
+
+
+class Requisition(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """Internal supply request from a clinical department to the store."""
+
+    __tablename__ = "requisitions"
+    __table_args__ = (Index("ix_requisitions_clinic_status", "clinic_id", "status"),)
+
+    req_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(
+        String(24), default=RequisitionStatus.DRAFT, nullable=False, index=True
+    )
+    department: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    destination_location_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("stock_locations.id", ondelete="SET NULL")
+    )
+    requested_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    approved_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    fulfilled_by_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    reject_reason: Mapped[Optional[str]] = mapped_column(String(300))
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    fulfilled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    lines: Mapped[list["RequisitionLine"]] = relationship(
+        back_populates="requisition", cascade="all, delete-orphan"
+    )
+
+
+class RequisitionLine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "requisition_lines"
+
+    requisition_id: Mapped[str] = mapped_column(
+        ForeignKey("requisitions.id", ondelete="CASCADE"), index=True
+    )
+    inventory_item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    quantity_requested: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity_issued: Mapped[float] = mapped_column(Float, default=0.0)
+    notes: Mapped[Optional[str]] = mapped_column(String(200))
+
+    requisition: Mapped["Requisition"] = relationship(back_populates="lines")
+    inventory_item: Mapped["InventoryItem"] = relationship()
 
 
 class PurchaseOrderLine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -1197,6 +1363,7 @@ class StockMovement(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     invoice_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoices.id"), index=True)
     invoice_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey("invoice_line_items.id"))
     prescription_id: Mapped[Optional[str]] = mapped_column(ForeignKey("prescriptions.id"), index=True)
+    requisition_id: Mapped[Optional[str]] = mapped_column(ForeignKey("requisitions.id"), index=True)
     recorded_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
 
     inventory_item: Mapped["InventoryItem"] = relationship()

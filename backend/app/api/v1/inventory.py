@@ -3,12 +3,15 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
+from app.core.rbac import user_has_any_permission
 from app.models import User
 from app.schemas import (
     InventoryAdjust,
     InventoryItemCreate,
     InventoryItemOut,
     InventoryItemUpdate,
+    InventoryImportRequest,
+    InventoryImportResult,
     PurchaseOrderCreate,
     PurchaseOrderOut,
     PurchaseOrderReceiveRequest,
@@ -19,10 +22,13 @@ from app.schemas import (
     StocktakeRequest,
     StockWriteoffRequest,
     SupplierCreate,
+    SupplierHistoryOut,
     SupplierOut,
     SupplierUpdate,
+    WarehouseAlertsOut,
 )
 from app.services import departments as dept
+from app.services import requisitions as reqs
 from app.services import warehouse as stock
 from app.services.domain import create_invoice
 from app.schemas import InvoiceCreate, InvoiceLineCreate
@@ -30,11 +36,14 @@ from app.schemas import InvoiceCreate, InvoiceLineCreate
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
+CATALOG_READ = require_any_permission("inventory:read", "requisition:create", "requisition:*")
+
+
 @router.get("/locations", response_model=list[StockLocationOut])
 async def list_locations(
     db: DbSession,
     clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:read"))],
+    user: Annotated[User, Depends(CATALOG_READ)],
 ):
     _ = user
     return await stock.list_locations(db, clinic_id)
@@ -72,6 +81,27 @@ async def update_supplier(
 ):
     _ = user
     return await stock.update_supplier(db, clinic_id, supplier_id, body)
+
+
+@router.get("/suppliers/{supplier_id}/history", response_model=SupplierHistoryOut)
+async def supplier_procurement_history(
+    supplier_id: str,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("inventory:read"))],
+):
+    _ = user
+    return await stock.supplier_history(db, clinic_id, supplier_id)
+
+
+@router.get("/alerts", response_model=WarehouseAlertsOut)
+async def warehouse_alerts(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_any_permission("inventory:read", "requisition:create", "requisition:*"))],
+):
+    _ = user
+    return await stock.warehouse_alerts(db, clinic_id)
 
 
 @router.get("/purchase-orders", response_model=list[PurchaseOrderOut])
@@ -155,9 +185,12 @@ async def warehouse_analysis(
     db: DbSession,
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_permission("inventory:read"))],
+    days: int = Query(90),
+    category: str | None = Query(None),
+    department: str | None = Query(None),
 ) -> dict[str, Any]:
     _ = user
-    return await stock.analysis(db, clinic_id)
+    return await stock.analysis(db, clinic_id, days=days, category=category, department=department)
 
 
 @router.post("/receive", response_model=list[StockMovementOut])
@@ -276,15 +309,16 @@ async def stocktake_item(
 async def list_items(
     db: DbSession,
     clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("inventory:read"))],
+    user: Annotated[User, Depends(CATALOG_READ)],
     low_only: bool = Query(False),
     include_inactive: bool = Query(False),
     billable_at_registration: bool | None = Query(None),
     item_kind: str | None = Query(None),
 ):
-    _ = user
+    if include_inactive and not user_has_any_permission(user, "inventory:read", "inventory:*"):
+        include_inactive = False
     await stock.ensure_locations(db, clinic_id)
-    return await dept.list_inventory(
+    items = await dept.list_inventory(
         db,
         clinic_id,
         low_only=low_only,
@@ -293,6 +327,7 @@ async def list_items(
         item_kind=item_kind,
         seed_registration=bool(billable_at_registration),
     )
+    return await reqs.with_store_position(db, clinic_id, items)
 
 
 @router.post("", response_model=InventoryItemOut, status_code=201)
@@ -303,6 +338,16 @@ async def create_item(
     user: Annotated[User, Depends(require_permission("inventory:*"))],
 ):
     return await dept.create_inventory_item(db, clinic_id, user.id, body)
+
+
+@router.post("/import", response_model=InventoryImportResult)
+async def import_items(
+    body: InventoryImportRequest,
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("inventory:*"))],
+):
+    return await dept.import_inventory_items(db, clinic_id, user.id, body.items)
 
 
 @router.patch("/{item_id}", response_model=InventoryItemOut)

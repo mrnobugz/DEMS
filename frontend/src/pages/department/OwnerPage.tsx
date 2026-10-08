@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/i18n";
@@ -30,6 +31,7 @@ export function OwnerPage() {
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
+  useAnnounce(error);
   const [form, setForm] = useState({ name: "", code: "", currency: "TZS" });
   const [busy, setBusy] = useState(false);
 
@@ -85,7 +87,11 @@ export function OwnerPage() {
           {busy ? "Reseeding…" : "Reseed demo data"}
         </button>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
       {stats && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[

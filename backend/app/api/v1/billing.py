@@ -22,6 +22,8 @@ from app.schemas import (
     FeeScheduleItemCreate,
     FeeScheduleItemOut,
     FeeScheduleItemUpdate,
+    BillingPaymentRow,
+    BillingSummaryOut,
     InvoiceCreate,
     InvoiceFromProceduresRequest,
     InvoiceOut,
@@ -155,6 +157,44 @@ async def chart_to_cash(
     return await svc.chart_to_cash(db, clinic_id, user.id, body)
 
 
+@router.get("/summary", response_model=BillingSummaryOut)
+async def billing_summary(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("billing:read"))],
+    period_start: date | None = Query(None, alias="from"),
+    period_end: date | None = Query(None, alias="to"),
+):
+    """Revenue, collections, and open balances for this clinic. Overdue is derived."""
+    _ = user
+    return await ledger.billing_summary(
+        db, clinic_id, period_start=period_start, period_end=period_end
+    )
+
+
+@router.get("/payments", response_model=list[BillingPaymentRow])
+async def list_payments(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_permission("billing:read"))],
+    patient_id: str | None = Query(None),
+    method: str | None = Query(None),
+    paid_from: date | None = Query(None, alias="from"),
+    paid_to: date | None = Query(None, alias="to"),
+    q: str | None = Query(None),
+):
+    _ = user
+    return await ledger.list_payments(
+        db,
+        clinic_id,
+        patient_id=patient_id,
+        method=method,
+        paid_from=paid_from,
+        paid_to=paid_to,
+        q=q,
+    )
+
+
 @router.get("/invoices", response_model=list[InvoiceOut])
 async def list_invoices(
     db: DbSession,
@@ -162,10 +202,21 @@ async def list_invoices(
     user: Annotated[User, Depends(require_permission("billing:read"))],
     patient_id: str | None = Query(None),
     outstanding: bool = Query(False),
+    status: str | None = Query(None),
+    q: str | None = Query(None),
+    issued_from: date | None = Query(None),
+    issued_to: date | None = Query(None),
 ):
     _ = user
     return await svc.list_invoices(
-        db, clinic_id, patient_id, outstanding_only=outstanding
+        db,
+        clinic_id,
+        patient_id,
+        outstanding_only=outstanding,
+        status=status,
+        q=q,
+        issued_from=issued_from,
+        issued_to=issued_to,
     )
 
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { DemstaLogo } from "@/components/DemstaLogo";
+import { Spinner } from "@/components/ui/accordion";
+import { useAnnounce } from "@/components/ui/sonner";
 import { formatMoney } from "@/lib/i18n";
 import { clearPortalSession, getPortalSession } from "@/pages/PortalLoginPage";
 
@@ -42,6 +44,7 @@ export function PortalHomePage() {
   const session = getPortalSession();
   const [home, setHome] = useState<PortalHome | null>(null);
   const [error, setError] = useState("");
+  useAnnounce(error);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -61,7 +64,7 @@ export function PortalHomePage() {
   const currency = home?.clinic.currency || session.patient.currency || "TZS";
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#dbeafe,_#f8fafc_55%)] px-4 py-8">
+    <div className="min-h-screen bg-[var(--bg-primary)] px-4 py-8">
       <div className="mx-auto max-w-3xl space-y-6">
         <header className="flex items-center justify-between gap-3">
           <DemstaLogo withWordmark size={44} />
@@ -87,7 +90,12 @@ export function PortalHomePage() {
               ? ` · Hygiene recall ${home.patient.hygiene_recall_due}`
               : ""}
           </p>
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+          {error && (
+            <p className="mt-3 text-sm text-danger" role="alert" aria-live="assertive">
+              {error}
+            </p>
+          )}
+          {!home && !error && <Spinner label="Loading your record" />}
         </section>
 
         <section className="glass-panel rounded-3xl p-5">

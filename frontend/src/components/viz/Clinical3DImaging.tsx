@@ -837,7 +837,7 @@ export function Clinical3DImaging({
               key={w}
               type="button"
               className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
-                workspace === w ? "bg-brand-500 text-white" : "border border-brand-100 bg-white text-muted"
+                workspace === w ? "bg-brand-500 text-white" : "border border-brand-100 bg-canvas text-muted"
               }`}
               onClick={() => setWorkspace(w)}
             >
@@ -846,14 +846,14 @@ export function Clinical3DImaging({
           ))}
           <button
             type="button"
-            className="rounded-full border border-brand-100 bg-white px-3 py-1 text-xs font-semibold text-muted"
+            className="rounded-full border border-brand-100 bg-canvas px-3 py-1 text-xs font-semibold text-muted"
             onClick={() => setLayout((l) => (l === "mpr" ? "grid" : "mpr"))}
           >
             {layout === "mpr" ? "1+3" : "2×2"}
           </button>
           <button
             type="button"
-            className="rounded-full border border-brand-100 bg-white px-3 py-1 text-xs font-semibold text-muted"
+            className="rounded-full border border-brand-100 bg-canvas px-3 py-1 text-xs font-semibold text-muted"
             onClick={() => setDarkroom((d) => !d)}
           >
             {darkroom ? "Exit darkroom" : "Darkroom"}
@@ -870,7 +870,7 @@ export function Clinical3DImaging({
             key={t.id}
             type="button"
             className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-              tool === t.id ? "bg-slate-900 text-white" : "border border-brand-100 bg-white text-muted"
+              tool === t.id ? "bg-slate-900 text-white" : "border border-brand-100 bg-canvas text-muted"
             }`}
             onClick={() => {
               setTool(t.id);
@@ -889,14 +889,14 @@ export function Clinical3DImaging({
         ))}
         <button
           type="button"
-          className="rounded-full border border-brand-100 bg-white px-3 py-1 text-[11px] font-semibold text-muted"
+          className="rounded-full border border-brand-100 bg-canvas px-3 py-1 text-[11px] font-semibold text-muted"
           onClick={mapArches}
         >
           Auto arch
         </button>
         <button
           type="button"
-          className="rounded-full border border-brand-100 bg-white px-3 py-1 text-[11px] font-semibold text-muted"
+          className="rounded-full border border-brand-100 bg-canvas px-3 py-1 text-[11px] font-semibold text-muted"
           onClick={mapNerve}
         >
           Auto nerve
@@ -904,7 +904,7 @@ export function Clinical3DImaging({
         <button
           type="button"
           className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-            crownMode === "ai" ? "bg-amber-500 text-white" : "border border-brand-100 bg-white text-muted"
+            crownMode === "ai" ? "bg-amber-500 text-white" : "border border-brand-100 bg-canvas text-muted"
           }`}
           onClick={() => {
             const next: CrownMode = crownMode === "ai" ? "manual" : "ai";
@@ -1129,7 +1129,7 @@ export function Clinical3DImaging({
           />
 
           {allImplants.length > 0 && (
-            <div className="rounded-2xl border border-brand-100 bg-white/80 p-3">
+            <div className="rounded-2xl border border-brand-100 bg-canvas/80 p-3">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">
                 PDIP · implant {selected ?? allImplants[0]}
               </p>
@@ -1327,7 +1327,7 @@ export function Clinical3DImaging({
           )}
 
           {anns.length > 0 && (
-            <div className="rounded-2xl border border-brand-100 bg-white/80 p-3 text-xs">
+            <div className="rounded-2xl border border-brand-100 bg-canvas/80 p-3 text-xs">
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-muted">Measurements</p>
               <ul className="space-y-1">
                 {anns.map((a) => (
@@ -1340,7 +1340,7 @@ export function Clinical3DImaging({
           )}
 
           {selected && (
-            <div className="rounded-2xl border border-brand-100 bg-white/80 p-3">
+            <div className="rounded-2xl border border-brand-100 bg-canvas/80 p-3">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">
                 Actions · tooth {selected}
               </p>

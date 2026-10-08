@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { ChairsidePharmacy } from "@/components/ChairsidePharmacy";
 import { ConsentPad } from "@/components/ConsentPad";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
@@ -392,8 +391,6 @@ export function MaxillofacialPage() {
         </div>
       )}
 
-      <ChairsidePharmacy patientId={form.patient_id || undefined} />
-
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-display text-lg font-bold text-brand-900">
@@ -735,7 +732,7 @@ function RadiographyImages({ patientId }: { patientId?: string }) {
           {studies.map((s) => {
             const image = s.has_content && (s.content_type || "").startsWith("image/");
             return (
-              <li key={s.id} className="overflow-hidden rounded-2xl border border-brand-100 bg-white">
+              <li key={s.id} className="overflow-hidden rounded-2xl border border-brand-100 bg-canvas">
                 {image ? (
                   <img
                     src={imagingContentUrl(s.id)}

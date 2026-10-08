@@ -26,6 +26,8 @@ TENANT_TABLES = (
     "imaging_studies",
     "drug_templates",
     "prescriptions",
+    "dispense_events",
+    "pharmacy_sales",
     "staff_profiles",
     "restoration_cases",
     "restorations",
@@ -49,6 +51,7 @@ TENANT_TABLES = (
     "patient_safety_items",
     "patient_vital_signs",
     "registration_drafts",
+    "requisitions",
 )
 
 

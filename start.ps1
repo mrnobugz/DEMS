@@ -6,7 +6,7 @@
 .DESCRIPTION
   - Creates Python venv and installs backend deps if needed
   - Installs frontend npm deps if needed
-  - Starts FastAPI (:8000) and Vite (:5173)
+  - Starts the clinic API and Django admin (:8000) and Vite (:5173)
   - Opens the app in your browser
   - Ctrl+C stops both
 
@@ -87,17 +87,60 @@ $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 $Venv = Join-Path $Backend ".venv"
 $VenvPython = Join-Path $Venv "Scripts\python.exe"
-$VenvPip = Join-Path $Venv "Scripts\pip.exe"
 
-if (-not (Test-Path $VenvPython)) {
-  Write-Step "Creating Python virtualenv"
+function Test-VenvStale($venvPath, $pythonPath) {
+  if (-not (Test-Path $pythonPath)) { return $true }
+  $cfgPath = Join-Path $venvPath "pyvenv.cfg"
+  if (-not (Test-Path $cfgPath)) { return $true }
+  # Windows console launchers embed the absolute python path from creation time.
+  # After moving the repo (e.g. D:\DEMS -> F:\DEMS), pip.exe breaks; detect via cfg.
+  $cfg = Get-Content $cfgPath -Raw
+  if ($cfg -match '(?m)^command\s*=\s*.+-m venv\s+(.+)\s*$') {
+    $createdAt = $Matches[1].Trim().Trim('"')
+    $current = [System.IO.Path]::GetFullPath($venvPath)
+    $createdNorm = [System.IO.Path]::GetFullPath($createdAt)
+    if (-not [string]::Equals($createdNorm, $current, [System.StringComparison]::OrdinalIgnoreCase)) {
+      return $true
+    }
+  }
+  # Smoke-test that python can run pip as a module (avoids broken pip.exe launchers)
+  & $pythonPath -c "import pip" 2>$null | Out-Null
+  return ($LASTEXITCODE -ne 0)
+}
+
+if (Test-VenvStale $Venv $VenvPython) {
+  Write-Step "Recreating Python virtualenv (missing or moved)"
+  if (Test-Path $Venv) {
+    Remove-Item -LiteralPath $Venv -Recurse -Force
+  }
   Set-Location $Backend
   python -m venv .venv
+  if (-not (Test-Path $VenvPython)) {
+    throw "Failed to create virtualenv at $Venv"
+  }
+}
+
+function Invoke-PipInstall([string]$Python, [string[]]$PipArgs, [int]$Attempts = 4) {
+  # Windows Defender / SearchIndexer often lock newly extracted wheels (WinError 32).
+  for ($i = 1; $i -le $Attempts; $i++) {
+    & $Python -m pip @PipArgs
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($i -eq $Attempts) {
+      throw "pip $($PipArgs -join ' ') failed after $Attempts attempts (exit $LASTEXITCODE)"
+    }
+    Write-Host "pip busy/locked (attempt $i/$Attempts); retrying..." -ForegroundColor Yellow
+    Start-Sleep -Seconds (3 * $i)
+  }
 }
 
 if (-not $SkipInstall) {
   Write-Step "Installing backend dependencies"
-  & $VenvPip install -r (Join-Path $Backend "requirements.txt")
+  # Use python -m pip so installs survive moved/renamed venvs (pip.exe embeds old paths)
+  Invoke-PipInstall $VenvPython @("install", "--disable-pip-version-check", "--upgrade", "pip")
+  Invoke-PipInstall $VenvPython @(
+    "install", "--disable-pip-version-check",
+    "-r", (Join-Path $Backend "requirements.txt")
+  )
 
   Write-Step "Installing frontend dependencies"
   Set-Location $Frontend
@@ -124,7 +167,7 @@ $env:CORS_ORIGINS = if ($env:CORS_ORIGINS) {
 
 Write-Step "Starting API on http://127.0.0.1:8000"
 $api = Start-Process -FilePath $VenvPython `
-  -ArgumentList @("-m", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000") `
+  -ArgumentList @("-m", "uvicorn", "app.asgi:application", "--reload", "--host", "127.0.0.1", "--port", "8000") `
   -WorkingDirectory $Backend `
   -PassThru `
   -WindowStyle Normal

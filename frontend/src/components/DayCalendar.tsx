@@ -96,7 +96,7 @@ export function DayCalendar({ day, dentists, appointments, onReschedule, onSelec
         {dentists.map((d) => (
           <div
             key={d.id}
-            className="relative border-l border-brand-50 bg-white/50"
+            className="relative border-l border-brand-50 bg-canvas/50"
             style={{ height }}
             onDragOver={(e) => {
               e.preventDefault();

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +15,7 @@ from app.models import (
     ClaimLineItem,
     ClaimLineStatus,
     ClaimStatus,
+    Clinic,
     InsuranceClaim,
     Invoice,
     InvoiceLineItem,
@@ -27,11 +28,21 @@ from app.models import (
 from app.schemas import AdjustmentCreate, ClaimCreate, RemittanceCreate, StatementCreate
 from app.services.domain import (
     add_payment,
+    as_utc,
     estimate_patient_responsibility,
     get_invoice,
     get_primary_insurance_plan,
     write_audit,
 )
+
+# Issued invoices without an explicit due date are overdue 30 days after issue.
+DUE_TERM_DAYS = 30
+REVENUE_STATUSES = (
+    InvoiceStatus.ISSUED,
+    InvoiceStatus.PARTIALLY_PAID,
+    InvoiceStatus.PAID,
+)
+OPEN_STATUSES = (InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID)
 from app.schemas import PaymentCreate
 
 
@@ -77,7 +88,152 @@ async def apply_coverage_to_invoice(db: AsyncSession, clinic_id: str, invoice: I
 
 
 def invoice_balance(invoice: Invoice) -> float:
-    return max(float(invoice.total) - float(invoice.amount_paid) - float(invoice.amount_adjusted or 0), 0.0)
+    """Open balance. Void and refunded invoices no longer owe the posted total."""
+    if invoice.status in (InvoiceStatus.VOID, InvoiceStatus.REFUNDED):
+        return 0.0
+    raw = float(invoice.total) - float(invoice.amount_paid) - float(invoice.amount_adjusted or 0)
+    return round(max(raw, 0.0), 2)
+
+
+def sync_invoice_status(invoice: Invoice) -> None:
+    """Move draft/issued/partial/paid from the balance. Void and refunded stay put."""
+    if invoice.status in (InvoiceStatus.VOID, InvoiceStatus.REFUNDED):
+        return
+    balance = invoice_balance(invoice)
+    paid = float(invoice.amount_paid or 0)
+    if balance <= 0.001:
+        invoice.status = InvoiceStatus.PAID
+    elif paid > 0.001:
+        invoice.status = InvoiceStatus.PARTIALLY_PAID
+    elif invoice.issued_at is not None:
+        invoice.status = InvoiceStatus.ISSUED
+    else:
+        invoice.status = InvoiceStatus.DRAFT
+
+
+def effective_due(invoice: Invoice) -> datetime | None:
+    if invoice.due_at is not None:
+        return as_utc(invoice.due_at)
+    issued = invoice.issued_at or invoice.created_at
+    if issued is None:
+        return None
+    return as_utc(issued) + timedelta(days=DUE_TERM_DAYS)
+
+
+def is_overdue(invoice: Invoice, *, now: datetime | None = None) -> bool:
+    if invoice.status not in OPEN_STATUSES:
+        return False
+    if invoice_balance(invoice) <= 0.001:
+        return False
+    due = effective_due(invoice)
+    if due is None:
+        return False
+    return due < (now or datetime.now(UTC))
+
+
+def _patient_bits(patient: Patient | None) -> tuple[str, str]:
+    if patient is None:
+        return "Patient", ""
+    return f"{patient.first_name} {patient.last_name}".strip(), patient.patient_code or ""
+
+
+def _in_period(value: datetime | None, start: date, end: date) -> bool:
+    if value is None:
+        return False
+    day = as_utc(value).date()
+    return start <= day <= end
+
+
+def _month_start(day: date) -> date:
+    return day.replace(day=1)
+
+
+def _add_months(day: date, count: int) -> date:
+    month_index = day.month - 1 + count
+    year = day.year + month_index // 12
+    month = month_index % 12 + 1
+    return date(year, month, 1)
+
+
+def _previous_window(start: date, end: date) -> tuple[date, date]:
+    span = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=span - 1)
+    return prev_start, prev_end
+
+
+async def ensure_posted_charge(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    *,
+    patient_id: str,
+    idempotency_key: str,
+    description: str,
+    amount: float,
+    line_kind: str,
+    notes: str | None = None,
+    procedure_code: str | None = None,
+    tooth_number: str | None = None,
+) -> Invoice | None:
+    """Post one invoice for a clinical event. A second call updates an unpaid draft of the same key."""
+    if amount <= 0:
+        return None
+    existing = (
+        await db.execute(
+            select(Invoice)
+            .options(selectinload(Invoice.line_items))
+            .where(Invoice.idempotency_key == idempotency_key)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        if existing.clinic_id != clinic_id:
+            raise ValidationAppError("This charge was already posted for another clinic")
+        locked = existing.status in (InvoiceStatus.VOID, InvoiceStatus.REFUNDED, InvoiceStatus.PAID)
+        locked = locked or float(existing.amount_paid or 0) > 0.001 or float(existing.amount_adjusted or 0) > 0.001
+        line = existing.line_items[0] if existing.line_items else None
+        if locked or line is None:
+            return await get_invoice(db, clinic_id, existing.id)
+        changed = abs(float(line.total or 0) - float(amount)) > 0.001 or line.description != description
+        if changed:
+            line.description = description[:300]
+            line.quantity = 1
+            line.unit_price = amount
+            line.total = amount
+            line.line_kind = line_kind
+            line.tooth_number = tooth_number
+            line.procedure_code = procedure_code
+            existing.subtotal = amount
+            existing.total = max(amount + float(existing.tax or 0) - float(existing.discount or 0), 0)
+            existing.notes = notes
+            sync_invoice_status(existing)
+            await apply_coverage_to_invoice(db, clinic_id, existing)
+            await db.flush()
+        return await get_invoice(db, clinic_id, existing.id)
+
+    from app.schemas import InvoiceCreate, InvoiceLineCreate
+    from app.services.domain import create_invoice
+
+    return await create_invoice(
+        db,
+        clinic_id,
+        actor_id,
+        InvoiceCreate(
+            patient_id=patient_id,
+            notes=notes,
+            idempotency_key=idempotency_key,
+            line_items=[
+                InvoiceLineCreate(
+                    description=description[:300],
+                    quantity=1,
+                    unit_price=amount,
+                    line_kind=line_kind,
+                    procedure_code=procedure_code,
+                    tooth_number=tooth_number,
+                )
+            ],
+        ),
+    )
 
 
 async def add_adjustment(
@@ -113,8 +269,8 @@ async def add_adjustment(
     )
     db.add(adj)
     invoice.amount_adjusted = float(invoice.amount_adjusted or 0) + data.amount
-    if invoice_balance(invoice) <= 0.001:
-        invoice.status = InvoiceStatus.PAID
+    sync_invoice_status(invoice)
+    if invoice.status == InvoiceStatus.PAID:
         for li in invoice.line_items:
             if li.charge_status not in (ChargeStatus.VOID, ChargeStatus.CLOSED):
                 li.charge_status = ChargeStatus.CLOSED
@@ -263,14 +419,17 @@ async def create_claim(
     return await get_claim(db, clinic_id, claim.id)
 
 
-async def get_claim(db: AsyncSession, clinic_id: str, claim_id: str) -> InsuranceClaim:
-    claim = (
-        await db.execute(
-            select(InsuranceClaim)
-            .options(selectinload(InsuranceClaim.lines).selectinload(ClaimLineItem.charge))
-            .where(InsuranceClaim.id == claim_id, InsuranceClaim.clinic_id == clinic_id)
-        )
-    ).scalar_one_or_none()
+async def get_claim(
+    db: AsyncSession, clinic_id: str, claim_id: str, *, refresh: bool = False
+) -> InsuranceClaim:
+    stmt = (
+        select(InsuranceClaim)
+        .options(selectinload(InsuranceClaim.lines).selectinload(ClaimLineItem.charge))
+        .where(InsuranceClaim.id == claim_id, InsuranceClaim.clinic_id == clinic_id)
+    )
+    if refresh:
+        stmt = stmt.execution_options(populate_existing=True)
+    claim = (await db.execute(stmt)).scalar_one_or_none()
     if not claim:
         raise NotFoundError("Claim")
     return claim
@@ -392,6 +551,8 @@ async def post_remittance(
         plan = await get_primary_insurance_plan(db, clinic_id, claim.patient_id)
         if plan:
             plan.amount_used_ytd = float(plan.amount_used_ytd or 0) + paid
+    # Recording the insurance payment reloads the invoice, which expires this claim's lines.
+    claim = await get_claim(db, clinic_id, claim_id, refresh=True)
     statuses = {row.status for row in claim.lines}
     if statuses <= {ClaimLineStatus.DENIED}:
         claim.status = ClaimStatus.DENIED
@@ -516,3 +677,197 @@ async def list_statements(db: AsyncSession, clinic_id: str, patient_id: str | No
         stmt = stmt.where(PatientStatement.patient_id == patient_id)
     rows = (await db.execute(stmt.order_by(PatientStatement.created_at.desc()))).scalars().all()
     return list(rows)
+
+
+def _invoice_brief(inv: Invoice) -> dict:
+    name, code = _patient_bits(inv.patient)
+    issued = inv.issued_at or inv.created_at
+    return {
+        "id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "patient_id": inv.patient_id,
+        "patient_name": name,
+        "patient_code": code,
+        "status": inv.status,
+        "total": float(inv.total or 0),
+        "amount_paid": float(inv.amount_paid or 0),
+        "balance": invoice_balance(inv),
+        "currency": inv.currency or "TZS",
+        "issued_at": issued,
+        "is_overdue": is_overdue(inv),
+    }
+
+
+def _payment_brief(payment: Payment) -> dict:
+    invoice = payment.invoice
+    patient = invoice.patient if invoice is not None else None
+    name, code = _patient_bits(patient)
+    return {
+        "id": payment.id,
+        "invoice_id": payment.invoice_id,
+        "invoice_number": invoice.invoice_number if invoice else "",
+        "patient_id": invoice.patient_id if invoice else "",
+        "patient_name": name,
+        "patient_code": code,
+        "amount": float(payment.amount or 0),
+        "method": payment.method,
+        "payer_type": payment.payer_type or "self",
+        "insurer": payment.insurer,
+        "paid_at": payment.paid_at,
+        "reference": payment.reference,
+        "currency": (invoice.currency if invoice else None) or "TZS",
+    }
+
+
+async def list_payments(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    patient_id: str | None = None,
+    method: str | None = None,
+    paid_from: date | None = None,
+    paid_to: date | None = None,
+    q: str | None = None,
+) -> list[dict]:
+    stmt = (
+        select(Payment)
+        .join(Invoice, Invoice.id == Payment.invoice_id)
+        .options(selectinload(Payment.invoice).selectinload(Invoice.patient))
+        .where(Payment.clinic_id == clinic_id, Invoice.clinic_id == clinic_id)
+    )
+    if patient_id:
+        stmt = stmt.where(Invoice.patient_id == patient_id)
+    if method:
+        stmt = stmt.where(Payment.method == method)
+    if paid_from:
+        start = datetime(paid_from.year, paid_from.month, paid_from.day, tzinfo=UTC)
+        stmt = stmt.where(Payment.paid_at >= start)
+    if paid_to:
+        end = datetime(paid_to.year, paid_to.month, paid_to.day, tzinfo=UTC) + timedelta(days=1)
+        stmt = stmt.where(Payment.paid_at < end)
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        stmt = stmt.join(Patient, Patient.id == Invoice.patient_id).where(
+            or_(
+                func.lower(Invoice.invoice_number).like(needle),
+                func.lower(Patient.first_name).like(needle),
+                func.lower(Patient.last_name).like(needle),
+                func.lower(Patient.patient_code).like(needle),
+                func.lower(func.coalesce(Payment.reference, "")).like(needle),
+            )
+        )
+    rows = (await db.execute(stmt.order_by(Payment.paid_at.desc()))).scalars().unique().all()
+    return [_payment_brief(row) for row in rows]
+
+
+async def billing_summary(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    period_start: date | None = None,
+    period_end: date | None = None,
+) -> dict:
+    """Totals from posted invoices and payments. Outstanding is the current open balance."""
+    today = datetime.now(UTC).date()
+    month_start = _month_start(today)
+    if period_start and period_end and period_end < period_start:
+        raise ValidationAppError("The end date is before the start date")
+    if period_start or period_end:
+        start = period_start or month_start
+        end = period_end or today
+        prev_start, prev_end = _previous_window(start, end)
+    else:
+        start = month_start
+        next_month = _add_months(month_start, 1)
+        end = next_month - timedelta(days=1)
+        prev_start = _add_months(month_start, -1)
+        prev_end = month_start - timedelta(days=1)
+
+    clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
+    invoices = list(
+        (
+            await db.execute(
+                select(Invoice)
+                .options(selectinload(Invoice.patient))
+                .where(Invoice.clinic_id == clinic_id)
+            )
+        ).scalars().all()
+    )
+    payments = list(
+        (
+            await db.execute(
+                select(Payment)
+                .options(selectinload(Payment.invoice).selectinload(Invoice.patient))
+                .where(Payment.clinic_id == clinic_id)
+            )
+        ).scalars().all()
+    )
+
+    def revenue_between(window_start: date, window_end: date) -> float:
+        total = 0.0
+        for inv in invoices:
+            if inv.status not in REVENUE_STATUSES:
+                continue
+            if _in_period(inv.issued_at or inv.created_at, window_start, window_end):
+                total += float(inv.total or 0)
+        return round(total, 2)
+
+    outstanding = [inv for inv in invoices if inv.status in OPEN_STATUSES and invoice_balance(inv) > 0.001]
+    overdue = [inv for inv in outstanding if is_overdue(inv)]
+    paid = round(
+        sum(float(p.amount or 0) for p in payments if _in_period(p.paid_at, start, end)),
+        2,
+    )
+    methods: dict[str, dict[str, float | int]] = {}
+    for payment in payments:
+        if not _in_period(payment.paid_at, start, end):
+            continue
+        bucket = methods.setdefault(payment.method or "other", {"amount": 0.0, "count": 0})
+        bucket["amount"] = float(bucket["amount"]) + float(payment.amount or 0)
+        bucket["count"] = int(bucket["count"]) + 1
+    method_rows = [
+        {"method": method, "amount": round(float(row["amount"]), 2), "count": int(row["count"])}
+        for method, row in methods.items()
+    ]
+    method_rows.sort(key=lambda row: (-float(row["amount"]), str(row["method"])))
+
+    chart_end = _month_start(end)
+    months = [_add_months(chart_end, offset) for offset in range(-11, 1)]
+    by_month = {f"{day.year:04d}-{day.month:02d}": 0.0 for day in months}
+    for inv in invoices:
+        if inv.status not in REVENUE_STATUSES:
+            continue
+        issued = inv.issued_at or inv.created_at
+        if issued is None:
+            continue
+        key = f"{as_utc(issued).year:04d}-{as_utc(issued).month:02d}"
+        if key in by_month:
+            by_month[key] += float(inv.total or 0)
+    recent_invoices = sorted(
+        invoices,
+        key=lambda inv: as_utc(inv.created_at) if inv.created_at else datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )[:8]
+    recent_payments = sorted(
+        payments,
+        key=lambda payment: as_utc(payment.paid_at) if payment.paid_at else datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )[:8]
+    return {
+        "currency": clinic.currency or "TZS",
+        "period_start": start,
+        "period_end": end,
+        "previous_period_start": prev_start,
+        "previous_period_end": prev_end,
+        "revenue_this_month": revenue_between(start, end),
+        "revenue_last_month": revenue_between(prev_start, prev_end),
+        "outstanding_count": len(outstanding),
+        "outstanding_amount": round(sum(invoice_balance(inv) for inv in outstanding), 2),
+        "overdue_count": len(overdue),
+        "overdue_amount": round(sum(invoice_balance(inv) for inv in overdue), 2),
+        "paid_this_month": paid,
+        "revenue_by_month": [{"month": key, "amount": round(amount, 2)} for key, amount in by_month.items()],
+        "payment_methods": method_rows,
+        "recent_invoices": [_invoice_brief(inv) for inv in recent_invoices],
+        "recent_payments": [_payment_brief(payment) for payment in recent_payments],
+    }

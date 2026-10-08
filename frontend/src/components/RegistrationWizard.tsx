@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Save, Sparkles } from "lucide-react";
-import { ConfirmAction } from "@/components/config/ConfigUi";
+import { ConfigField, ConfigStatus, ConfirmAction } from "@/components/config/ConfigUi";
+import { EmptyState } from "@/components/EmptyState";
 import {
   ClerkshipIntakeFields,
   clerkshipGaps,
@@ -37,7 +38,7 @@ const DEPARTMENTS = [
 
 const STEP_META = [
   { label: "Particulars", hint: "Search a returning patient or open a new file" },
-  { label: "Items to pay", hint: "Warehouse fees for this visit" },
+  { label: "Items to pay", hint: "Tick the fees for this visit" },
   { label: "Payment", hint: "Payer type and amount received" },
   { label: "Service & slot", hint: "Staff, queue and booking" },
   { label: "Consent", hint: "Signature before routing" },
@@ -156,6 +157,280 @@ function staffLabel(row: MedicalStaff) {
 
 function itemPrice(item: InventoryItem) {
   return item.sale_price > 0 ? item.sale_price : item.unit_cost;
+}
+
+function departmentLabel(id?: string | null) {
+  if (!id) return "";
+  const hit = DEPARTMENTS.find((row) => row.id === id);
+  if (hit) return hit.label;
+  return id.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+const FEE_PAGE_SIZES = [8, 12, 20] as const;
+
+function ItemsToPayPanel({
+  catalog,
+  loading,
+  qty,
+  setQty,
+  selected,
+  total,
+  money,
+}: {
+  catalog: InventoryItem[];
+  loading: boolean;
+  qty: QtyMap;
+  setQty: (next: QtyMap | ((prev: QtyMap) => QtyMap)) => void;
+  selected: InventoryItem[];
+  total: number;
+  money: (n: number) => string;
+}) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
+  const [limit, setLimit] = useState<(typeof FEE_PAGE_SIZES)[number]>(8);
+  const [page, setPage] = useState(0);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const categories = useMemo(() => {
+    const keys = Array.from(new Set(catalog.map((item) => item.category || "Fees"))).sort();
+    return keys;
+  }, [catalog]);
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return catalog.filter((item) => {
+      const cat = item.category || "Fees";
+      if (category !== "all" && cat !== category) return false;
+      if (!needle) return true;
+      const hay = `${item.name} ${item.sku} ${cat} ${item.target_department || ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [catalog, category, query]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const pageIndex = Math.min(page, pageCount - 1);
+  const from = visible.length === 0 ? 0 : pageIndex * limit;
+  const pageRows = visible.slice(from, from + limit);
+  const to = from + pageRows.length;
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, category, limit]);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [pageIndex, query, category]);
+
+  function setCount(id: string, count: number) {
+    setQty((prev) => ({ ...prev, [id]: Math.max(0, Math.min(20, count)) }));
+  }
+
+  function bump(id: string, delta: number) {
+    setQty((prev) => {
+      const current = prev[id] || 0;
+      const next = Math.max(0, Math.min(20, current + delta));
+      return { ...prev, [id]: next };
+    });
+  }
+
+  return (
+    <div className="reg-pay">
+      <div className="reg-pay__catalog space-y-3">
+        <p className="text-sm text-muted">
+          Tick consultation, imaging, and supply fees for this visit. They become the appointment service.
+        </p>
+        <ConfigStatus loading={loading} />
+        {!loading && catalog.length > 0 && (
+          <>
+            <ConfigField label="Find a fee">
+              <input
+                className="input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Name, SKU, or department"
+              />
+            </ConfigField>
+            {categories.length > 1 && (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Fee category">
+                <button
+                  type="button"
+                  className={`reg-pay__chip ${category === "all" ? "reg-pay__chip--on" : ""}`}
+                  aria-pressed={category === "all"}
+                  onClick={() => setCategory("all")}
+                >
+                  All
+                </button>
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`reg-pay__chip ${category === cat ? "reg-pay__chip--on" : ""}`}
+                    aria-pressed={category === cat}
+                    onClick={() => setCategory(cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {loading ? null : catalog.length === 0 ? (
+          <EmptyState
+            title="No registration fees yet"
+            hint="Ask clinic admin to add billable services under Warehouse → Registration fees."
+          />
+        ) : visible.length === 0 ? (
+          <EmptyState title="No matching fees" hint="Clear the search or pick another category." />
+        ) : (
+          <>
+            <ul ref={listRef} className="reg-pay__list space-y-2">
+              {pageRows.map((item, index) => {
+                const count = qty[item.id] || 0;
+                const checked = count > 0;
+                const price = itemPrice(item);
+                const dest = departmentLabel(item.target_department);
+                const cat = item.category || "Fees";
+                return (
+                  <li key={item.id}>
+                    <div className={`reg-sku ${checked ? "reg-sku--on" : ""}`}>
+                      <label className="reg-sku__pick">
+                        <span className="rec-num" aria-hidden>
+                          {from + index + 1}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setCount(item.id, checked ? 0 : 1)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-semibold text-brand-900">{item.name}</span>
+                          <span className="block text-sm text-muted">
+                            {item.sku}
+                            {` · ${cat}`}
+                            {dest ? ` · ${dest}` : ""}
+                          </span>
+                        </span>
+                        <span className="text-sm font-bold text-brand-800">{money(price)}</span>
+                      </label>
+                      {checked && (
+                        <div className="reg-sku__qty">
+                          <span className="label">Qty</span>
+                          <button
+                            type="button"
+                            className="btn-ghost reg-sku__step"
+                            aria-label={`Fewer ${item.name}`}
+                            onClick={() => bump(item.id, -1)}
+                          >
+                            −
+                          </button>
+                          <input
+                            className="input reg-sku__qty-input"
+                            type="number"
+                            min={1}
+                            max={20}
+                            aria-label={`Quantity of ${item.name}`}
+                            value={count}
+                            onChange={(e) => setCount(item.id, Math.max(1, Number(e.target.value) || 1))}
+                          />
+                          <button
+                            type="button"
+                            className="btn-ghost reg-sku__step"
+                            aria-label={`More ${item.name}`}
+                            onClick={() => bump(item.id, 1)}
+                          >
+                            +
+                          </button>
+                          <span className="ml-auto text-sm font-semibold tabular-nums">
+                            {money(price * count)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="rec-pager">
+              <p className="rec-pager__info" role="status" aria-live="polite">
+                Showing {from + 1}–{to} of {visible.length} · page {pageIndex + 1} of {pageCount}
+              </p>
+              <div className="rec-pager__controls">
+                <label className="text-sm">
+                  <span className="label">Fees per page</span>
+                  <select
+                    className="input"
+                    value={limit}
+                    onChange={(e) => setLimit(Number(e.target.value) as (typeof FEE_PAGE_SIZES)[number])}
+                  >
+                    {FEE_PAGE_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={pageIndex === 0}
+                  onClick={() => setPage(Math.max(0, pageIndex - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={pageIndex + 1 >= pageCount}
+                  onClick={() => setPage(pageIndex + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      <aside className="reg-pay__ticket" aria-live="polite">
+        <p className="reg-section__title">This visit</p>
+        {selected.length === 0 ? (
+          <p className="text-sm text-muted">Select at least one fee to continue.</p>
+        ) : (
+          <ul className="reg-pay__ticket-lines space-y-2">
+            {selected.map((item) => (
+              <li key={item.id} className="flex items-start justify-between gap-2 text-sm">
+                <span>
+                  {item.name}{" "}
+                  <span className="text-muted">× {qty[item.id]}</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="font-semibold tabular-nums">
+                    {money(itemPrice(item) * (qty[item.id] || 0))}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => setCount(item.id, 0)}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="reg-pay__due">
+          <span className="text-sm text-muted">Amount due</span>
+          <strong className="font-display text-lg font-bold text-brand-900">{money(total)}</strong>
+        </div>
+        {selected.length > 0 && (
+          <button type="button" className="btn-ghost text-sm" onClick={() => setQty({})}>
+            Clear fees
+          </button>
+        )}
+      </aside>
+    </div>
+  );
 }
 
 function todayInput() {
@@ -298,6 +573,7 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
   const [existingId, setExistingId] = useState(() => params.get("patient") || "");
   const [existingMeta, setExistingMeta] = useState<{ code: string; name: string } | null>(null);
   const [catalog, setCatalog] = useState<InventoryItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [qty, setQty] = useState<QtyMap>({});
   const [payerType, setPayerType] = useState<"self" | "insurance" | "other">("self");
   const [method, setMethod] = useState("cash");
@@ -331,9 +607,11 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
   draftIdRef.current = draftId;
 
   useEffect(() => {
+    setCatalogLoading(true);
     api<InventoryItem[]>("/api/v1/inventory?billable_at_registration=true")
       .then(setCatalog)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load warehouse items"));
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load warehouse items"))
+      .finally(() => setCatalogLoading(false));
     api<MedicalStaff[]>("/api/v1/staff/dentists")
       .then((rows) => {
         setStaff(rows);
@@ -635,10 +913,6 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
     if (clamped !== requested) writeParams(clamped);
   }, [params, maxReached, syncUrl]);
 
-  function toggle(item: InventoryItem) {
-    setQty((prev) => ({ ...prev, [item.id]: prev[item.id] ? 0 : 1 }));
-  }
-
   function paymentReady() {
     if (total <= 0) return false;
     if (payerType === "insurance") {
@@ -855,53 +1129,15 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
           )}
 
       {step === 1 && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted">
-            Warehouse fees for this visit. These become the appointment service.
-          </p>
-          {catalog.length === 0 ? (
-            <p className="rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">
-              No registration items in Warehouse. Ask an admin to add billable services.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {catalog.map((item) => {
-                const checked = (qty[item.id] || 0) > 0;
-                return (
-                  <li key={item.id}>
-                    <label className={`reg-sku ${checked ? "reg-sku--on" : ""}`}>
-                      <input type="checkbox" checked={checked} onChange={() => toggle(item)} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-semibold text-brand-900">{item.name}</span>
-                        <span className="font-mono text-xs text-muted">{item.sku}</span>
-                      </span>
-                      <span className="text-sm font-bold text-brand-800">{money(itemPrice(item))}</span>
-                      {checked && (
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          className="input w-20"
-                          value={qty[item.id]}
-                          onChange={(e) =>
-                            setQty((prev) => ({
-                              ...prev,
-                              [item.id]: Math.max(1, Number(e.target.value) || 1),
-                            }))
-                          }
-                        />
-                      )}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <div className="flex items-center justify-between rounded-xl bg-brand-50 px-3 py-2">
-            <span className="text-xs text-muted">Due now</span>
-            <span className="font-display text-lg font-bold text-brand-900">{money(total)}</span>
-          </div>
-        </div>
+        <ItemsToPayPanel
+          catalog={catalog}
+          loading={catalogLoading}
+          qty={qty}
+          setQty={setQty}
+          selected={selected}
+          total={total}
+          money={money}
+        />
       )}
 
       {step === 2 && (
@@ -1263,7 +1499,7 @@ export function RegistrationWizard({ onDone }: { onDone: () => void }) {
 
         </div>
         {error && (
-          <div className="reg-error">{error}</div>
+          <div className="reg-error" role="alert" aria-live="polite">{error}</div>
         )}
         <footer className="reg-actions">
           <div className="reg-draft">

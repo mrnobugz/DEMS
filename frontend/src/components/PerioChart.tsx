@@ -343,7 +343,7 @@ export function PerioChart({ patientId, selectedTooth, exams, onSaved, onMessage
               <p className="text-sm text-muted">No periodontal exams yet.</p>
             )}
             {exams.map((exam) => (
-              <div key={exam.id} className="rounded-2xl border border-brand-100 bg-white/70 p-3 text-sm">
+              <div key={exam.id} className="rounded-2xl border border-brand-100 bg-canvas/70 p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-ink">{exam.exam_date}</p>

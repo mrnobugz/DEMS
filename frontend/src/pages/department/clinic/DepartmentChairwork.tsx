@@ -1,6 +1,6 @@
 /**
  * Shared chair-side clerkship for every Clinical department: today's queue,
- * digital intake, visit exam, SOAP, and consent — then the department's own
+ * digital intake, visit exam, and consent — then the department's own
  * operations sit below this block.
  */
 
@@ -18,11 +18,13 @@ import { ConsentPad } from "@/components/ConsentPad";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { EmptyState } from "@/components/EmptyState";
 import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
+import { ChairsidePharmacy } from "@/components/ChairsidePharmacy";
 import { EndoPanel } from "@/components/EndoPanel";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { RevealSection } from "@/components/RevealSection";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { hasEffectivePermission } from "@/lib/nav";
 import type { ChairQueueItem, Patient, PatientVitalSign } from "@/lib/types";
 
 export type ClinicalDept = "restorative" | "maxillofacial" | "orthodontic" | "paediatric";
@@ -57,13 +59,15 @@ export function DepartmentChairwork({
 }) {
   const copy = DEPT_CLERKSHIP[dept];
   const user = useAuth((s) => s.user);
+  const canPrescribe = user?.effective_permissions?.length
+    ? hasEffectivePermission(user.effective_permissions, "pharmacy:*")
+    : ["pharmacy", "dentist", "super_admin"].includes(user?.role || "");
   const [appts, setAppts] = useState<ChairQueueItem[]>([]);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [intake, setIntake] = useState<ClerkshipFormState | null>(null);
   const [latestVitals, setLatestVitals] = useState<PatientVitalSign | null>(null);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [msg, setMsg] = useState("");
-  const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
 
   useEffect(() => {
     let alive = true;
@@ -122,46 +126,6 @@ export function DepartmentChairwork({
       setMsg("Clerkship intake saved");
     } catch (err: any) {
       setMsg(err.message ?? "Intake save failed");
-    }
-  }
-
-  async function saveNote(e: FormEvent) {
-    e.preventDefault();
-    if (!patientId) return;
-    try {
-      await api(`/api/v1/clinical/patients/${patientId}/notes`, {
-        method: "POST",
-        body: JSON.stringify(note),
-      });
-      setNote({ subjective: "", objective: "", assessment: "", plan: "" });
-      setMsg("SOAP note saved");
-    } catch (err: any) {
-      setMsg(err.message ?? "Note save failed");
-    }
-  }
-
-  async function draftSoap() {
-    try {
-      const draft = await api<{
-        subjective: string;
-        objective: string;
-        assessment: string;
-        plan: string;
-      }>("/api/v1/ai/soap-draft", {
-        method: "POST",
-        body: JSON.stringify({
-          chief_complaint: note.subjective || intake?.chief_complaint || `${copy.exam}`,
-          findings: note.objective || undefined,
-        }),
-      });
-      setNote({
-        subjective: draft.subjective,
-        objective: draft.objective,
-        assessment: draft.assessment,
-        plan: draft.plan,
-      });
-    } catch (err: any) {
-      setMsg(err.message ?? "AI draft failed");
     }
   }
 
@@ -247,32 +211,6 @@ export function DepartmentChairwork({
 
           {dept !== "maxillofacial" && (
           <div className="grid gap-4 lg:grid-cols-2">
-            {dept !== "paediatric" && dept !== "orthodontic" && (
-            <form className="glass-panel space-y-2" onSubmit={saveNote}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-display text-base font-bold">SOAP note</h3>
-                <button type="button" className="btn-ghost text-xs" onClick={() => void draftSoap()}>
-                  AI draft
-                </button>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-              {(["subjective", "objective", "assessment", "plan"] as const).map((field) => (
-                <div key={field}>
-                  <label className="label capitalize">{field}</label>
-                  <textarea
-                    className="input"
-                    rows={2}
-                    value={note[field]}
-                    onChange={(e) => setNote({ ...note, [field]: e.target.value })}
-                  />
-                </div>
-              ))}
-              </div>
-              <button className="btn-primary" type="submit">
-                Save note
-              </button>
-            </form>
-            )}
             <ProcedureInvoicePanel patientId={patientId} onDone={() => setMsg("Invoice created from procedures")} />
             <ConsentPad
               patientId={patientId}
@@ -295,6 +233,7 @@ export function DepartmentChairwork({
               <EndoPanel patientId={patientId} selectedTooth={selectedTooth ?? null} />
             </div>
           )}
+          {canPrescribe && <ChairsidePharmacy patientId={patientId} />}
         </>
       )}
     </div>

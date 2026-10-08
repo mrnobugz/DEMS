@@ -162,6 +162,11 @@ async def ensure_role_matrix(db: AsyncSession, clinic_id: str) -> None:
     for role, perms in PERMISSIONS.items():
         if role in {Role.SUPER_ADMIN, Role.PATIENT}:
             continue
+        if role == Role.CLINIC_ADMIN:
+            for row in existing:
+                if row.role == role.value and row.permission_id in perms and not row.allowed:
+                    row.allowed = True
+                    added = True
         for perm in sorted(perms):
             if (role.value, perm) in have:
                 continue
@@ -234,13 +239,8 @@ async def set_role_permission(
         raise ValidationAppError(f"Unknown role: {role}")
     if permission_id not in KNOWN_PERMISSIONS:
         raise ValidationAppError(f"Unknown permission: {permission_id}")
-    protected = {
-        ("clinic_admin", "staff:*"),
-        ("clinic_admin", "config:*"),
-        ("clinic_admin", "config:clinic"),
-    }
-    if (role, permission_id) in protected and not allowed:
-        raise ValidationAppError("Cannot revoke core clinic admin access")
+    if role == Role.CLINIC_ADMIN.value and not allowed and permission_id in PERMISSIONS[Role.CLINIC_ADMIN]:
+        raise ValidationAppError("Clinic admin keeps every clinic permission")
     await ensure_role_matrix(db, clinic_id)
     row = (
         await db.execute(

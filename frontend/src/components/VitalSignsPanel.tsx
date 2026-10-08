@@ -32,6 +32,29 @@ export function emptyVitalsDraft(): VitalSignsDraft {
   };
 }
 
+function asText(value: number | string | null | undefined) {
+  if (value == null || value === "") return "";
+  return String(value);
+}
+
+export function readingToDraft(row: PatientVitalSign | null | undefined): VitalSignsDraft {
+  if (!row) return emptyVitalsDraft();
+  return {
+    bp_systolic: asText(row.bp_systolic),
+    bp_diastolic: asText(row.bp_diastolic),
+    pulse: asText(row.pulse),
+    temperature_c: asText(row.temperature_c),
+    spo2: asText(row.spo2),
+    respiratory_rate: asText(row.respiratory_rate),
+    height_cm: asText(row.height_cm),
+    weight_kg: asText(row.weight_kg),
+    appearance: row.appearance || "",
+    posture: row.posture || "",
+    gait: row.gait || "",
+    notes: row.notes || "",
+  };
+}
+
 function num(v: string): number | null {
   if (!v.trim()) return null;
   const n = Number(v);

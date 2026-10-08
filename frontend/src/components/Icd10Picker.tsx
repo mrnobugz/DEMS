@@ -85,7 +85,7 @@ export function Icd10Picker({
         }}
       />
       {open && hits.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-brand-100 bg-white shadow-lg">
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-brand-100 bg-canvas shadow-lg">
           {hits.map((h) => (
             <li key={h.code}>
               <button

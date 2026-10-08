@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { StatGrid, useDepartmentHome } from "./FrontClinicalPages";
 
@@ -30,7 +31,7 @@ type Restoration = {
 const STATUSES = ["draft", "sent", "in_progress", "received", "fitted", "cancelled"];
 
 export function LabPage() {
-  const { home } = useDepartmentHome();
+  const { home, error: homeError } = useDepartmentHome();
   const [cases, setCases] = useState<LabCase[]>([]);
   const [overdue, setOverdue] = useState<LabCase[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
@@ -46,6 +47,7 @@ export function LabPage() {
     restoration_id: "",
   });
   const [error, setError] = useState("");
+  useAnnounce(error || homeError);
 
   async function load() {
     const [c, o, p] = await Promise.all([
@@ -115,13 +117,17 @@ export function LabPage() {
   return (
     <div className="animate-rise space-y-6">
       <div>
-        <h2 className="font-display text-3xl font-bold text-brand-900">Lab journey</h2>
+        <h2 className="font-display text-2xl font-bold text-brand-900">Lab journey</h2>
         <p className="text-sm text-muted">
-          Sent → In progress → Received → Fitted · overdue alerts · restoration hard-link
+          Sent, in progress, received, then fitted. Overdue cases stay linked to the restoration.
         </p>
       </div>
       {home && <StatGrid home={home} />}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {(error || homeError) && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error || homeError}
+        </p>
+      )}
 
       {overdue.length > 0 && (
         <section className="rounded-3xl border border-red-200 bg-red-50/80 p-5">

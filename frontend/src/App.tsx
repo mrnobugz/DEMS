@@ -1,10 +1,19 @@
+import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { RequireRole } from "@/components/RequireRole";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import type { User } from "@/lib/types";
 import { MODULES_DASHBOARD_PATH } from "@/lib/nav";
 import { AiAssistPage } from "@/pages/AiAssistPage";
-import { BillingPage } from "@/pages/BillingPage";
+import { BillingLayout } from "@/features/billing/pages/BillingLayout";
+import { InvoiceDetailPage } from "@/features/billing/pages/InvoiceDetailPage";
+import { InvoicesPage } from "@/features/billing/pages/InvoicesPage";
+import { OverviewPage } from "@/features/billing/pages/OverviewPage";
+import { PaymentsPage } from "@/features/billing/pages/PaymentsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ModulesDashboardPage } from "@/pages/ModulesDashboardPage";
 import { PatientDetailPage } from "@/pages/PatientDetailPage";
@@ -17,6 +26,7 @@ import { ClinicAdminPage } from "@/pages/department/ClinicAdminPage";
 import { FrontDeskPage, FrontDeskRegisterPage } from "@/pages/department/FrontClinicalPages";
 import { HygienePage } from "@/pages/department/HygienePage";
 import { VitalSignsPage } from "@/pages/department/VitalSignsPage";
+import { ClinicalRecordsPage } from "@/pages/department/ClinicalRecordsPage";
 import { MaxillofacialPage } from "@/pages/department/clinic/MaxillofacialPage";
 import { OrthodonticPage } from "@/pages/department/clinic/OrthodonticPage";
 import { PaediatricPage } from "@/pages/department/clinic/PaediatricPage";
@@ -26,15 +36,47 @@ import { InventoryPage } from "@/pages/department/InventoryPage";
 import { LabPage } from "@/pages/department/LabPage";
 import { OwnerPage } from "@/pages/department/OwnerPage";
 import { PharmacyPage } from "@/pages/department/PharmacyPage";
+import { RequisitionsPage } from "@/pages/department/RequisitionsPage";
 
 function ProtectedLayout() {
   const token = useAuth((s) => s.accessToken);
+  const [hydrated, setHydrated] = useState(() => useAuth.persist.hasHydrated());
+
+  useEffect(() => {
+    setHydrated(useAuth.persist.hasHydrated());
+    return useAuth.persist.onFinishHydration(() => setHydrated(true));
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    let cancelled = false;
+    api<User>("/api/v1/auth/me")
+      .then((user) => {
+        if (cancelled) return;
+        const { accessToken, refreshToken, setSession } = useAuth.getState();
+        if (accessToken && refreshToken) setSession(accessToken, refreshToken, user);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, token]);
+
+  if (!hydrated) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[var(--demsta-canvas)] text-sm text-muted" role="status">
+        Loading session…
+      </div>
+    );
+  }
   if (!token) return <Navigate to="/login" replace />;
   return <AppShell />;
 }
 
 export default function App() {
   return (
+    <TooltipProvider>
+    <Toaster />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/portal/login" element={<PortalLoginPage />} />
@@ -129,6 +171,14 @@ export default function App() {
           }
         />
         <Route
+          path="/clinical-records"
+          element={
+            <RequireRole path="/clinical-records">
+              <ClinicalRecordsPage />
+            </RequireRole>
+          }
+        />
+        <Route
           path="/imaging"
           element={
             <RequireRole path="/imaging">
@@ -153,6 +203,14 @@ export default function App() {
           }
         />
         <Route
+          path="/requisitions"
+          element={
+            <RequireRole path="/requisitions">
+              <RequisitionsPage />
+            </RequireRole>
+          }
+        />
+        <Route
           path="/inventory"
           element={
             <RequireRole path="/inventory">
@@ -163,7 +221,12 @@ export default function App() {
         <Route path="/patients" element={<PatientsPage />} />
         <Route path="/patients/:id" element={<PatientDetailPage />} />
         <Route path="/schedule" element={<SchedulePage />} />
-        <Route path="/billing" element={<BillingPage />} />
+        <Route path="/billing" element={<BillingLayout />}>
+          <Route index element={<OverviewPage />} />
+          <Route path="invoices" element={<InvoicesPage />} />
+          <Route path="invoices/:invoiceId" element={<InvoiceDetailPage />} />
+          <Route path="payments" element={<PaymentsPage />} />
+        </Route>
         <Route
           path="/reports"
           element={
@@ -176,5 +239,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to={MODULES_DASHBOARD_PATH} replace />} />
     </Routes>
+    </TooltipProvider>
   );
 }

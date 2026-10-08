@@ -7,6 +7,7 @@ import {
   startOfDay,
   startOfWeek,
 } from "date-fns";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api, ApiError } from "@/lib/api";
 import { DayCalendar } from "@/components/DayCalendar";
 import { WeekCalendar } from "@/components/WeekCalendar";
@@ -28,6 +29,7 @@ export function SchedulePage() {
   const [slots, setSlots] = useState<Array<{ starts_at: string; ends_at: string; score: number; reason: string }>>([]);
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [error, setError] = useState("");
+  useAnnounce(error);
   const [form, setForm] = useState({
     patient_id: "",
     dentist_id: "",
@@ -179,21 +181,23 @@ export function SchedulePage() {
         <div>
           <h2 className="font-display text-2xl font-bold text-brand-900">Schedule</h2>
           <p className="text-sm text-muted">
-            Multi-dentist day/week grid · drag to reschedule · waitlist
+            Multi-dentist day and week grid, drag to reschedule, and the waitlist.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl bg-white p-1 shadow-sm">
+          <div className="flex rounded-xl bg-canvas p-1 shadow-sm">
             <button
               type="button"
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "day" ? "bg-brand-500 text-white" : "text-muted"}`}
+              className={`dept-switch ${view === "day" ? "dept-switch--on" : ""}`}
+              aria-pressed={view === "day"}
               onClick={() => setView("day")}
             >
               Day
             </button>
             <button
               type="button"
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "week" ? "bg-brand-500 text-white" : "text-muted"}`}
+              className={`dept-switch ${view === "week" ? "dept-switch--on" : ""}`}
+              aria-pressed={view === "week"}
               onClick={() => setView("week")}
             >
               Week
@@ -205,7 +209,7 @@ export function SchedulePage() {
           >
             Prev
           </button>
-          <div className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-brand-800">
+          <div className="rounded-xl bg-canvas px-3 py-2 text-sm font-semibold text-brand-800">
             {view === "week"
               ? `${format(weekStart, "MMM d")} – ${format(addDays(weekStart, 6), "MMM d")}`
               : format(day, "EEE, MMM d")}
@@ -223,7 +227,7 @@ export function SchedulePage() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded-xl border border-[var(--err-bd)] bg-[var(--err-bg)] px-3 py-2 text-sm text-[var(--err-fg)]" role="alert" aria-live="assertive">
           {error}
         </div>
       )}
@@ -418,7 +422,7 @@ export function SchedulePage() {
                 {waitlist.map((a) => (
                   <li
                     key={a.id}
-                    className="rounded-2xl border border-brand-100 bg-white/80 px-3 py-2 text-sm"
+                    className="rounded-2xl border border-brand-100 bg-canvas/80 px-3 py-2 text-sm"
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData("text/appointment-id", a.id);
@@ -456,7 +460,7 @@ export function SchedulePage() {
                   <button
                     key={s.starts_at}
                     type="button"
-                    className="block w-full rounded-2xl border border-brand-100 bg-white/80 px-3 py-2 text-left text-sm hover:border-brand-400"
+                    className="block w-full rounded-2xl border border-brand-100 bg-canvas/80 px-3 py-2 text-left text-sm hover:border-brand-400"
                     onClick={() => {
                       const local = format(parseISO(s.starts_at), "yyyy-MM-dd'T'HH:mm");
                       setForm({ ...form, starts_at: local });

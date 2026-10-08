@@ -402,6 +402,12 @@ class VitalSignOut(ORMModel):
         return round(self.weight_kg / (metres * metres), 1)
 
 
+class VitalsWorklistItemOut(BaseModel):
+    patient: PatientOut
+    has_vitals: bool
+    last_recorded_at: Optional[datetime] = None
+
+
 # ── Appointments ──────────────────────────────────────
 class AppointmentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -922,6 +928,67 @@ class CashUpOut(BaseModel):
     payment_count: int
 
 
+class BillingInvoiceBrief(BaseModel):
+    id: str
+    invoice_number: str
+    patient_id: str
+    patient_name: str
+    patient_code: str = ""
+    status: str
+    total: float
+    amount_paid: float
+    balance: float
+    currency: str = "TZS"
+    issued_at: Optional[datetime] = None
+    is_overdue: bool = False
+
+
+class BillingPaymentRow(BaseModel):
+    id: str
+    invoice_id: str
+    invoice_number: str = ""
+    patient_id: str = ""
+    patient_name: str = ""
+    patient_code: str = ""
+    amount: float
+    method: str
+    payer_type: str = "self"
+    insurer: Optional[str] = None
+    paid_at: datetime
+    reference: Optional[str] = None
+    currency: str = "TZS"
+
+
+class MonthRevenue(BaseModel):
+    month: str
+    amount: float
+
+
+class PaymentMethodTotal(BaseModel):
+    method: str
+    amount: float
+    count: int
+
+
+class BillingSummaryOut(BaseModel):
+    currency: str = "TZS"
+    period_start: date
+    period_end: date
+    previous_period_start: date
+    previous_period_end: date
+    revenue_this_month: float
+    revenue_last_month: float
+    outstanding_count: int
+    outstanding_amount: float
+    overdue_count: int
+    overdue_amount: float
+    paid_this_month: float
+    revenue_by_month: list[MonthRevenue]
+    payment_methods: list[PaymentMethodTotal]
+    recent_invoices: list[BillingInvoiceBrief]
+    recent_payments: list[BillingPaymentRow]
+
+
 class ToothHistoryEventOut(BaseModel):
     kind: str
     id: str
@@ -1121,6 +1188,13 @@ class PaymentOut(ORMModel):
     reference: Optional[str] = None
 
 
+class InvoiceClaimLink(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    claim_number: str
+    status: str
+
+
 class InvoiceOut(ORMModel):
     id: str
     patient_id: str
@@ -1135,8 +1209,50 @@ class InvoiceOut(ORMModel):
     currency: str
     notes: Optional[str] = None
     issued_at: Optional[datetime] = None
+    due_at: Optional[datetime] = None
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    balance: float = 0.0
+    is_overdue: bool = False
     line_items: list[InvoiceLineOut] = []
     payments: list[PaymentOut] = []
+    claims: list[InvoiceClaimLink] = []
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _ledger_view(cls, value, handler):
+        result = handler(value)
+        if isinstance(value, dict):
+            if "balance" not in value:
+                balance = max(
+                    float(result.total) - float(result.amount_paid) - float(result.amount_adjusted or 0),
+                    0.0,
+                )
+                result = result.model_copy(update={"balance": round(balance, 2)})
+            return result
+        from sqlalchemy import inspect as sa_inspect
+
+        from app.services.billing_ledger import invoice_balance, is_overdue
+
+        unloaded: set[str] = set()
+        try:
+            unloaded = set(sa_inspect(value).unloaded)
+        except Exception:
+            unloaded = set()
+        patient = None if "patient" in unloaded else getattr(value, "patient", None)
+        patient_name = None
+        patient_code = None
+        if patient is not None:
+            patient_name = f"{patient.first_name} {patient.last_name}".strip()
+            patient_code = patient.patient_code
+        return result.model_copy(
+            update={
+                "patient_name": patient_name,
+                "patient_code": patient_code,
+                "balance": invoice_balance(value),
+                "is_overdue": is_overdue(value),
+            }
+        )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -1514,6 +1630,43 @@ class ClinicalVisitOut(ORMModel):
         return loads_block(self.diagnosis_json, VisitDiagnosis)
 
 
+class ClinicalRecordRow(BaseModel):
+    """One line in the clinic-wide register of patients already seen in a chair."""
+
+    patient_id: str
+    patient_code: str
+    full_name: str
+    sex: Optional[str] = None
+    age_years: Optional[int] = None
+    phone: Optional[str] = None
+    town_city: Optional[str] = None
+    department: Optional[str] = None
+    primary_dentist_name: Optional[str] = None
+    visit_count: int = 0
+    first_visit_date: Optional[date] = None
+    last_visit_date: Optional[date] = None
+    last_visit_status: Optional[str] = None
+    last_chief_complaint: Optional[str] = None
+    last_examiner_name: Optional[str] = None
+    has_outstanding: bool = False
+
+
+class ClinicalRecordSummary(BaseModel):
+    visit_count: int = 0
+    note_count: int = 0
+    treatment_plan_count: int = 0
+    first_visit_date: Optional[date] = None
+    last_visit_date: Optional[date] = None
+
+
+class ClinicalRecordDetail(BaseModel):
+    patient: PatientOut
+    visits: list[ClinicalVisitOut] = Field(default_factory=list)
+    examiner_names: dict[str, str] = Field(default_factory=dict)
+    latest_vitals: Optional[VitalSignOut] = None
+    summary: ClinicalRecordSummary
+
+
 TokenResponse.model_rebuild()
 
 
@@ -1662,6 +1815,7 @@ class InventoryItemCreate(BaseModel):
     expiry_date: Optional[date] = None
     supplier_id: Optional[str] = None
     track_lots: bool = False
+    requires_expiry: bool = True
 
     @field_validator("item_kind")
     @classmethod
@@ -1670,6 +1824,22 @@ class InventoryItemCreate(BaseModel):
         if v not in allowed:
             raise ValueError("item_kind must be stock or service")
         return v
+
+
+class InventoryImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[InventoryItemCreate] = Field(min_length=1, max_length=300)
+
+
+class InventoryImportError(BaseModel):
+    row: int
+    sku: str = ""
+    message: str
+
+
+class InventoryImportResult(BaseModel):
+    created: int
+    errors: list[InventoryImportError] = Field(default_factory=list)
 
 
 class InventoryItemUpdate(BaseModel):
@@ -1689,6 +1859,7 @@ class InventoryItemUpdate(BaseModel):
     expiry_date: Optional[date] = None
     supplier_id: Optional[str] = None
     track_lots: Optional[bool] = None
+    requires_expiry: Optional[bool] = None
 
 
 class InventoryAdjust(BaseModel):
@@ -1836,6 +2007,10 @@ class InventoryItemOut(ORMModel):
     expiry_date: Optional[date] = None
     supplier_id: Optional[str] = None
     track_lots: bool = False
+    requires_expiry: bool = True
+    store_on_hand: float = 0
+    quantity_requested_open: float = 0
+    quantity_issued_open: float = 0
     created_at: datetime
 
 
@@ -2210,6 +2385,28 @@ class DrugTemplateCreate(BaseModel):
     default_dose: str
     default_quantity: str = "1"
     instructions: Optional[str] = None
+    form: str = "tablet"
+    strength: Optional[str] = None
+    route: str = "oral"
+    inventory_item_id: Optional[str] = None
+    reorder_level: float = 0
+    is_controlled: bool = False
+
+
+class DrugTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = None
+    category: Optional[str] = None
+    default_dose: Optional[str] = None
+    default_quantity: Optional[str] = None
+    instructions: Optional[str] = None
+    form: Optional[str] = None
+    strength: Optional[str] = None
+    route: Optional[str] = None
+    inventory_item_id: Optional[str] = None
+    reorder_level: Optional[float] = None
+    is_controlled: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class DrugTemplateOut(ORMModel):
@@ -2219,7 +2416,14 @@ class DrugTemplateOut(ORMModel):
     default_dose: str
     default_quantity: str
     instructions: Optional[str] = None
+    form: str = "tablet"
+    strength: Optional[str] = None
+    route: str = "oral"
+    inventory_item_id: Optional[str] = None
+    reorder_level: float = 0
+    is_controlled: bool = False
     is_active: bool
+    sale_price: Optional[float] = None
 
 
 class PrescriptionItemIn(BaseModel):
@@ -2227,15 +2431,41 @@ class PrescriptionItemIn(BaseModel):
     drug_name: str
     dose: str
     quantity: str = "1"
+    frequency: Optional[str] = None
+    days: Optional[int] = Field(default=None, ge=1, le=365)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     instructions: Optional[str] = None
     inventory_item_id: Optional[str] = None
+    drug_template_id: Optional[str] = None
 
 
 class PrescriptionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     patient_id: str
     notes: Optional[str] = None
+    bill: bool = False
     items: list[PrescriptionItemIn] = Field(min_length=1)
+
+
+class PrescriptionItemCourseUpdate(BaseModel):
+    """Course fields a pharmacist may correct before the line is dispensed."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    drug_template_id: Optional[str] = None
+    frequency: Optional[str] = None
+    days: Optional[int] = Field(default=None, ge=1, le=365)
+    quantity: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    instructions: Optional[str] = None
+
+
+class PrescriptionCourseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    notes: Optional[str] = None
+    items: list[PrescriptionItemCourseUpdate] = Field(min_length=1)
 
 
 class PrescriptionItemOut(ORMModel):
@@ -2243,18 +2473,53 @@ class PrescriptionItemOut(ORMModel):
     drug_name: str
     dose: str
     quantity: str
+    frequency: Optional[str] = None
+    days: Optional[int] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     instructions: Optional[str] = None
     inventory_item_id: Optional[str] = None
+    drug_template_id: Optional[str] = None
+    quantity_dispensed: float = 0
+    line_status: str = "pending"
+    shelf_on_hand: Optional[float] = None
+    store_on_hand: Optional[float] = None
+
+
+class DispenseEventOut(BaseModel):
+    id: str
+    prescription_item_id: str
+    inventory_item_id: Optional[str] = None
+    drug_name: Optional[str] = None
+    quantity: float
+    quantity_returned: float = 0
+    lot_code: Optional[str] = None
+    expiry_date: Optional[date] = None
+    unit_price: float = 0
+    label_text: Optional[str] = None
+    invoice_id: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
 
 
 class PrescriptionOut(ORMModel):
     id: str
     patient_id: str
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
     prescribed_by_id: Optional[str] = None
+    prescriber_name: Optional[str] = None
     status: str
     notes: Optional[str] = None
     prescribed_at: datetime
+    rx_number: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    dispensed_at: Optional[datetime] = None
+    invoice_id: Optional[str] = None
+    order_billed: bool = False
+    cancel_reason: Optional[str] = None
     items: list[PrescriptionItemOut] = []
+    dispenses: list[DispenseEventOut] = []
     created_at: datetime
 
 
@@ -2262,6 +2527,134 @@ class PrescriptionStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: str
     bill: bool = False
+
+
+class DispenseLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prescription_item_id: str
+    quantity: float = Field(gt=0)
+
+
+class DispenseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lines: list[DispenseLineIn] = Field(min_length=1)
+    bill: bool = True
+    collect_payment: bool = False
+    payment_method: str = "cash"
+    payment_reference: Optional[str] = Field(default=None, max_length=80)
+    acknowledge_warnings: bool = False
+    notes: Optional[str] = Field(default=None, max_length=300)
+
+
+class CancelPrescription(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=3, max_length=300)
+
+
+class ExternalRelease(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_ids: list[str] = Field(min_length=1)
+
+
+class ReturnDispense(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quantity: float = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=200)
+
+
+class PharmacyExpiryOut(BaseModel):
+    sku: str
+    name: str
+    lot_code: str
+    expiry_date: date
+    quantity: float
+
+
+class PharmacyBoardOut(BaseModel):
+    waiting: int
+    partial: int
+    dispensed_today: int
+    sales_today: int = 0
+    shelf_short: int
+    expiring: list[PharmacyExpiryOut] = []
+
+
+class CounterSaleLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: int = Field(ge=1)
+
+
+class CounterSaleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patient_id: str
+    lines: list[CounterSaleLineIn] = Field(min_length=1)
+    payment_method: str = "cash"
+    payment_reference: Optional[str] = Field(default=None, max_length=80)
+    amount_tendered: Optional[float] = Field(default=None, ge=0)
+    notes: Optional[str] = Field(default=None, max_length=300)
+    acknowledge_warnings: bool = False
+
+
+class CounterSaleLineOut(BaseModel):
+    id: str
+    inventory_item_id: Optional[str] = None
+    sku: Optional[str] = None
+    description: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+
+class CounterSaleOut(BaseModel):
+    id: str
+    sale_number: str
+    patient_id: str
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    invoice_id: Optional[str] = None
+    invoice_number: Optional[str] = None
+    status: str
+    subtotal: float
+    total: float
+    amount_paid: float
+    amount_tendered: float
+    change_due: float
+    payment_method: str
+    payment_reference: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    lines: list[CounterSaleLineOut] = []
+
+
+class PharmacyShelfRow(BaseModel):
+    template_id: str
+    name: str
+    category: str
+    form: str = "tablet"
+    strength: Optional[str] = None
+    dose: str
+    inventory_item_id: Optional[str] = None
+    sku: Optional[str] = None
+    unit: Optional[str] = None
+    sale_price: Optional[float] = None
+    reorder_level: float = 0
+    shelf_on_hand: float = 0
+    store_on_hand: float = 0
+    is_controlled: bool = False
+    is_active: bool = True
+
+
+class ShelfRequestLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: float = Field(gt=0)
+
+
+class ShelfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lines: list[ShelfRequestLine] = Field(default_factory=list)
+    notes: Optional[str] = None
 
 
 class DepartmentHomeOut(BaseModel):
@@ -2469,6 +2862,7 @@ class PurchaseOrderCreate(BaseModel):
 class PurchaseOrderOut(ORMModel):
     id: str
     supplier_id: str
+    supplier_name: Optional[str] = None
     status: str
     ordered_at: Optional[datetime] = None
     expected_at: Optional[date] = None
@@ -2476,6 +2870,100 @@ class PurchaseOrderOut(ORMModel):
     lines_json: Optional[str] = None
     lines: list[PurchaseOrderLineOut] = []
     created_at: datetime
+
+
+class RequisitionLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_item_id: str
+    quantity: float = Field(gt=0)
+    notes: Optional[str] = Field(default=None, max_length=200)
+
+
+class RequisitionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    department: str
+    notes: Optional[str] = None
+    destination_location_id: Optional[str] = None
+    submit: bool = True
+    lines: list[RequisitionLineIn] = Field(min_length=1)
+
+
+class RequisitionDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+class RequisitionFulfillLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: str
+    quantity: float = Field(gt=0)
+
+
+class RequisitionFulfill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lines: list[RequisitionFulfillLine] = Field(default_factory=list)
+
+
+class RequisitionLineOut(ORMModel):
+    id: str
+    inventory_item_id: str
+    quantity_requested: float
+    quantity_issued: float = 0
+    quantity_outstanding: float = 0
+    notes: Optional[str] = None
+    sku: Optional[str] = None
+    item_name: Optional[str] = None
+    unit: Optional[str] = None
+    on_hand: Optional[float] = None
+    store_on_hand: Optional[float] = None
+    shortfall: float = 0
+    reorder_level: Optional[float] = None
+
+
+class RequisitionOut(ORMModel):
+    id: str
+    req_number: str
+    status: str
+    department: str
+    destination_location_id: Optional[str] = None
+    destination_location_name: Optional[str] = None
+    requested_by_id: Optional[str] = None
+    requested_by_name: Optional[str] = None
+    approved_by_id: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    fulfilled_by_id: Optional[str] = None
+    notes: Optional[str] = None
+    reject_reason: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    fulfilled_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    clinic_id: str
+    created_at: datetime
+    lines: list[RequisitionLineOut] = []
+
+
+class SupplierHistoryOut(BaseModel):
+    supplier: SupplierOut
+    purchase_orders: list[PurchaseOrderOut] = Field(default_factory=list)
+    receives: list[StockMovementOut] = Field(default_factory=list)
+
+
+class StockAlertItem(BaseModel):
+    id: str
+    sku: str
+    name: str
+    quantity: float
+    reorder_level: float
+    expiry_date: Optional[date] = None
+    kind: str
+
+
+class WarehouseAlertsOut(BaseModel):
+    low_stock: list[StockAlertItem] = Field(default_factory=list)
+    expiring: list[dict] = Field(default_factory=list)
+    expired: list[dict] = Field(default_factory=list)
+    open_requisitions: int = 0
 
 
 class StaffShiftCreate(BaseModel):

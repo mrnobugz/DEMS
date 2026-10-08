@@ -7,6 +7,7 @@ import { FinancialConfigPanel } from "@/components/FinancialConfigPanel";
 import { RolePermissionMatrix } from "@/components/RolePermissionMatrix";
 import { StaffUserManager } from "@/components/StaffUserManager";
 import { TemplatesSetupPanel } from "@/components/TemplatesSetupPanel";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { FeeScheduleItem, StaffMember } from "@/lib/types";
@@ -85,6 +86,7 @@ export function ClinicAdminPage() {
   const [procCount, setProcCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  useAnnounce(error);
 
   function setView(next: AdminView) {
     const nextParams = new URLSearchParams(params);

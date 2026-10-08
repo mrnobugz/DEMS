@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { RegistrationWizard } from "@/components/RegistrationWizard";
 import { UnfinishedRegistrations } from "@/components/UnfinishedRegistrations";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import type { ChairQueueItem } from "@/lib/types";
@@ -80,6 +81,8 @@ export function FrontDeskPage() {
   >([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  useAnnounce(error);
+  useAnnounce(msg);
 
   useEffect(() => {
     api<ChairQueueItem[]>("/api/v1/departments/today-appointments")
@@ -113,8 +116,16 @@ export function FrontDeskPage() {
           Queue and walk-ins on the board. Recalls due for front desk follow-up.
         </p>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {msg && <p className="text-sm text-brand-700">{msg}</p>}
+      {error && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
+      {msg && (
+        <p className="text-sm text-brand-700" role="status" aria-live="polite">
+          {msg}
+        </p>
+      )}
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="glass-panel rounded-2xl p-4">
           <div className="mb-2 flex items-baseline justify-between gap-3">

@@ -35,7 +35,6 @@ from app.models import (
     LabCaseStatus,
     Patient,
     Prescription,
-    PrescriptionItem,
     PrescriptionStatus,
     RefreshToken,
     StaffProfile,
@@ -48,6 +47,7 @@ from app.schemas import (
     DrugTemplateCreate,
     ImagingStudyCreate,
     InventoryAdjust,
+    InventoryImportError,
     InventoryItemCreate,
     InventoryItemUpdate,
     LabCaseCreate,
@@ -567,6 +567,7 @@ async def create_inventory_item(
     item = InventoryItem(clinic_id=clinic_id, **data.model_dump())
     if item.item_kind == InventoryItemKind.SERVICE:
         item.quantity = 0
+        item.requires_expiry = False
     opening = float(item.quantity or 0)
     if item.item_kind == InventoryItemKind.STOCK:
         item.quantity = 0
@@ -594,6 +595,49 @@ async def create_inventory_item(
         resource_id=item.id,
     )
     return item
+
+
+async def import_inventory_items(
+    db: AsyncSession,
+    clinic_id: str,
+    actor_id: str,
+    items: list[InventoryItemCreate],
+) -> dict:
+    """Create many SKUs. A bad row is reported and does not undo the others."""
+    created = 0
+    errors: list[InventoryImportError] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(items, start=1):
+        data = raw.model_copy(update={"sku": raw.sku.strip(), "name": raw.name.strip()})
+        key = data.sku.casefold()
+        if not data.sku or not data.name:
+            errors.append(InventoryImportError(row=index, sku=data.sku, message="SKU and name are required"))
+            continue
+        if key in seen:
+            errors.append(InventoryImportError(row=index, sku=data.sku, message="Repeated in this import"))
+            continue
+        if (
+            data.item_kind == "stock"
+            and float(data.quantity or 0) > 0
+            and data.requires_expiry
+            and data.expiry_date is None
+        ):
+            errors.append(
+                InventoryImportError(
+                    row=index,
+                    sku=data.sku,
+                    message="Opening quantity needs an expiry date",
+                )
+            )
+            continue
+        seen.add(key)
+        try:
+            async with db.begin_nested():
+                await create_inventory_item(db, clinic_id, actor_id, data)
+            created += 1
+        except (ConflictError, ValidationAppError) as exc:
+            errors.append(InventoryImportError(row=index, sku=data.sku, message=exc.message))
+    return {"created": created, "errors": [err.model_dump() for err in errors]}
 
 
 async def update_inventory_item(
@@ -759,11 +803,43 @@ async def create_lab_case(
             restoration_case_id=restoration_case_id,
         )
         await db.flush()
+    await _sync_lab_charge(db, clinic_id, actor.id, case)
     return case
 
 
+async def _sync_lab_charge(db: AsyncSession, clinic_id: str, actor_id: str | None, case: LabCase) -> None:
+    """One lab case posts one lab line. Later cost edits update that unpaid invoice."""
+    if not actor_id or case.status == LabCaseStatus.CANCELLED:
+        return
+    amount = float(case.lab_cost or 0)
+    if amount <= 0:
+        return
+    from app.services.billing_ledger import ensure_posted_charge
+
+    label = f"Lab {case.case_type}"
+    if case.lab_name:
+        label = f"{label} · {case.lab_name}"
+    await ensure_posted_charge(
+        db,
+        clinic_id,
+        actor_id,
+        patient_id=case.patient_id,
+        idempotency_key=f"lab-case:{case.id}",
+        description=label,
+        amount=amount,
+        line_kind="lab",
+        notes=f"Lab case {case.case_type}",
+        tooth_number=case.tooth,
+    )
+
+
 async def update_lab_case(
-    db: AsyncSession, clinic_id: str, case_id: str, data: LabCaseUpdate
+    db: AsyncSession,
+    clinic_id: str,
+    case_id: str,
+    data: LabCaseUpdate,
+    *,
+    actor_id: str | None = None,
 ) -> LabCase:
     case = (
         await db.execute(
@@ -795,6 +871,7 @@ async def update_lab_case(
             restoration_case_id=None if restoration_case_id is _UNSET else restoration_case_id,
         )
     await db.flush()
+    await _sync_lab_charge(db, clinic_id, actor_id or case.dentist_id, case)
     return case
 
 
@@ -912,159 +989,43 @@ async def read_imaging_content(
     return study, data
 
 
-# ── Pharmacy ──────────────────────────────────────────
+# ── Pharmacy (delegates to the dispensary service) ────
 async def list_drug_templates(db: AsyncSession, clinic_id: str) -> list[DrugTemplate]:
-    result = await db.execute(
-        select(DrugTemplate)
-        .where(DrugTemplate.clinic_id == clinic_id, DrugTemplate.is_active.is_(True))
-        .order_by(DrugTemplate.name)
-    )
-    return list(result.scalars().all())
+    from app.services.pharmacy import list_drug_templates as impl
+
+    return await impl(db, clinic_id)
 
 
 async def create_drug_template(
     db: AsyncSession, clinic_id: str, data: DrugTemplateCreate
 ) -> DrugTemplate:
-    tmpl = DrugTemplate(clinic_id=clinic_id, **data.model_dump())
-    db.add(tmpl)
-    await db.flush()
-    return tmpl
+    from app.services.pharmacy import create_drug_template as impl
+
+    return await impl(db, clinic_id, data)
 
 
 async def list_prescriptions(
     db: AsyncSession, clinic_id: str, *, patient_id: str | None = None
 ) -> list[Prescription]:
-    q = (
-        select(Prescription)
-        .where(Prescription.clinic_id == clinic_id)
-        .options(selectinload(Prescription.items))
-    )
-    if patient_id:
-        q = q.where(Prescription.patient_id == patient_id)
-    result = await db.execute(q.order_by(Prescription.prescribed_at.desc()))
-    return list(result.scalars().all())
+    from app.services.pharmacy import list_prescriptions as impl
+
+    return await impl(db, clinic_id, patient_id=patient_id)
 
 
 async def create_prescription(
     db: AsyncSession, clinic_id: str, actor_id: str, data: PrescriptionCreate
 ) -> Prescription:
-    patient = (
-        await db.execute(
-            select(Patient).where(Patient.id == data.patient_id, Patient.clinic_id == clinic_id)
-        )
-    ).scalar_one_or_none()
-    if not patient:
-        raise NotFoundError("Patient not found")
-    rx = Prescription(
-        clinic_id=clinic_id,
-        patient_id=data.patient_id,
-        prescribed_by_id=actor_id,
-        notes=data.notes,
-        status=PrescriptionStatus.ACTIVE,
-    )
-    db.add(rx)
-    await db.flush()
-    for item in data.items:
-        drug_name = item.drug_name
-        if item.inventory_item_id:
-            stock_item = (
-                await db.execute(
-                    select(InventoryItem).where(
-                        InventoryItem.id == item.inventory_item_id, InventoryItem.clinic_id == clinic_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if not stock_item:
-                raise NotFoundError("Inventory item")
-            drug_name = stock_item.name
-        db.add(
-            PrescriptionItem(
-                prescription_id=rx.id,
-                drug_name=drug_name,
-                dose=item.dose,
-                quantity=item.quantity,
-                instructions=item.instructions,
-                inventory_item_id=item.inventory_item_id,
-            )
-        )
-    await db.flush()
-    result = await db.execute(
-        select(Prescription)
-        .where(Prescription.id == rx.id)
-        .options(selectinload(Prescription.items))
-    )
-    return result.scalar_one()
+    from app.services.pharmacy import create_prescription as impl
+
+    return await impl(db, clinic_id, actor_id, data)
 
 
 async def update_prescription_status(
     db: AsyncSession, clinic_id: str, actor_id: str, rx_id: str, status: str, bill: bool = False
 ) -> Prescription:
-    rx = (
-        await db.execute(
-            select(Prescription)
-            .where(Prescription.id == rx_id, Prescription.clinic_id == clinic_id)
-            .options(selectinload(Prescription.items))
-        )
-    ).scalar_one_or_none()
-    if not rx:
-        raise NotFoundError("Prescription not found")
-    previous = rx.status
-    rx.status = status
-    await db.flush()
-    if status == PrescriptionStatus.DISPENSED and previous != PrescriptionStatus.DISPENSED:
-        from app.services import warehouse as stock
-        from app.schemas import InvoiceCreate, InvoiceLineCreate
-        from app.services.domain import create_invoice
+    from app.services.pharmacy import update_prescription_status as impl
 
-        await stock.ensure_locations(db, clinic_id)
-        bill_lines: list[InvoiceLineCreate] = []
-        for item in rx.items:
-            if not item.inventory_item_id:
-                continue
-            qty = stock.parse_qty(item.quantity)
-            try:
-                await stock.issue_patient(
-                    db,
-                    clinic_id,
-                    actor_id,
-                    inventory_item_id=item.inventory_item_id,
-                    quantity=qty,
-                    location_code="PHARM",
-                    prescription_id=rx.id,
-                    reason="pharmacy dispense",
-                )
-            except ValidationAppError:
-                await stock.issue_patient(
-                    db,
-                    clinic_id,
-                    actor_id,
-                    inventory_item_id=item.inventory_item_id,
-                    quantity=qty,
-                    location_code="MAIN",
-                    prescription_id=rx.id,
-                    reason="pharmacy dispense",
-                )
-            if bill:
-                inv_item = await stock.get_stock_item(db, clinic_id, item.inventory_item_id)
-                price = float(inv_item.sale_price or inv_item.unit_cost or 0)
-                bill_lines.append(
-                    InvoiceLineCreate(
-                        description=item.drug_name,
-                        quantity=max(int(qty), 1),
-                        unit_price=price,
-                        procedure_code=inv_item.sku,
-                        inventory_item_id=None,
-                        line_kind="drug",
-                    )
-                )
-        if bill and bill_lines:
-            await create_invoice(
-                db,
-                clinic_id,
-                actor_id,
-                InvoiceCreate(patient_id=rx.patient_id, line_items=bill_lines, notes="Pharmacy dispense"),
-            )
-    return rx
+    return await impl(db, clinic_id, actor_id, rx_id, status, bill=bill)
 
 
 # ── Department home aggregates ────────────────────────
@@ -1137,7 +1098,9 @@ async def department_home(db: AsyncSession, clinic_id: str, role: str) -> dict:
             .select_from(Prescription)
             .where(
                 Prescription.clinic_id == clinic_id,
-                Prescription.status == PrescriptionStatus.ACTIVE,
+                Prescription.status.in_(
+                    [PrescriptionStatus.DRAFT, PrescriptionStatus.ACTIVE, PrescriptionStatus.PARTIAL]
+                ),
             )
         )
     ).scalar_one()

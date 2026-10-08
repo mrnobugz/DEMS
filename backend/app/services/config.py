@@ -57,6 +57,8 @@ SEQUENCE_SPECS: tuple[tuple[str, str, int, bool], ...] = (
     ("invoice", "INV-", 5, True),
     ("requisition", "REQ-", 5, True),
     ("purchase_order", "PO-", 5, True),
+    ("prescription", "RX-", 5, True),
+    ("pharmacy_sale", "PS-", 5, True),
 )
 
 SETTING_TOOTH_NOTATION = "clinical.tooth_notation"
@@ -231,6 +233,8 @@ async def ensure_clinic_config(db: AsyncSession, clinic_id: str) -> None:
         "invoice": int(invoice_count) + 1,
         "requisition": 1,
         "purchase_order": 1,
+        "prescription": 1,
+        "pharmacy_sale": 1,
     }
     for doc_type, prefix, padding, year_reset in SEQUENCE_SPECS:
         found = (

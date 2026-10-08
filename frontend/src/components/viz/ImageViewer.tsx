@@ -169,7 +169,7 @@ export function ImageViewer({
               key={t.id}
               type="button"
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                tool === t.id ? "bg-brand-500 text-white" : "border border-brand-100 bg-white text-muted"
+                tool === t.id ? "bg-brand-500 text-white" : "border border-brand-100 bg-canvas text-muted"
               }`}
               onClick={() => {
                 setTool(t.id);

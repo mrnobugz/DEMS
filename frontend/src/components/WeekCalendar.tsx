@@ -71,7 +71,7 @@ export function WeekCalendar({ weekStart, appointments, onReschedule, onSelectDa
         {days.map((day, dayIdx) => (
           <div
             key={day.toISOString()}
-            className="relative border-l border-brand-50 bg-white/40"
+            className="relative border-l border-brand-50 bg-canvas/40"
             style={{ height }}
             onDragOver={(e) => {
               e.preventDefault();

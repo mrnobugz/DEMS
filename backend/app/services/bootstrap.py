@@ -65,6 +65,9 @@ async def wipe_demo_data(db: AsyncSession) -> None:
         "org_departments",
         "number_sequences",
         "system_settings",
+        "pharmacy_sale_lines",
+        "pharmacy_sales",
+        "dispense_events",
         "prescription_items",
         "prescriptions",
         "drug_templates",
@@ -103,6 +106,8 @@ async def wipe_demo_data(db: AsyncSession) -> None:
         "patient_safety_items",
         "patient_vital_signs",
         "registration_drafts",
+        "requisition_lines",
+        "requisitions",
         "patients",
         "users",
         "clinics",
@@ -148,6 +153,9 @@ async def ensure_tzs_and_portal_demo(db: AsyncSession) -> None:
     for clinic in clinics:
         await ensure_clinic_config(db, clinic.id)
     await ensure_nurse_demo_user(db)
+    from app.services.demo_pack import ensure_demo_operations
+
+    await ensure_demo_operations(db)
 
 
 async def ensure_nurse_demo_user(db: AsyncSession) -> None:
@@ -983,3 +991,6 @@ async def seed_demo_fabric(db: AsyncSession) -> None:
         )
     )
     await db.flush()
+    from app.services.demo_pack import ensure_demo_operations
+
+    await ensure_demo_operations(db, force=True)

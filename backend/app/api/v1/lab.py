@@ -53,4 +53,4 @@ async def update_case(
     user: Annotated[User, Depends(require_permission("lab:*"))],
 ):
     _ = user
-    return await dept.update_lab_case(db, clinic_id, case_id, body)
+    return await dept.update_lab_case(db, clinic_id, case_id, body, actor_id=user.id)

@@ -9,8 +9,10 @@ import {
   Braces,
   Building2,
   CalendarDays,
+  ClipboardList,
   ClipboardPlus,
   FlaskConical,
+  FolderOpen,
   LayoutGrid,
   Package,
   Pill,
@@ -23,7 +25,11 @@ import {
   UserRoundCog,
   Users,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import { EmptyState } from "@/components/EmptyState";
+import { PageSkeleton } from "@/components/ui/accordion";
+import { PageHeader } from "@/components/ui/tabs";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { t } from "@/lib/i18n";
@@ -41,12 +47,14 @@ const ICONS: Record<string, LucideIcon> = {
   "building-2": Building2,
   "settings-2": Settings2,
   "clipboard-plus": ClipboardPlus,
+  "clipboard-list": ClipboardList,
   smile: Smile,
   slice: Slice,
   braces: Braces,
   baby: Baby,
   "user-round-cog": UserRoundCog,
   activity: Activity,
+  "folder-open": FolderOpen,
   scan: Scan,
   "flask-conical": FlaskConical,
   pill: Pill,
@@ -105,23 +113,20 @@ function ModuleCard({ module }: { module: StaffModule }) {
   );
 }
 
-function ModuleCardSkeleton({ delay }: { delay: number }) {
+function ModuleCardSkeleton() {
   return (
-    <div
-      className="module-card animate-pulse"
-      style={{ animationDelay: `${delay}ms` }}
-      aria-hidden
-    >
-      <div className="h-13 w-13 rounded-2xl bg-brand-100" style={{ width: 52, height: 52 }} />
-      <div className="h-4 w-2/3 rounded bg-brand-100" />
+    <div className="module-card" aria-hidden>
+      <PageSkeleton rows={1} />
     </div>
   );
 }
 
 export function ModulesDashboardPage() {
   const user = useAuth((s) => s.user);
+  const reduceMotion = useReducedMotion();
   const [modules, setModules] = useState<StaffModule[] | null>(null);
   const [error, setError] = useState("");
+  useAnnounce(error);
 
   useEffect(() => {
     api<StaffModule[]>("/api/v1/me/modules")
@@ -134,18 +139,14 @@ export function ModulesDashboardPage() {
 
   return (
     <div className="modules-dash space-y-8 animate-rise">
-      <header className="max-w-2xl">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-600">
-          {t("clinicOps")}
-        </p>
-        <h2 className="mt-1 font-display text-3xl font-bold tracking-tight text-brand-900">
-          {welcomeLine(user?.full_name, user?.role)}
-        </h2>
-        <p className="mt-2 text-sm text-muted">{t("selectModule")}</p>
-      </header>
+      <PageHeader
+        eyebrow={t("clinicOps")}
+        title={welcomeLine(user?.full_name, user?.role)}
+        description={t("selectModule")}
+      />
 
       {error && (
-        <p className="text-sm text-red-600" role="alert">
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
           {error}
         </p>
       )}
@@ -157,7 +158,7 @@ export function ModulesDashboardPage() {
           aria-label="Loading modules"
         >
           {Array.from({ length: 8 }, (_, i) => (
-            <ModuleCardSkeleton key={i} delay={i * 40} />
+            <ModuleCardSkeleton key={i} />
           ))}
         </div>
       )}
@@ -175,9 +176,14 @@ export function ModulesDashboardPage() {
       {modules && modules.length > 0 && (
         <div className="grid grid-cols-1 gap-x-6 gap-y-10 pt-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {modules.map((module, i) => (
-            <div key={module.key} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
+            <motion.div
+              key={module.key}
+              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : i * 0.04 }}
+            >
               <ModuleCard module={module} />
-            </div>
+            </motion.div>
           ))}
         </div>
       )}

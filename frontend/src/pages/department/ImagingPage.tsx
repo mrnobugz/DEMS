@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { DentalArchFilter } from "@/components/viz/DentalArchFilter";
 import { CompareViewer, ImageViewer } from "@/components/viz/ImageViewer";
 import { VolumeWorkspace } from "@/components/viz/VolumeWorkspace";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api, apiUpload, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StatGrid, useDepartmentHome } from "./FrontClinicalPages";
@@ -29,7 +30,7 @@ type Patient = { id: string; first_name: string; last_name: string; patient_code
 const MODALITIES = ["PA", "BW", "OPG", "CBCT", "photo"];
 
 export function ImagingPage() {
-  const { home } = useDepartmentHome();
+  const { home, error: homeError } = useDepartmentHome();
   const accessToken = useAuth((s) => s.accessToken);
   const [params] = useSearchParams();
   const [studies, setStudies] = useState<Study[]>([]);
@@ -47,6 +48,7 @@ export function ImagingPage() {
     file: null as File | null,
   });
   const [error, setError] = useState("");
+  useAnnounce(error || homeError);
 
   async function load() {
     const [s, p] = await Promise.all([
@@ -158,13 +160,17 @@ export function ImagingPage() {
   return (
     <div className="animate-rise space-y-6">
       <div>
-        <h2 className="font-display text-3xl font-bold text-brand-900">Imaging suite</h2>
+        <h2 className="font-display text-2xl font-bold text-brand-900">Imaging suite</h2>
         <p className="text-sm text-muted">
-          Gallery · dental arch filter · darkroom · measurements · 3D/MPR mapping
+          Gallery, dental arch filter, darkroom, measurements, and 3D/MPR mapping.
         </p>
       </div>
       {home && <StatGrid home={home} />}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {(error || homeError) && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error || homeError}
+        </p>
+      )}
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-2" onSubmit={onCreate}>
         <label className="text-sm">
@@ -234,7 +240,7 @@ export function ImagingPage() {
         <div className="flex flex-wrap gap-1">
           <button
             type="button"
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${!modality ? "bg-brand-500 text-white" : "border border-brand-100 bg-white text-muted"}`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${!modality ? "bg-brand-500 text-white" : "border border-brand-100 bg-canvas text-muted"}`}
             onClick={() => setModality("")}
           >
             All modalities
@@ -244,7 +250,7 @@ export function ImagingPage() {
               key={m}
               type="button"
               className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                modality === m ? "bg-brand-500 text-white" : "border border-brand-100 bg-white text-muted"
+                modality === m ? "bg-brand-500 text-white" : "border border-brand-100 bg-canvas text-muted"
               }`}
               onClick={() => setModality(m)}
             >
@@ -257,7 +263,7 @@ export function ImagingPage() {
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((s) => (
-              <li key={s.id} className="rounded-2xl border border-brand-100 bg-white/70 p-3 text-sm">
+              <li key={s.id} className="rounded-2xl border border-brand-100 bg-canvas/70 p-3 text-sm">
                 <div className="font-semibold">
                   {s.study_type}
                   {s.tooth ? ` · tooth ${s.tooth}` : ""}

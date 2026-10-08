@@ -412,7 +412,13 @@ async def register_patient(
             on_hand = await stock.on_hand_at(db, clinic_id, item.id)
             if on_hand + 1e-9 < qty:
                 raise ValidationAppError(f"Insufficient stock for {item.name}")
-        kind = "supply" if item.item_kind == InventoryItemKind.STOCK else "service"
+        blob = f"{item.name} {item.sku}".lower()
+        if item.item_kind == InventoryItemKind.STOCK:
+            kind = "supply"
+        elif "consult" in blob:
+            kind = "consultation"
+        else:
+            kind = "service"
         lines.append(
             InvoiceLineCreate(
                 description=item.name,
@@ -2120,6 +2126,30 @@ async def chart_to_cash(
 
 
 # ── Billing ───────────────────────────────────────────
+def service_line_kind(
+    *,
+    sold: str | None,
+    label: str,
+    category: str,
+    notes: str | None,
+    catalog_kind: str | None,
+) -> str:
+    """Pick a ledger line kind. Stocked drugs and supplies keep their own kind."""
+    if sold in ("drug", "supply"):
+        return str(sold)
+    cat = (category or "").strip().lower()
+    kind = (catalog_kind or "").strip().lower()
+    note = (notes or "").strip().lower()
+    if kind == "lab" or cat in {"lab", "laboratory"}:
+        return "lab"
+    imaging = {"imaging", "radiology", "radiograph", "xray", "x-ray"}
+    if note.startswith("radiology") or cat in imaging or kind in imaging:
+        return "imaging"
+    if "consult" in (label or "").lower() or cat == "consultation" or kind == "consultation":
+        return "consultation"
+    return "procedure"
+
+
 async def invoice_from_procedures(
     db: AsyncSession,
     clinic_id: str,
@@ -2168,7 +2198,13 @@ async def invoice_from_procedures(
 
         sold = sold_goods_kind(catalog_item.kind) if catalog_item else None
         inv_id = catalog_item.inventory_item_id if catalog_item and sold else None
-        kind = sold or "procedure"
+        kind = service_line_kind(
+            sold=sold,
+            label=item.label,
+            category=item.category,
+            notes=data.notes,
+            catalog_kind=catalog_item.kind if catalog_item else None,
+        )
         lines.append(
             InvoiceLineCreate(
                 description=item.label,
@@ -2211,12 +2247,17 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
         existing = (
             await db.execute(select(Invoice).where(Invoice.idempotency_key == data.idempotency_key))
         ).scalar_one_or_none()
+        if existing and existing.clinic_id == clinic_id:
+            return await get_invoice(db, clinic_id, existing.id)
         if existing:
             return existing
 
     subtotal = sum(li.quantity * li.unit_price for li in data.line_items)
     total = max(subtotal + data.tax - data.discount, 0)
     clinic = (await db.execute(select(Clinic).where(Clinic.id == clinic_id))).scalar_one()
+    from app.services.billing_ledger import DUE_TERM_DAYS
+
+    issued_at = datetime.now(UTC)
     from app.services import warehouse as stock
 
     await stock.ensure_locations(db, clinic_id)
@@ -2242,7 +2283,8 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
         patient_id=data.patient_id,
         invoice_number=await next_invoice_number(db, clinic_id),
         status=InvoiceStatus.ISSUED,
-        issued_at=datetime.now(UTC),
+        issued_at=issued_at,
+        due_at=issued_at + timedelta(days=DUE_TERM_DAYS),
         subtotal=subtotal,
         tax=data.tax,
         discount=data.discount,
@@ -2301,8 +2343,14 @@ async def get_invoice(db: AsyncSession, clinic_id: str, invoice_id: str) -> Invo
     inv = (
         await db.execute(
             select(Invoice)
-            .options(selectinload(Invoice.line_items), selectinload(Invoice.payments))
+            .options(
+                selectinload(Invoice.line_items),
+                selectinload(Invoice.payments),
+                selectinload(Invoice.patient),
+                selectinload(Invoice.claims),
+            )
             .where(Invoice.id == invoice_id, Invoice.clinic_id == clinic_id)
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if not inv:
@@ -2316,6 +2364,10 @@ async def list_invoices(
     patient_id: str | None = None,
     *,
     outstanding_only: bool = False,
+    status: str | None = None,
+    q: str | None = None,
+    issued_from: date | None = None,
+    issued_to: date | None = None,
 ) -> list[Invoice]:
     stmt = (
         select(Invoice)
@@ -2323,6 +2375,7 @@ async def list_invoices(
             selectinload(Invoice.line_items),
             selectinload(Invoice.payments),
             selectinload(Invoice.patient),
+            selectinload(Invoice.claims),
         )
         .where(Invoice.clinic_id == clinic_id)
     )
@@ -2332,8 +2385,33 @@ async def list_invoices(
         stmt = stmt.where(
             Invoice.status.in_([InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID])
         )
-    rows = (await db.execute(stmt.order_by(Invoice.created_at.desc()))).scalars().all()
+    if status:
+        stmt = stmt.where(Invoice.status == status)
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        stmt = stmt.join(Patient, Patient.id == Invoice.patient_id).where(
+            or_(
+                func.lower(Invoice.invoice_number).like(needle),
+                func.lower(Patient.first_name).like(needle),
+                func.lower(Patient.last_name).like(needle),
+                func.lower(Patient.patient_code).like(needle),
+            )
+        )
+    if issued_from:
+        start = datetime.combine(issued_from, time.min, tzinfo=UTC)
+        stmt = stmt.where(func.coalesce(Invoice.issued_at, Invoice.created_at) >= start)
+    if issued_to:
+        end = datetime.combine(issued_to, time.min, tzinfo=UTC) + timedelta(days=1)
+        stmt = stmt.where(func.coalesce(Invoice.issued_at, Invoice.created_at) < end)
+    rows = (await db.execute(stmt.order_by(Invoice.created_at.desc()))).scalars().unique().all()
     return list(rows)
+
+
+def as_utc(value: datetime) -> datetime:
+    """SQLite stores clinic timestamps without an offset."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def aging_bucket(days: int) -> str:
@@ -2355,7 +2433,7 @@ async def list_outstanding_invoices(db: AsyncSession, clinic_id: str) -> list[di
         if balance <= 0.001:
             continue
         issued = inv.issued_at or inv.created_at
-        days = (now - issued).days if issued else 0
+        days = (now - as_utc(issued)).days if issued else 0
         patient = inv.patient
         out.append(
             {
@@ -2503,6 +2581,8 @@ async def add_payment(
     db: AsyncSession, clinic_id: str, actor_id: str, invoice_id: str, data: PaymentCreate
 ) -> Invoice:
     invoice = await get_invoice(db, clinic_id, invoice_id)
+    if invoice.status in (InvoiceStatus.VOID, InvoiceStatus.REFUNDED):
+        raise ValidationAppError("This invoice cannot take a payment")
     if data.idempotency_key:
         existing = (
             await db.execute(select(Payment).where(Payment.idempotency_key == data.idempotency_key))
@@ -2527,11 +2607,9 @@ async def add_payment(
     )
     invoice.payments.append(payment)
     invoice.amount_paid += data.amount
-    remaining_after = invoice.total - invoice.amount_paid - float(invoice.amount_adjusted or 0)
-    if remaining_after <= 0.001:
-        invoice.status = InvoiceStatus.PAID
-    elif invoice.amount_paid > 0:
-        invoice.status = InvoiceStatus.PARTIALLY_PAID
+    from app.services.billing_ledger import sync_invoice_status
+
+    sync_invoice_status(invoice)
     await db.flush()
     if invoice.status == InvoiceStatus.PAID:
         patient = (

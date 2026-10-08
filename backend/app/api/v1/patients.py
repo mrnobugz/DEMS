@@ -22,6 +22,7 @@ from app.schemas import (
     RegistrationDraftSave,
     VitalSignCreate,
     VitalSignOut,
+    VitalsWorklistItemOut,
 )
 from app.services import domain as svc
 from app.services import patient_records as records
@@ -42,6 +43,23 @@ async def list_patients(
 ):
     items, total = await svc.list_patients(
         db, clinic_id, q=q, limit=limit, offset=offset, actor=user
+    )
+    return Page(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/vitals-worklist", response_model=Page[VitalsWorklistItemOut])
+async def vitals_worklist(
+    db: DbSession,
+    clinic_id: ClinicId,
+    user: Annotated[User, Depends(require_any_permission("clinical:vitals", "clinical:*", "patients:read"))],
+    q: str | None = None,
+    status: str = Query("needed", pattern="^(needed|recorded|all)$"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    _ = user
+    items, total = await vitals_svc.list_worklist(
+        db, clinic_id, q=q, status=status, limit=limit, offset=offset
     )
     return Page(items=items, total=total, limit=limit, offset=offset)
 

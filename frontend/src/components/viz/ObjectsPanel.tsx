@@ -43,7 +43,7 @@ export function ObjectsPanel({
   onToggle: (key: ObjectLayerKey) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-brand-100 bg-white/80 p-3">
+    <div className="rounded-2xl border border-brand-100 bg-canvas/80 p-3">
       <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">Objects</p>
       <ul className="space-y-1">
         {LABELS.map((row) => (

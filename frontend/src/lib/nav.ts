@@ -10,6 +10,7 @@ import {
   ArrowLeftRight,
   Truck,
   FlaskConical,
+  FolderOpen,
   LayoutDashboard,
   Package,
   PenLine,
@@ -55,6 +56,24 @@ const CLINICAL_ROLES = ["dentist", "hygienist", "clinic_admin", "super_admin"];
 const FRONT_DESK_ROLES = ["receptionist", "clinic_admin", "super_admin"];
 const WAREHOUSE_ROLES = ["clinic_admin", "dentist", "super_admin", "pharmacy", "accountant", "hygienist"];
 const WAREHOUSE_PERMS = ["inventory:read", "inventory:issue", "inventory:*"];
+const REQUISITION_ROLES = [
+  "dentist",
+  "hygienist",
+  "nurse",
+  "receptionist",
+  "pharmacy",
+  "lab_tech",
+  "clinic_admin",
+  "super_admin",
+];
+const REQUISITION_PERMS = ["requisition:create", "requisition:approve", "requisition:fulfill", "requisition:*"];
+const REQUISITION_ITEM: NavItem = {
+  to: "/requisitions",
+  labelKey: "requisitions",
+  icon: ClipboardList,
+  roles: REQUISITION_ROLES,
+  anyPermission: REQUISITION_PERMS,
+};
 
 const WAREHOUSE_GROUP: NavGroup = {
   labelKey: "inventory",
@@ -63,6 +82,7 @@ const WAREHOUSE_GROUP: NavGroup = {
   anyPermission: WAREHOUSE_PERMS,
   children: [
     { to: "/inventory", labelKey: "whOverview", icon: LayoutDashboard, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
+    { to: "/inventory?view=requests", labelKey: "whRequests", icon: ClipboardList, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
     { to: "/inventory?view=stock", labelKey: "whStock", icon: Package, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
     { to: "/inventory?view=receive", labelKey: "whReceive", icon: Truck, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
     { to: "/inventory?view=issues", labelKey: "whIssues", icon: ArrowLeftRight, roles: WAREHOUSE_ROLES, anyPermission: WAREHOUSE_PERMS },
@@ -190,20 +210,27 @@ const ALL: NavEntry[] = [
     anyPermission: ["staff:*"],
   },
   FRONT_DESK_GROUP,
-  CLINICAL_GROUP,
-  {
-    to: "/hygiene",
-    labelKey: "hygiene",
-    icon: UserRoundCog,
-    roles: ["hygienist", "dentist", "clinic_admin", "super_admin"],
-    anyPermission: ["clinical:read", "clinical:limited"],
-  },
   {
     to: "/vitals",
     labelKey: "vitals",
     icon: Activity,
     roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["clinical:vitals", "clinical:*"],
+  },
+  CLINICAL_GROUP,
+  {
+    to: "/clinical-records",
+    labelKey: "clinicalRecords",
+    icon: FolderOpen,
+    roles: CLINICAL_ROLES,
+    anyPermission: ["clinical:read", "clinical:*"],
+  },
+  {
+    to: "/hygiene",
+    labelKey: "hygiene",
+    icon: UserRoundCog,
+    roles: ["hygienist", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["clinical:read", "clinical:limited"],
   },
   {
     to: "/imaging",
@@ -226,6 +253,7 @@ const ALL: NavEntry[] = [
     roles: ["pharmacy", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["pharmacy:read", "pharmacy:*"],
   },
+  REQUISITION_ITEM,
   WAREHOUSE_GROUP,
   {
     to: "/patients",
@@ -388,9 +416,23 @@ const MODULE_DEFS: ModuleDef[] = [
     match: (path) => path === "/front-desk" || path.startsWith("/front-desk/"),
     items: FRONT_DESK_GROUP.children,
   },
+  singletonModule("vitals", "vitals", "/vitals", {
+    to: "/vitals",
+    labelKey: "vitals",
+    icon: Activity,
+    roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
+    anyPermission: ["clinical:vitals", "clinical:*"],
+  }),
   ...CLINICAL_GROUP.children.map((item) => {
     const home = item.to.split("?")[0];
     return singletonModule(home.replace("/clinical/", ""), item.labelKey, home, item);
+  }),
+  singletonModule("clinical-records", "clinicalRecords", "/clinical-records", {
+    to: "/clinical-records",
+    labelKey: "clinicalRecords",
+    icon: FolderOpen,
+    roles: CLINICAL_ROLES,
+    anyPermission: ["clinical:read", "clinical:*"],
   }),
   singletonModule("hygiene", "hygiene", "/hygiene", {
     to: "/hygiene",
@@ -398,13 +440,6 @@ const MODULE_DEFS: ModuleDef[] = [
     icon: UserRoundCog,
     roles: ["hygienist", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["clinical:read", "clinical:limited"],
-  }),
-  singletonModule("vitals", "vitals", "/vitals", {
-    to: "/vitals",
-    labelKey: "vitals",
-    icon: Activity,
-    roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
-    anyPermission: ["clinical:vitals", "clinical:*"],
   }),
   singletonModule("imaging", "imaging", "/imaging", {
     to: "/imaging",
@@ -427,6 +462,7 @@ const MODULE_DEFS: ModuleDef[] = [
     roles: ["pharmacy", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["pharmacy:read", "pharmacy:*"],
   }),
+  singletonModule("requisitions", "requisitions", "/requisitions", REQUISITION_ITEM),
   {
     key: "inventory",
     titleKey: "inventory",
@@ -603,4 +639,52 @@ export function canAccessPath(
     });
   if (!item) return true;
   return itemVisible(item, role, permissions);
+}
+
+export type Crumb = { to: string; labelKey: string };
+
+/** Real destinations only — labels come from existing nav entries. */
+export function breadcrumbFor(
+  pathname: string,
+  search: string,
+  role: string | undefined | null,
+  permissions?: string[] | null,
+): Crumb[] {
+  const home: Crumb = { to: MODULES_DASHBOARD_PATH, labelKey: "dashboard" };
+  if (pathname === MODULES_DASHBOARD_PATH) return [home];
+
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+    const crumbs: Crumb[] = [home, { to: "/admin", labelKey: "clinicAdmin" }];
+    const view = new URLSearchParams(search).get("view");
+    const sub = view ? ADMIN_ITEMS.find((item) => item.to === `/admin?view=${view}`) : undefined;
+    if (sub) crumbs.push({ to: sub.to, labelKey: sub.labelKey });
+    return crumbs;
+  }
+
+  const here = search && search !== "?" ? `${pathname}${search}` : pathname;
+  const entries = navForRole(role, permissions);
+  for (const entry of entries) {
+    if (isNavGroup(entry)) {
+      const exact = entry.children.find((item) => item.to === here);
+      const pathOnly = entry.children.find((item) => item.to === pathname);
+      const match = exact || pathOnly;
+      if (!match) continue;
+      const crumbs: Crumb[] = [home, { to: entry.children[0]?.to || pathname, labelKey: entry.labelKey }];
+      if (match.to !== crumbs[1]?.to) crumbs.push({ to: match.to, labelKey: match.labelKey });
+      return crumbs;
+    }
+    const base = entry.to.split("?")[0];
+    if (base === pathname || (base !== "/" && pathname.startsWith(`${base}/`))) {
+      const crumbs: Crumb[] = [home, { to: base, labelKey: entry.labelKey }];
+      if (pathname.startsWith("/patients/") && pathname !== "/patients") {
+        crumbs.push({ to: pathname, labelKey: "chart" });
+      }
+      return crumbs;
+    }
+  }
+
+  if (pathname.startsWith("/patients/")) {
+    return [home, { to: "/patients", labelKey: "patients" }, { to: pathname, labelKey: "chart" }];
+  }
+  return [home];
 }

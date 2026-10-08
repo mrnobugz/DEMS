@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { PageSkeleton } from "@/components/ui/accordion";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/i18n";
 import { useUiPrefs } from "@/lib/uiPrefs";
@@ -10,6 +12,8 @@ export function ReportsPage() {
   const [clinical, setClinical] = useState<any>(null);
   const [ops, setOps] = useState<any>(null);
   const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+  useAnnounce(error);
 
   useEffect(() => {
     Promise.all([
@@ -22,7 +26,8 @@ export function ReportsPage() {
         setClinical(c);
         setOps(o);
       })
-      .catch((e) => setError(e.message));
+      .catch((e: { message?: string }) => setError(e.message || "Could not load reports"))
+      .finally(() => setReady(true));
   }, []);
 
   return (
@@ -31,7 +36,17 @@ export function ReportsPage() {
         <h2 className="font-display text-3xl font-bold text-brand-900">Reports</h2>
         <p className="text-sm text-muted">Financial · clinical · operational</p>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
+      {!ready && <PageSkeleton rows={3} />}
+      {ready && !financial && !clinical && !ops && !error && (
+        <p className="text-sm text-muted" role="status">
+          No report data was returned.
+        </p>
+      )}
 
       {financial && (
         <section className="glass-panel rounded-3xl p-5">

@@ -15,21 +15,52 @@ export class ApiError extends Error {
   }
 }
 
+/** One shared refresh so parallel 401s do not rotate/revoke each other. */
+let refreshInFlight: Promise<string | null> | null = null;
+
 async function refreshAccess(): Promise<string | null> {
-  const { refreshToken, setSession, clear, user } = useAuth.getState();
-  if (!refreshToken) return null;
-  const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const { refreshToken, setSession, clear, user } = useAuth.getState();
+    if (!refreshToken) return null;
+    const used = refreshToken;
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: used }),
+      });
+      if (!res.ok) {
+        // Another request/tab may already have rotated successfully.
+        if (useAuth.getState().refreshToken === used) clear();
+        return null;
+      }
+      const data = await res.json();
+      setSession(data.access_token, data.refresh_token, data.user ?? user);
+      return data.access_token as string;
+    } catch {
+      if (useAuth.getState().refreshToken === used) clear();
+      return null;
+    }
+  })().finally(() => {
+    refreshInFlight = null;
   });
-  if (!res.ok) {
-    clear();
-    return null;
+
+  return refreshInFlight;
+}
+
+function authHeaders(base?: HeadersInit, jsonBody = false): Headers {
+  const headers = new Headers(base);
+  if (jsonBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
   }
-  const data = await res.json();
-  setSession(data.access_token, data.refresh_token, data.user ?? user);
-  return data.access_token as string;
+  const { accessToken, user, activeClinicId } = useAuth.getState();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (user?.role === "super_admin" && activeClinicId) {
+    headers.set("X-Clinic-Id", activeClinicId);
+  }
+  return headers;
 }
 
 export async function api<T>(
@@ -37,18 +68,7 @@ export async function api<T>(
   options: RequestInit = {},
   retry = true,
 ): Promise<T> {
-  const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body) {
-    headers.set("Content-Type", "application/json");
-  }
-  const token = useAuth.getState().accessToken;
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const { user, activeClinicId } = useAuth.getState();
-  if (user?.role === "super_admin" && activeClinicId) {
-    headers.set("X-Clinic-Id", activeClinicId);
-  }
-
+  const headers = authHeaders(options.headers, Boolean(options.body));
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (res.status === 401 && retry) {
@@ -78,13 +98,7 @@ export async function api<T>(
 
 /** Multipart upload — do not set Content-Type (browser sets boundary). */
 export async function apiUpload<T>(path: string, formData: FormData, retry = true): Promise<T> {
-  const headers = new Headers();
-  const token = useAuth.getState().accessToken;
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const { user, activeClinicId } = useAuth.getState();
-  if (user?.role === "super_admin" && activeClinicId) {
-    headers.set("X-Clinic-Id", activeClinicId);
-  }
+  const headers = authHeaders();
   const res = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
   if (res.status === 401 && retry) {
     const next = await refreshAccess();
@@ -109,13 +123,7 @@ export async function apiUpload<T>(path: string, formData: FormData, retry = tru
 }
 
 export async function apiBlob(path: string, retry = true): Promise<Blob> {
-  const headers = new Headers();
-  const token = useAuth.getState().accessToken;
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const { user, activeClinicId } = useAuth.getState();
-  if (user?.role === "super_admin" && activeClinicId) {
-    headers.set("X-Clinic-Id", activeClinicId);
-  }
+  const headers = authHeaders();
   const res = await fetch(`${API_BASE}${path}`, { headers });
   if (res.status === 401 && retry) {
     const next = await refreshAccess();

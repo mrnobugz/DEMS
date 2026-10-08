@@ -61,16 +61,13 @@ export function ClinicalDeptSwitcher() {
     { to: "/clinical/paediatric", label: "Paediatric" },
   ];
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-2" role="navigation" aria-label="Clinical departments">
       {depts.map((d) => (
         <Link
           key={d.to}
           to={d.to}
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-            location.pathname === d.to
-              ? "bg-brand-500 text-white"
-              : "border border-brand-100 bg-white text-muted hover:bg-brand-50"
-          }`}
+          className={`dept-switch ${location.pathname === d.to ? "dept-switch--on" : ""}`}
+          aria-current={location.pathname === d.to ? "page" : undefined}
         >
           {d.label}
         </Link>
@@ -127,8 +124,8 @@ export function PatientSelect({
   label?: string;
 }) {
   return (
-    <label className="text-sm">
-      {label}
+    <label className="block text-sm">
+      <span className="label">{label}</span>
       <select
         className="input mt-1"
         value={value}

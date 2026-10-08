@@ -2,6 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("demsta-ui");
+          if (!raw) return;
+          var parsed = JSON.parse(raw);
+          var state = parsed && parsed.state ? parsed.state : {};
+          var root = document.documentElement;
+          if (state.dark) {
+            root.classList.add("dark");
+            root.style.colorScheme = "dark";
+            var theme = document.querySelector('meta[name="theme-color"]');
+            if (theme) theme.setAttribute("content", "#0a1122");
+            var scheme = document.querySelector('meta[name="color-scheme"]');
+            if (scheme) scheme.setAttribute("content", "dark");
+          }
+          if (state.chairside) root.classList.add("chairside");
+          if (state.palette === "sky") root.setAttribute("data-palette", "sky");
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0B5FFF" />

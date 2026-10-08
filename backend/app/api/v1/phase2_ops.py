@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 
 from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
-from app.core.exceptions import NotFoundError
 from app.models import (
     Appointment,
     InventoryItem,
@@ -34,17 +33,9 @@ from app.schemas import (
     StaffShiftOut,
 )
 from app.services import clinical_depth as depth
+from app.services.domain import as_utc
 
 router = APIRouter(tags=["phase2-ops"])
-
-# Simple advisory allergy/drug map (never auto-blocks)
-_DRUG_ALLERGY_HINTS = {
-    "amoxicillin": ["penicillin", "beta-lactam", "amoxicillin"],
-    "penicillin": ["penicillin", "beta-lactam"],
-    "ibuprofen": ["nsaid", "ibuprofen", "aspirin"],
-    "aspirin": ["aspirin", "nsaid", "salicylate"],
-}
-
 
 @router.get("/reports/financial")
 async def financial_report(
@@ -93,7 +84,7 @@ async def financial_report(
     for inv in open_inv:
         bal = float(inv.total) - float(inv.amount_paid)
         issued = inv.issued_at or inv.created_at
-        days = (now - issued).days if issued else 0
+        days = (now - as_utc(issued)).days if issued else 0
         if days <= 30:
             aging["0_30"] += bal
         elif days <= 60:
@@ -204,33 +195,9 @@ async def rx_warn(
     user: Annotated[User, Depends(require_permission("pharmacy:read"))],
 ):
     _ = user
-    patient = (
-        await db.execute(
-            select(Patient).where(Patient.id == body.patient_id, Patient.clinic_id == clinic_id)
-        )
-    ).scalar_one_or_none()
-    if not patient:
-        raise NotFoundError("Patient not found")
-    allergy_blob = " ".join(
-        filter(
-            None,
-            [
-                (patient.allergies or "").lower(),
-                (patient.chronic_conditions or "").lower(),
-                (patient.medical_history_json or "").lower(),
-            ],
-        )
-    )
-    drug = body.drug_name.lower()
-    warnings: list[str] = []
-    for key, tokens in _DRUG_ALLERGY_HINTS.items():
-        if key in drug:
-            for tok in tokens:
-                if tok in allergy_blob:
-                    warnings.append(
-                        f"Advisory: patient record mentions '{tok}' — review before dispensing {body.drug_name}."
-                    )
-                    break
+    from app.services.pharmacy import drug_warnings
+
+    warnings = await drug_warnings(db, clinic_id, body.patient_id, body.drug_name)
     return RxWarnOut(warnings=warnings, severity="advisory" if warnings else "none")
 
 

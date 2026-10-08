@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/ui/tabs";
+import { useAnnounce } from "@/components/ui/sonner";
+import { api, ApiError } from "@/lib/api";
 import type { Page, Patient } from "@/lib/types";
 
 export function AiAssistPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [patientId, setPatientId] = useState("");
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState("");
+  useAnnounce(error);
 
   useEffect(() => {
     void api<Page<Patient>>("/api/v1/patients?limit=100").then((p) => {
@@ -15,21 +20,29 @@ export function AiAssistPage() {
   }, []);
 
   async function runRisk() {
-    const data = await api<Record<string, unknown>>("/api/v1/ai/caries-risk", {
-      method: "POST",
-      body: JSON.stringify({ patient_id: patientId }),
-    });
-    setResult(data);
+    setError("");
+    try {
+      const data = await api<Record<string, unknown>>("/api/v1/ai/caries-risk", {
+        method: "POST",
+        body: JSON.stringify({ patient_id: patientId }),
+      });
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not run the risk model");
+    }
   }
 
   return (
     <div className="space-y-5 animate-rise">
-      <div>
-        <h2 className="font-display text-2xl font-bold text-brand-900">AI Assist Gateway</h2>
-        <p className="text-sm text-muted">
-          Pluggable decision-support — outputs are advisory, dentist-confirmed, and audit-logged.
+      <PageHeader
+        title="AI Assist Gateway"
+        description="Pluggable decision-support. Outputs are advisory, dentist-confirmed, and audit-logged."
+      />
+      {error && (
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {error}
         </p>
-      </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="glass-panel space-y-4 rounded-3xl p-5">
@@ -54,7 +67,9 @@ export function AiAssistPage() {
 
         <div className="glass-panel rounded-3xl p-5">
           <h3 className="font-display text-lg font-bold">Result</h3>
-          {!result && <p className="mt-3 text-sm text-muted">No suggestion yet.</p>}
+          {!result && (
+            <EmptyState title="No suggestion yet" hint="Choose a patient and run the caries risk model." />
+          )}
           {result && (
             <div className="mt-3 space-y-2 text-sm">
               <div className="ai-badge">is_ai_suggested</div>

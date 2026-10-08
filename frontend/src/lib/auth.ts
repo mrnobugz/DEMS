@@ -38,3 +38,12 @@ export const useAuth = create<AuthState>()(
     { name: "demsta-auth" },
   ),
 );
+
+/** Keep other tabs in sync when one tab refreshes or signs out. */
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === "demsta-auth") {
+      void useAuth.persist.rehydrate();
+    }
+  });
+}

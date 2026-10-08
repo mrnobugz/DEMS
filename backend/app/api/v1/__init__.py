@@ -6,6 +6,7 @@ from app.api.v1 import (
     billing,
     clinical,
     clinical_depth,
+    clinical_records,
     departments,
     imaging,
     insurance,
@@ -20,6 +21,7 @@ from app.api.v1 import (
     config,
     phase2_ops,
     portal,
+    requisitions,
     specialty,
     staff,
 )
@@ -31,6 +33,7 @@ api_router.include_router(patients.router)
 api_router.include_router(appointments.router)
 api_router.include_router(clinical.router)
 api_router.include_router(clinical_depth.router)
+api_router.include_router(clinical_records.router)
 api_router.include_router(billing.router)
 api_router.include_router(insurance.router)
 api_router.include_router(ops.router)
@@ -38,6 +41,7 @@ api_router.include_router(owner.router)
 api_router.include_router(staff.router)
 api_router.include_router(config.router)
 api_router.include_router(inventory.router)
+api_router.include_router(requisitions.router)
 api_router.include_router(lab.router)
 api_router.include_router(imaging.router)
 api_router.include_router(pharmacy.router)

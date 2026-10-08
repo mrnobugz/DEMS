@@ -21,6 +21,8 @@ from app.models import (
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderStatus,
+    Requisition,
+    RequisitionStatus,
     StockLocation,
     StockLocationKind,
     StockLot,
@@ -168,7 +170,49 @@ def _require_stock(item: InventoryItem) -> None:
         raise ValidationAppError("Service items do not hold stock — edit the sale price instead")
 
 
-async def _refresh_item_qty(db: AsyncSession, item: InventoryItem) -> None:
+def _requires_expiry(item: InventoryItem) -> bool:
+    if item.item_kind == InventoryItemKind.SERVICE:
+        return False
+    return bool(getattr(item, "requires_expiry", True))
+
+
+def _require_expiry(item: InventoryItem, expiry_date: date | None) -> None:
+    if _requires_expiry(item) and expiry_date is None:
+        raise ValidationAppError(
+            f"{item.name} is a medical supply - enter the expiry date before receiving it"
+        )
+
+
+async def _maybe_flag_low_stock(
+    db: AsyncSession, item: InventoryItem, previous_qty: float, actor_id: str | None
+) -> None:
+    threshold = float(item.reorder_level or 0)
+    if threshold <= 0:
+        return
+    current = float(item.quantity or 0)
+    if previous_qty > threshold + 1e-9 and current <= threshold + 1e-9:
+        from app.services import events as bus
+
+        await bus.publish(
+            db,
+            clinic_id=item.clinic_id,
+            event_type=bus.STOCK_BELOW_PAR,
+            aggregate_type="inventory_item",
+            aggregate_id=item.id,
+            payload={
+                "sku": item.sku,
+                "name": item.name,
+                "quantity": current,
+                "reorder_level": threshold,
+            },
+            actor_id=actor_id,
+        )
+
+
+async def _refresh_item_qty(
+    db: AsyncSession, item: InventoryItem, *, actor_id: str | None = None, previous_qty: float | None = None
+) -> None:
+    before = previous_qty if previous_qty is not None else float(item.quantity or 0)
     total = (
         await db.execute(
             select(func.coalesce(func.sum(StockLot.quantity), 0)).where(
@@ -178,6 +222,7 @@ async def _refresh_item_qty(db: AsyncSession, item: InventoryItem) -> None:
     ).scalar_one()
     item.quantity = float(total or 0)
     await db.flush()
+    await _maybe_flag_low_stock(db, item, before, actor_id)
 
 
 async def _get_or_create_lot(
@@ -264,10 +309,11 @@ async def _increase_lot(
 ) -> StockMovement:
     if item.track_lots and not (lot_code or "").strip():
         raise ValidationAppError(f"{item.name} requires a lot number on receive")
+    previous_qty = float(item.quantity or 0)
     lot = await _get_or_create_lot(
         db, clinic_id, item, location_id, lot_code or DEFAULT_LOT, expiry_date, unit_cost
     )
-    old_qty = float(item.quantity or 0)
+    old_qty = previous_qty
     old_cost = float(item.unit_cost or 0)
     lot.quantity = float(lot.quantity) + qty
     if unit_cost > 0:
@@ -290,7 +336,7 @@ async def _increase_lot(
     )
     db.add(mv)
     await db.flush()
-    await _refresh_item_qty(db, item)
+    await _refresh_item_qty(db, item, actor_id=actor_id, previous_qty=previous_qty)
     return mv
 
 
@@ -305,6 +351,7 @@ async def _decrease_lots(
     movement_type: str,
     lot_code: str | None = None,
     reason: str | None = None,
+    commit_qty: bool = True,
     **refs: Any,
 ) -> list[StockMovement]:
     available = await on_hand_at(db, clinic_id, item.id, location_id)
@@ -323,6 +370,7 @@ async def _decrease_lots(
     remaining = qty
     posted: list[StockMovement] = []
     cost_snap = float(item.unit_cost or 0)
+    previous_qty = float(item.quantity or 0)
     for lot in lots:
         if remaining <= 1e-9:
             break
@@ -346,7 +394,8 @@ async def _decrease_lots(
     if remaining > 1e-6:
         raise ValidationAppError(f"Insufficient stock for {item.name}")
     await db.flush()
-    await _refresh_item_qty(db, item)
+    if commit_qty:
+        await _refresh_item_qty(db, item, actor_id=actor_id, previous_qty=previous_qty)
     return posted
 
 
@@ -369,6 +418,7 @@ async def receive(
     await ensure_locations(db, clinic_id)
     item = await get_stock_item(db, clinic_id, inventory_item_id)
     _require_stock(item)
+    _require_expiry(item, expiry_date)
     if quantity <= 0:
         raise ValidationAppError("Receive quantity must be greater than zero")
     loc = await get_location(db, clinic_id, location_id) if location_id else await location_by_code(
@@ -448,6 +498,7 @@ async def issue_department(
     to_location_id: str,
     lot_code: str | None = None,
     reason: str | None = None,
+    requisition_id: str | None = None,
 ) -> list[StockMovement]:
     await ensure_locations(db, clinic_id)
     item = await get_stock_item(db, clinic_id, inventory_item_id)
@@ -460,6 +511,7 @@ async def issue_department(
     dest = await get_location(db, clinic_id, to_location_id)
     if src.id == dest.id:
         raise ValidationAppError("Choose different from and to locations")
+    previous_qty = float(item.quantity or 0)
     consumed = await _decrease_lots(
         db,
         clinic_id=clinic_id,
@@ -470,6 +522,8 @@ async def issue_department(
         movement_type=StockMovementType.TRANSFER,
         lot_code=lot_code,
         reason=reason or f"issue to {dest.code}",
+        requisition_id=requisition_id,
+        commit_qty=False,
     )
     for mv in consumed:
         mv.to_location_id = dest.id
@@ -481,7 +535,7 @@ async def issue_department(
         )
         dest_lot.quantity = float(dest_lot.quantity) + float(mv.quantity)
     await db.flush()
-    await _refresh_item_qty(db, item)
+    await _refresh_item_qty(db, item, actor_id=actor_id, previous_qty=previous_qty)
     return consumed
 
 
@@ -767,9 +821,64 @@ async def list_movements(
     return list((await db.execute(q)).scalars().all())
 
 
-async def analysis(db: AsyncSession, clinic_id: str) -> dict[str, Any]:
+ANALYSIS_PERIODS = (30, 90, 180, 365)
+OUTBOUND_TYPES = (
+    StockMovementType.ISSUE_PATIENT,
+    StockMovementType.ISSUE_DEPARTMENT,
+    StockMovementType.WRITEOFF,
+    StockMovementType.TRANSFER,
+)
+# Location codes used when a chair issues from the main store.
+_LOCATION_DEPARTMENT = {
+    "REST": "restorative",
+    "OMFS": "maxillofacial",
+    "ORTHO": "orthodontic",
+    "PAED": "paediatric",
+    "HYG": "hygiene",
+    "PHARM": "pharmacy",
+    "LAB": "lab",
+    "MAIN": "front_desk",
+}
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _week_start(day: date) -> date:
+    return day - timedelta(days=day.weekday())
+
+
+def _movement_department(movement: StockMovement, loc_map: dict[str, StockLocation]) -> str | None:
+    """Department bay a movement was issued to. Store transfers use the destination."""
+    if movement.movement_type == StockMovementType.TRANSFER and movement.to_location_id:
+        loc = loc_map.get(movement.to_location_id)
+        return loc.code if loc else None
+    if movement.movement_type == StockMovementType.ISSUE_DEPARTMENT:
+        loc_id = movement.to_location_id or movement.from_location_id
+        loc = loc_map.get(loc_id) if loc_id else None
+        return loc.code if loc else None
+    return None
+
+
+async def analysis(
+    db: AsyncSession,
+    clinic_id: str,
+    *,
+    days: int = 90,
+    category: str | None = None,
+    department: str | None = None,
+) -> dict[str, Any]:
+    if days not in ANALYSIS_PERIODS:
+        raise ValidationAppError("Period must be 30, 90, 180, or 365 days")
+    category_filter = (category or "").strip() or None
+    department_filter = (department or "").strip().upper() or None
     await ensure_locations(db, clinic_id)
-    items = (
+    locations = await list_locations(db, clinic_id)
+    loc_map = {loc.id: loc for loc in locations}
+    all_items = (
         await db.execute(
             select(InventoryItem).where(
                 InventoryItem.clinic_id == clinic_id,
@@ -778,67 +887,122 @@ async def analysis(db: AsyncSession, clinic_id: str) -> dict[str, Any]:
             )
         )
     ).scalars().all()
+    items = [i for i in all_items if not category_filter or (i.category or "") == category_filter]
+    item_ids = {i.id for i in items}
+    item_map = {i.id: i for i in all_items}
     on_hand_value = sum(float(i.quantity or 0) * float(i.unit_cost or 0) for i in items)
+    on_hand_qty = sum(float(i.quantity or 0) for i in items)
     low = [i for i in items if float(i.quantity or 0) <= float(i.reorder_level or 0)]
-    cutoff = date.today() + timedelta(days=90)
-    lots = (
-        await db.execute(
-            select(StockLot).where(
-                StockLot.clinic_id == clinic_id,
-                StockLot.expiry_date.is_not(None),
-                StockLot.expiry_date <= cutoff,
-                StockLot.quantity > 0,
-            )
+    today = date.today()
+    cutoff = today + timedelta(days=90)
+    lot_stmt = select(StockLot).where(
+        StockLot.clinic_id == clinic_id,
+        StockLot.expiry_date.is_not(None),
+        StockLot.quantity > 0,
+    )
+    if category_filter:
+        if item_ids:
+            lot_stmt = lot_stmt.where(StockLot.inventory_item_id.in_(item_ids))
+        else:
+            lot_stmt = lot_stmt.where(StockLot.id.is_(None))
+    lots = (await db.execute(lot_stmt)).scalars().all()
+    expiring_lots_rows = [lot for lot in lots if lot.expiry_date and lot.expiry_date <= cutoff]
+    since = datetime.now(UTC) - timedelta(days=days)
+    move_stmt = select(StockMovement).where(
+        StockMovement.clinic_id == clinic_id,
+        StockMovement.created_at >= since,
+        StockMovement.movement_type.in_(OUTBOUND_TYPES),
+    )
+    if category_filter:
+        if item_ids:
+            move_stmt = move_stmt.where(StockMovement.inventory_item_id.in_(item_ids))
+        else:
+            move_stmt = move_stmt.where(StockMovement.id.is_(None))
+    period_moves = list((await db.execute(move_stmt)).scalars().all())
+    series_moves = period_moves
+    if department_filter:
+        series_moves = [
+            m for m in period_moves if _movement_department(m, loc_map) == department_filter
+        ]
+    cogs = sum(float(m.quantity) * float(m.unit_cost_snapshot or 0) for m in series_moves)
+    billed_stmt = (
+        select(InvoiceLineItem)
+        .join(Invoice, Invoice.id == InvoiceLineItem.invoice_id)
+        .where(
+            Invoice.clinic_id == clinic_id,
+            Invoice.created_at >= since,
+            InvoiceLineItem.inventory_item_id.is_not(None),
+            InvoiceLineItem.line_kind.in_(["supply", "drug"]),
         )
-    ).scalars().all()
-    since = datetime.now(UTC) - timedelta(days=90)
-    outbound = (
-        await db.execute(
-            select(StockMovement).where(
-                StockMovement.clinic_id == clinic_id,
-                StockMovement.created_at >= since,
-                StockMovement.movement_type.in_(
-                    [
-                        StockMovementType.ISSUE_PATIENT,
-                        StockMovementType.ISSUE_DEPARTMENT,
-                        StockMovementType.WRITEOFF,
-                        StockMovementType.TRANSFER,
-                    ]
-                ),
-            )
-        )
-    ).scalars().all()
-    cogs = sum(float(m.quantity) * float(m.unit_cost_snapshot or 0) for m in outbound)
-    billed_lines = (
-        await db.execute(
-            select(InvoiceLineItem)
-            .join(Invoice, Invoice.id == InvoiceLineItem.invoice_id)
-            .where(
-                Invoice.clinic_id == clinic_id,
-                InvoiceLineItem.inventory_item_id.is_not(None),
-                InvoiceLineItem.line_kind.in_(["supply", "drug"]),
-            )
-        )
-    ).scalars().all()
-    billed_revenue = sum(float(l.total or 0) for l in billed_lines)
+    )
+    if category_filter:
+        if item_ids:
+            billed_stmt = billed_stmt.where(InvoiceLineItem.inventory_item_id.in_(item_ids))
+        else:
+            billed_stmt = billed_stmt.where(InvoiceLineItem.id.is_(None))
+    billed_lines = (await db.execute(billed_stmt)).scalars().all()
+    billed_revenue = sum(float(line.total or 0) for line in billed_lines)
     usage_by_type: dict[str, float] = {}
-    for m in outbound:
-        usage_by_type[m.movement_type] = usage_by_type.get(m.movement_type, 0) + float(m.quantity)
-    item_used = {m.inventory_item_id for m in outbound}
+    for movement in series_moves:
+        usage_by_type[movement.movement_type] = round(
+            usage_by_type.get(movement.movement_type, 0) + float(movement.quantity), 2
+        )
+    item_used = {m.inventory_item_id for m in period_moves}
     dead = [
         {"id": i.id, "sku": i.sku, "name": i.name, "quantity": i.quantity}
         for i in items
         if i.id not in item_used and float(i.quantity or 0) > 0
     ]
-    loc_map = {loc.id: loc for loc in await list_locations(db, clinic_id)}
     usage_by_department: dict[str, float] = {}
-    for m in outbound:
-        if m.movement_type != StockMovementType.ISSUE_DEPARTMENT or not m.to_location_id:
+    for movement in series_moves:
+        code = _movement_department(movement, loc_map)
+        if not code:
             continue
-        loc = loc_map.get(m.to_location_id)
-        key = loc.code if loc else "unknown"
-        usage_by_department[key] = usage_by_department.get(key, 0) + float(m.quantity)
-    item_map = {i.id: i for i in items}
+        usage_by_department[code] = round(usage_by_department.get(code, 0) + float(movement.quantity), 2)
+    week_cursor = _week_start(since.date())
+    end_day = today
+    week_buckets: dict[str, dict[str, Any]] = {}
+    while week_cursor <= end_day:
+        key = week_cursor.isoformat()
+        week_buckets[key] = {"week_start": key, "quantity": 0.0, "cost": 0.0}
+        week_cursor += timedelta(days=7)
+    for movement in series_moves:
+        moved_on = _as_utc(movement.created_at).date()
+        key = _week_start(moved_on).isoformat()
+        bucket = week_buckets.setdefault(key, {"week_start": key, "quantity": 0.0, "cost": 0.0})
+        bucket["quantity"] += float(movement.quantity)
+        bucket["cost"] += float(movement.quantity) * float(movement.unit_cost_snapshot or 0)
+    usage_by_week = [
+        {
+            "week_start": row["week_start"],
+            "quantity": round(row["quantity"], 2),
+            "cost": round(row["cost"], 2),
+        }
+        for row in week_buckets.values()
+    ]
+    sku_totals: dict[str, dict[str, float]] = {}
+    for movement in series_moves:
+        row = sku_totals.setdefault(movement.inventory_item_id, {"quantity": 0.0, "cost": 0.0})
+        row["quantity"] += float(movement.quantity)
+        row["cost"] += float(movement.quantity) * float(movement.unit_cost_snapshot or 0)
+    top_skus = []
+    for item_id, totals in sorted(sku_totals.items(), key=lambda pair: pair[1]["quantity"], reverse=True)[:10]:
+        item = item_map.get(item_id)
+        top_skus.append(
+            {
+                "id": item_id,
+                "sku": item.sku if item else "",
+                "name": item.name if item else "",
+                "quantity": round(totals["quantity"], 2),
+                "cost": round(totals["cost"], 2),
+            }
+        )
+    value_by_category: dict[str, float] = {}
+    for item in items:
+        key = item.category or "general"
+        value_by_category[key] = round(
+            value_by_category.get(key, 0) + float(item.quantity or 0) * float(item.unit_cost or 0), 2
+        )
     expiring = [
         {
             "lot_id": lot.id,
@@ -850,8 +1014,38 @@ async def analysis(db: AsyncSession, clinic_id: str) -> dict[str, Any]:
             "expiry_date": lot.expiry_date.isoformat() if lot.expiry_date else None,
             "quantity": lot.quantity,
         }
-        for lot in lots
+        for lot in expiring_lots_rows
     ]
+    expiry_buckets = {"expired": 0.0, "within_30": 0.0, "within_90": 0.0}
+    for lot in lots:
+        if not lot.expiry_date:
+            continue
+        qty = float(lot.quantity or 0)
+        if lot.expiry_date < today:
+            expiry_buckets["expired"] += qty
+        elif lot.expiry_date <= today + timedelta(days=30):
+            expiry_buckets["within_30"] += qty
+        elif lot.expiry_date <= cutoff:
+            expiry_buckets["within_90"] += qty
+    expiry_buckets = {key: round(value, 2) for key, value in expiry_buckets.items()}
+    req_rows = (
+        await db.execute(
+            select(Requisition).where(
+                Requisition.clinic_id == clinic_id,
+                or_(Requisition.submitted_at >= since, Requisition.created_at >= since),
+            )
+        )
+    ).scalars().all()
+    if department_filter:
+        slug = _LOCATION_DEPARTMENT.get(department_filter)
+        req_rows = [row for row in req_rows if slug and row.department == slug]
+    requisition_counts = {"submitted": 0, "approved": 0, "fulfilled": 0, "rejected": 0}
+    for row in req_rows:
+        if row.status in requisition_counts:
+            requisition_counts[row.status] += 1
+    sent = sum(requisition_counts.values())
+    issued_qty = sum(float(m.quantity) for m in series_moves)
+    daily = issued_qty / days if days else 0
     open_pos = (
         await db.execute(
             select(func.count())
@@ -864,7 +1058,18 @@ async def analysis(db: AsyncSession, clinic_id: str) -> dict[str, Any]:
             )
         )
     ).scalar_one()
+    open_reqs = (
+        await db.execute(
+            select(func.count())
+            .select_from(Requisition)
+            .where(
+                Requisition.clinic_id == clinic_id,
+                Requisition.status.in_((RequisitionStatus.SUBMITTED, RequisitionStatus.APPROVED)),
+            )
+        )
+    ).scalar_one()
     return {
+        "period_days": days,
         "sku_count": len(items),
         "on_hand_value": round(on_hand_value, 2),
         "low_stock_count": len(low),
@@ -874,12 +1079,29 @@ async def analysis(db: AsyncSession, clinic_id: str) -> dict[str, Any]:
         ],
         "expiring_count": len(expiring),
         "expiring": expiring,
+        "expiry_buckets": expiry_buckets,
         "open_pos": int(open_pos or 0),
+        "open_requisitions": int(open_reqs or 0),
         "cogs_90d": round(cogs, 2),
         "billed_supply_revenue": round(billed_revenue, 2),
         "usage_by_type": usage_by_type,
         "usage_by_department": usage_by_department,
+        "usage_by_week": usage_by_week,
+        "value_by_category": value_by_category,
+        "top_skus": top_skus,
+        "requisition_counts": requisition_counts,
+        "stats": {
+            "stock_cover_days": round(on_hand_qty / daily, 1) if daily > 1e-9 else None,
+            "low_stock_share": round(100 * len(low) / len(items), 1) if items else 0,
+            "fill_rate": round(100 * requisition_counts["fulfilled"] / sent, 1) if sent else None,
+        },
         "dead_stock": dead[:40],
+        "categories": sorted({(i.category or "general") for i in all_items}),
+        "departments": [
+            {"code": loc.code, "name": loc.name}
+            for loc in sorted(locations, key=lambda loc: loc.code)
+            if loc.is_active and loc.code != "MAIN"
+        ],
     }
 
 
@@ -996,7 +1218,10 @@ async def get_purchase_order(db: AsyncSession, clinic_id: str, po_id: str) -> Pu
         await db.execute(
             select(PurchaseOrder)
             .where(PurchaseOrder.id == po_id, PurchaseOrder.clinic_id == clinic_id)
-            .options(selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.inventory_item))
+            .options(
+                selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.inventory_item),
+                selectinload(PurchaseOrder.supplier),
+            )
         )
     ).scalar_one_or_none()
     if not po:
@@ -1010,7 +1235,10 @@ async def list_purchase_orders(db: AsyncSession, clinic_id: str) -> list[Purchas
             await db.execute(
                 select(PurchaseOrder)
                 .where(PurchaseOrder.clinic_id == clinic_id)
-                .options(selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.inventory_item))
+                .options(
+                selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.inventory_item),
+                selectinload(PurchaseOrder.supplier),
+            )
                 .order_by(PurchaseOrder.created_at.desc())
             )
         ).scalars().all()
@@ -1065,6 +1293,8 @@ async def receive_purchase_order(
         qty = min(qty, remaining)
         if qty <= 0:
             continue
+        item = line.inventory_item or await get_stock_item(db, clinic_id, line.inventory_item_id)
+        _require_expiry(item, expiry)
         await receive(
             db,
             clinic_id,
@@ -1159,3 +1389,81 @@ async def issue_for_invoice_line(
         invoice_line_id=invoice_line_id,
         reason=reason or "invoiced supply",
     )
+
+
+async def supplier_history(db: AsyncSession, clinic_id: str, supplier_id: str) -> dict:
+    supplier = (
+        await db.execute(select(Supplier).where(Supplier.id == supplier_id, Supplier.clinic_id == clinic_id))
+    ).scalar_one_or_none()
+    if not supplier:
+        raise NotFoundError("Supplier")
+    orders = list(
+        (
+            await db.execute(
+                select(PurchaseOrder)
+                .where(PurchaseOrder.clinic_id == clinic_id, PurchaseOrder.supplier_id == supplier_id)
+                .options(
+                    selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.inventory_item),
+                    selectinload(PurchaseOrder.supplier),
+                )
+                .order_by(PurchaseOrder.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    receives = list(
+        (
+            await db.execute(
+                select(StockMovement)
+                .where(
+                    StockMovement.clinic_id == clinic_id,
+                    StockMovement.supplier_id == supplier_id,
+                    StockMovement.movement_type == StockMovementType.RECEIVE,
+                )
+                .order_by(StockMovement.created_at.desc())
+                .limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {"supplier": supplier, "purchase_orders": orders, "receives": receives}
+
+
+async def warehouse_alerts(db: AsyncSession, clinic_id: str) -> dict:
+    await ensure_locations(db, clinic_id)
+    data = await analysis(db, clinic_id)
+    open_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Requisition)
+            .where(
+                Requisition.clinic_id == clinic_id,
+                Requisition.status.in_(
+                    (RequisitionStatus.SUBMITTED, RequisitionStatus.APPROVED)
+                ),
+            )
+        )
+    ).scalar_one()
+    expired = [
+        row
+        for row in data["expiring"]
+        if row.get("expiry_date") and date.fromisoformat(row["expiry_date"]) < date.today()
+    ]
+    return {
+        "low_stock": [
+            {
+                "id": row["id"],
+                "sku": row["sku"],
+                "name": row["name"],
+                "quantity": row["quantity"],
+                "reorder_level": row["reorder_level"],
+                "kind": "low_stock",
+            }
+            for row in data["low_stock"]
+        ],
+        "expiring": data["expiring"],
+        "expired": expired,
+        "open_requisitions": int(open_count or 0),
+    }

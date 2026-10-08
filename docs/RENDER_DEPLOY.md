@@ -6,7 +6,7 @@ This repo includes a Blueprint at [`render.yaml`](../render.yaml).
 
 | Resource | Name | Notes |
 |---|---|---|
-| Web (Docker) | `demsta-api` | FastAPI + Alembic + 5 GB disk at `/var/data` |
+| Web (Docker) | `demsta-api` | Clinic API + Django admin at `/admin` + Alembic + 5 GB disk at `/var/data` |
 | Static site | `demsta-web` | Vite/React PWA (`frontend/dist`) |
 | Postgres | `demsta-db` | Managed Postgres 16 |
 
@@ -26,6 +26,16 @@ Redis is **off** by default (`REDIS_ENABLED=false`); the API uses in-process rat
    - Optional: `CORS_ORIGINS` = same URL (comma-separated extras allowed)
 8. **Manual Deploy → Clear build cache & deploy** on **demsta-web** (Vite bakes `VITE_API_BASE` at build time).
 9. Open the web URL and log in with a demo account (see root README).
+
+## Django admin
+
+The API process also serves Django admin at `https://<demsta-api>/admin/`. That login is not a clinic staff account. From the API shell:
+
+```bash
+python manage.py createsuperuser
+```
+
+Admin sessions are stored on the persistent disk (`/var/data/django.sqlite3`). Clinic records are read from the Render Postgres database.
 
 ## Health checks
 

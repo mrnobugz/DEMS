@@ -98,33 +98,21 @@ PERMISSION_CATALOG: tuple[PermissionDef, ...] = (
 
 KNOWN_PERMISSIONS: frozenset[str] = frozenset(p.id for p in PERMISSION_CATALOG)
 
+# Patient-portal grants stay on the patient role. Clinic admin covers every other clinic permission.
+PORTAL_ONLY_PERMISSIONS: frozenset[str] = frozenset(
+    {
+        "portal:read",
+        "appointments:own",
+        "clinical:own_read",
+        "billing:own_read",
+    }
+)
+
 
 # Resource actions used by dependency checks
 PERMISSIONS: dict[Role, set[str]] = {
     Role.SUPER_ADMIN: {"*"},
-    Role.CLINIC_ADMIN: {
-        "patients:*",
-        "patients:assign",
-        "appointments:*",
-        "clinical:read",
-        "clinical:vitals",
-        "billing:*",
-        "inventory:*",
-        "lab:read",
-        "pharmacy:read",
-        "imaging:read",
-        "staff:*",
-        "reports:*",
-        "config:clinic",
-        "config:*",
-        "patients:merge",
-        "requisition:*",
-        "reports:patient_drilldown",
-        "ai:*",
-        "departments:read",
-        "notifications:send",
-        "notifications:read",
-    },
+    Role.CLINIC_ADMIN: set(),
     Role.DENTIST: {
         "patients:read",
         "patients:update",
@@ -184,6 +172,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "patients:read",
         "clinical:read",
         "departments:read",
+        "requisition:create",
     },
     Role.PHARMACY: {
         "pharmacy:*",
@@ -192,6 +181,9 @@ PERMISSIONS: dict[Role, set[str]] = {
         "departments:read",
         "inventory:read",
         "inventory:issue",
+        "requisition:create",
+        "requisition:approve",
+        "requisition:fulfill",
     },
     Role.IMAGING_TECH: {
         "imaging:*",
@@ -204,6 +196,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "appointments:read",
         "clinical:vitals",
         "departments:read",
+        "requisition:create",
     },
     Role.PATIENT: {
         "patients:own",
@@ -212,6 +205,10 @@ PERMISSIONS: dict[Role, set[str]] = {
         "billing:own_read",
         "portal:read",
     },
+}
+
+PERMISSIONS[Role.CLINIC_ADMIN] = {
+    item.id for item in PERMISSION_CATALOG if item.id not in PORTAL_ONLY_PERMISSIONS
 }
 
 

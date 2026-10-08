@@ -21,16 +21,19 @@ import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
 import { ObjectsPanel, type ObjectLayerKey } from "@/components/viz/ObjectsPanel";
 import { PERMANENT_LOWER, PERMANENT_UPPER, TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { PatientIdentityPhoto } from "@/components/PatientIdentityPhoto";
+import { PatientMedicationList } from "@/components/ChairsidePharmacy";
 import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
 import { PatientSafetyPanel } from "@/components/PatientSafetyPanel";
 import { VitalSignsDetails } from "@/components/VitalSignsPanel";
+import { Spinner } from "@/components/ui/accordion";
+import { useAnnounce } from "@/components/ui/sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fetchPatientPhotoDataUrl, uploadPatientPhoto } from "@/lib/patientPhoto";
 import { printPatientCard, registrationPrintData } from "@/lib/printRegistration";
 import { formatMoney } from "@/lib/i18n";
 import { useUiPrefs } from "@/lib/uiPrefs";
-import type { ChartEntry, ClinicalNote, Patient, PatientVitalSign, PerioExam, TreatmentPlan } from "@/lib/types";
+import type { ChartEntry, Patient, PatientVitalSign, PerioExam, TreatmentPlan } from "@/lib/types";
 
 type Dentist = { id: string; full_name: string; role: string };
 
@@ -47,7 +50,6 @@ export function PatientDetailPage() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [chart, setChart] = useState<ChartEntry[]>([]);
-  const [notes, setNotes] = useState<ClinicalNote[]>([]);
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
   const [perioExams, setPerioExams] = useState<PerioExam[]>([]);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(params.get("tooth"));
@@ -64,7 +66,6 @@ export function PatientDetailPage() {
   });
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [intakeForm, setIntakeForm] = useState<ClerkshipFormState | null>(null);
-  const [note, setNote] = useState({ subjective: "", objective: "", assessment: "", plan: "" });
   const [planForm, setPlanForm] = useState({
     title: "",
     target_start_date: "",
@@ -90,6 +91,7 @@ export function PatientDetailPage() {
     },
   ]);
   const [msg, setMsg] = useState("");
+  useAnnounce(msg);
   const [photoDataUrl, setPhotoDataUrl] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [latestVitals, setLatestVitals] = useState<PatientVitalSign | null>(null);
@@ -127,10 +129,9 @@ export function PatientDetailPage() {
   }, [chart]);
 
   async function reload() {
-    const [p, c, n, t, pe, d, vitals] = await Promise.all([
+    const [p, c, t, pe, d, vitals] = await Promise.all([
       api<Patient>(`/api/v1/patients/${id}`),
       api<ChartEntry[]>(`/api/v1/clinical/patients/${id}/chart`).catch(() => [] as ChartEntry[]),
-      api<ClinicalNote[]>(`/api/v1/clinical/patients/${id}/notes`).catch(() => [] as ClinicalNote[]),
       api<TreatmentPlan[]>(`/api/v1/clinical/patients/${id}/treatment-plans`).catch(() => [] as TreatmentPlan[]),
       api<PerioExam[]>(`/api/v1/clinical/patients/${id}/perio`).catch(() => [] as PerioExam[]),
       canAssign
@@ -149,7 +150,6 @@ export function PatientDetailPage() {
     setDentists(d);
     setIntakeForm(formFromPatient(p));
     setChart(c);
-    setNotes(n);
     setPlans(t);
     setPerioExams(pe);
   }
@@ -216,16 +216,6 @@ export function PatientDetailPage() {
     } catch (err) {
       setMsg(err instanceof ApiError ? err.message : "Chart update failed");
     }
-  }
-
-  async function saveNote(e: FormEvent) {
-    e.preventDefault();
-    await api(`/api/v1/clinical/patients/${id}/notes`, {
-      method: "POST",
-      body: JSON.stringify({ note_type: "soap", ...note, is_finalized: true }),
-    });
-    setNote({ subjective: "", objective: "", assessment: "", plan: "" });
-    await reload();
   }
 
   function resetPlanForm() {
@@ -346,28 +336,13 @@ export function PatientDetailPage() {
     }
   }
 
-  async function draftSoap() {
-    const draft = await api<{
-      subjective: string;
-      objective: string;
-      assessment: string;
-      plan: string;
-    }>("/api/v1/ai/soap-draft", {
-      method: "POST",
-      body: JSON.stringify({
-        chief_complaint: note.subjective || "Dental discomfort",
-        findings: note.objective || undefined,
-      }),
-    });
-    setNote({
-      subjective: draft.subjective,
-      objective: draft.objective,
-      assessment: draft.assessment,
-      plan: draft.plan,
-    });
+  if (!patient) {
+    return (
+      <div className="grid min-h-[40vh] place-items-center">
+        <Spinner label="Loading patient" />
+      </div>
+    );
   }
-
-  if (!patient) return <div className="text-muted">Loading patient…</div>;
 
   return (
     <div className="clin-shell space-y-4 animate-rise">
@@ -480,8 +455,32 @@ export function PatientDetailPage() {
         </div>
       </div>
 
-      <PatientSafetyPanel patient={patient} onChanged={reload} />
-      <VitalSignsDetails reading={latestVitals} />
+      <nav aria-label="Chart sections" className="flex gap-2 overflow-x-auto pb-1">
+        {[
+          ["#patient-safety", "Safety"],
+          ["#patient-meds", "Medications"],
+          ["#patient-vitals", "Vitals"],
+          ...(!isNurse ? [["#patient-exam", "Exam"] as const] : []),
+          ["#patient-chart", "Odontogram"],
+          ["#patient-3d", "3D"],
+          ["#patient-history", "History"],
+          ["#patient-plan", "Plan"],
+        ].map(([href, label]) => (
+          <a key={href} href={href} className="btn-ghost shrink-0 px-3 text-sm">
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      <div id="patient-safety">
+        <PatientSafetyPanel patient={patient} onChanged={reload} />
+      </div>
+      <div id="patient-meds">
+        <PatientMedicationList patientId={patient.id} />
+      </div>
+      <div id="patient-vitals">
+        <VitalSignsDetails reading={latestVitals} />
+      </div>
 
       {intakeOpen && intakeForm && (
         <form className="glass-panel space-y-3" onSubmit={saveIntake}>
@@ -525,17 +524,24 @@ export function PatientDetailPage() {
         </form>
       )}
 
-      {msg && <div className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">{msg}</div>}
+      {msg && (
+        <div className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800" role="status" aria-live="polite">
+          {msg}
+        </div>
+      )}
 
       {!isNurse && (
+      <div id="patient-exam">
       <ClinicalExamPanel
         patientId={id}
         chiefComplaint={patient.chief_complaint}
         onMessage={setMsg}
         department={patient.destination_department || undefined}
       />
+      </div>
       )}
 
+      <div id="patient-chart">
       <Odontogram
         entries={chart}
         selected={selectedTooth}
@@ -544,7 +550,9 @@ export function PatientDetailPage() {
         patientId={id}
         dentition={patient.destination_department === "paediatric" ? "primary" : "permanent"}
       />
+      </div>
 
+      <div id="patient-3d">
       <RevealSection
         title="3D odontogram + objects"
         hint="Mapped anatomy — tap a tooth to select it · toggle nerve / implant / endo objects"
@@ -577,8 +585,9 @@ export function PatientDetailPage() {
           />
         </div>
       </RevealSection>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div id="patient-history" className="grid gap-4 lg:grid-cols-2">
         <ToothHistoryPanel patientId={id} toothNumber={selectedTooth} />
         <ConsentPad
           patientId={id}
@@ -602,55 +611,20 @@ export function PatientDetailPage() {
         onMessage={setMsg}
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <form className="glass-panel space-y-2" onSubmit={saveNote}>
-          <div className="flex items-center justify-between">
-            <h3 className="font-display text-lg font-bold">SOAP clinical note</h3>
-            <button type="button" className="btn-ghost text-xs" onClick={() => void draftSoap()}>
-              AI draft
-            </button>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-          {(["subjective", "objective", "assessment", "plan"] as const).map((field) => (
-            <div key={field}>
-              <label className="label capitalize">{field}</label>
-              <textarea
-                className="input"
-                rows={2}
-                value={note[field]}
-                onChange={(e) => setNote({ ...note, [field]: e.target.value })}
-              />
+      <div className="glass-panel">
+        <h3 className="font-display text-lg font-bold">Chart history</h3>
+        <div className="mt-3 space-y-2">
+          {chart.slice(-6).reverse().map((c) => (
+            <div key={c.id} className="text-sm text-muted">
+              Tooth {c.tooth_number}
+              {c.surfaces ? ` (${c.surfaces})` : ""} — {c.condition_label} · {c.entry_kind}
             </div>
           ))}
-          </div>
-          <button className="btn-primary">Save note</button>
-        </form>
-
-        <div className="glass-panel">
-          <h3 className="font-display text-lg font-bold">Recent notes & chart history</h3>
-          <div className="mt-3 space-y-3">
-            {notes.map((n) => (
-              <div key={n.id} className="rounded-2xl border border-brand-100 bg-white/70 p-3 text-sm">
-                {n.ai_draft && <span className="ai-badge mb-2">AI draft</span>}
-                <p>
-                  <strong>S:</strong> {n.subjective}
-                </p>
-                <p>
-                  <strong>A:</strong> {n.assessment}
-                </p>
-              </div>
-            ))}
-            {chart.slice(-6).reverse().map((c) => (
-              <div key={c.id} className="text-sm text-muted">
-                Tooth {c.tooth_number}
-                {c.surfaces ? ` (${c.surfaces})` : ""} — {c.condition_label} · {c.entry_kind}
-              </div>
-            ))}
-          </div>
+          {!chart.length && <p className="text-sm text-muted">No chart entries yet.</p>}
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div id="patient-plan" className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <form className="glass-panel space-y-3" onSubmit={saveTreatmentPlan}>
           <div className="flex items-center justify-between">
             <div>
@@ -730,7 +704,7 @@ export function PatientDetailPage() {
 
           <div className="space-y-3">
             {planItems.map((item, index) => (
-              <div key={index} className="rounded-2xl border border-brand-100 bg-white/70 p-4">
+              <div key={index} className="rounded-2xl border border-brand-100 bg-canvas/70 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="font-semibold text-ink">Procedure {index + 1}</h4>
                   {planItems.length > 1 && (
@@ -928,7 +902,7 @@ export function PatientDetailPage() {
             {plans.map((plan) => {
               const totals = planTotals(plan);
               return (
-                <div key={plan.id} className="rounded-2xl border border-brand-100 bg-white/70 p-4">
+                <div key={plan.id} className="rounded-2xl border border-brand-100 bg-canvas/70 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="ai-badge mb-2">{plan.status}</div>
