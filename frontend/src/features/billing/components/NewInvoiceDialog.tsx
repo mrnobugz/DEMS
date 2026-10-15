@@ -1,13 +1,42 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { searchPatients, createInvoice } from "@/features/billing/api/billingApi";
+import {
+  createInvoice,
+  fetchFeeSchedule,
+  searchPatients,
+  type FeeScheduleOption,
+} from "@/features/billing/api/billingApi";
 import { LINE_KINDS, type BillingInvoice } from "@/features/billing/types";
 import type { Patient } from "@/lib/types";
 
-type DraftLine = { description: string; quantity: number; unit_price: number; line_kind: string };
+type DraftLine = {
+  fee_item_id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  line_kind: string;
+  procedure_code?: string;
+};
 
-const emptyLine = (): DraftLine => ({ description: "", quantity: 1, unit_price: 0, line_kind: "procedure" });
+const emptyLine = (): DraftLine => ({
+  fee_item_id: "",
+  description: "",
+  quantity: 1,
+  unit_price: 0,
+  line_kind: "procedure",
+});
+
+function kindFromCategory(category: string | undefined): string {
+  const value = (category || "").toLowerCase();
+  if (value.includes("drug") || value.includes("pharm")) return "drug";
+  if (value.includes("lab")) return "lab";
+  if (value.includes("imag") || value.includes("radio")) return "imaging";
+  if (value.includes("consult")) return "consultation";
+  if (value.includes("supply")) return "supply";
+  if (value.includes("service")) return "service";
+  return "procedure";
+}
 
 export function NewInvoiceDialog({
   open,
@@ -21,6 +50,8 @@ export function NewInvoiceDialog({
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [feeItems, setFeeItems] = useState<FeeScheduleOption[]>([]);
+  const [feeError, setFeeError] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
   const [tax, setTax] = useState(0);
   const [discount, setDiscount] = useState(0);
@@ -38,8 +69,37 @@ export function NewInvoiceDialog({
     return () => window.clearTimeout(timer);
   }, [open, query]);
 
+  useEffect(() => {
+    if (!open) return;
+    setFeeError("");
+    void fetchFeeSchedule(true)
+      .then(setFeeItems)
+      .catch((err) => {
+        setFeeItems([]);
+        setFeeError(err instanceof Error ? err.message : "Could not load fee schedule");
+      });
+  }, [open]);
+
+  const feeById = useMemo(() => new Map(feeItems.map((item) => [item.id, item])), [feeItems]);
+
   function updateLine(index: number, patch: Partial<DraftLine>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
+  function selectFeeItem(index: number, feeItemId: string) {
+    if (!feeItemId) {
+      updateLine(index, { fee_item_id: "", procedure_code: undefined });
+      return;
+    }
+    const item = feeById.get(feeItemId);
+    if (!item) return;
+    updateLine(index, {
+      fee_item_id: item.id,
+      description: item.label,
+      unit_price: item.unit_price,
+      line_kind: kindFromCategory(item.category),
+      procedure_code: item.code,
+    });
   }
 
   async function submit() {
@@ -50,7 +110,7 @@ export function NewInvoiceDialog({
     }
     const ready = lines.filter((line) => line.description.trim() && line.quantity > 0 && line.unit_price >= 0);
     if (!ready.length) {
-      setError("Add at least one line with a description and price");
+      setError("Add at least one line with a billable item or description and price");
       return;
     }
     setBusy(true);
@@ -65,6 +125,7 @@ export function NewInvoiceDialog({
           quantity: line.quantity,
           unit_price: line.unit_price,
           line_kind: line.line_kind,
+          procedure_code: line.procedure_code,
         })),
       });
       onCreated(invoice);
@@ -73,6 +134,8 @@ export function NewInvoiceDialog({
       setNotes("");
       setTax(0);
       setDiscount(0);
+      setPatient(null);
+      setQuery("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the invoice");
     } finally {
@@ -82,7 +145,7 @@ export function NewInvoiceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="New invoice" description="Prices post to the patient ledger when you save." className="max-h-[85vh] overflow-auto">
+      <DialogContent title="New invoice" description="Pick fee-schedule items to bill, then save to the ledger." className="max-h-[85vh] overflow-auto">
         <div className="space-y-3">
           <label className="block text-sm">
             <span className="label">Patient</span>
@@ -102,19 +165,56 @@ export function NewInvoiceDialog({
               </li>
             ))}
           </ul>
+          {feeError && (
+            <p className="text-sm text-danger" role="alert">
+              {feeError}
+            </p>
+          )}
           {lines.map((line, index) => (
-            <div key={index} className="grid gap-2 sm:grid-cols-4">
+            <div key={index} className="grid gap-2 rounded-lg border border-border/70 p-3 sm:grid-cols-4">
+              <label className="block text-sm sm:col-span-4">
+                <span className="label">Billable item</span>
+                <select
+                  className="input"
+                  value={line.fee_item_id}
+                  onChange={(event) => selectFeeItem(index, event.target.value)}
+                  required={!line.description.trim()}
+                >
+                  <option value="">Select from fee schedule…</option>
+                  {feeItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.code} — {item.label} ({item.unit_price.toLocaleString()})
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="block text-sm sm:col-span-2">
                 <span className="label">Description</span>
-                <input className="input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
+                <input
+                  className="input"
+                  value={line.description}
+                  onChange={(event) => updateLine(index, { description: event.target.value, fee_item_id: "" })}
+                />
               </label>
               <label className="block text-sm">
                 <span className="label">Qty</span>
-                <input className="input tabular-nums" type="number" min={1} value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} />
+                <input
+                  className="input tabular-nums"
+                  type="number"
+                  min={1}
+                  value={line.quantity}
+                  onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })}
+                />
               </label>
               <label className="block text-sm">
                 <span className="label">Price</span>
-                <input className="input tabular-nums" type="number" min={0} value={line.unit_price} onChange={(event) => updateLine(index, { unit_price: Number(event.target.value) })} />
+                <input
+                  className="input tabular-nums"
+                  type="number"
+                  min={0}
+                  value={line.unit_price}
+                  onChange={(event) => updateLine(index, { unit_price: Number(event.target.value) })}
+                />
               </label>
               <label className="block text-sm sm:col-span-2">
                 <span className="label">Kind</span>

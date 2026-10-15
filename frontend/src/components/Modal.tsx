@@ -1,4 +1,5 @@
-import { ReactNode, useEffect, useId, useRef } from "react";
+import { ReactNode, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 type Props = {
@@ -33,8 +34,15 @@ export function Modal({
   const panel = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  /** Portal only after mount so SSR / first paint never touches document. */
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     restoreTo.current = document.activeElement as HTMLElement | null;
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
@@ -69,9 +77,11 @@ export function Modal({
       document.body.style.overflow = overflow;
       restoreTo.current?.focus?.();
     };
-  }, [onClose]);
+  }, [onClose, mounted]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={onClose} role="presentation">
       <div
         ref={panel}
@@ -99,6 +109,7 @@ export function Modal({
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -12,6 +12,7 @@ import { AiAssistPage } from "@/pages/AiAssistPage";
 import { BillingLayout } from "@/features/billing/pages/BillingLayout";
 import { InvoiceDetailPage } from "@/features/billing/pages/InvoiceDetailPage";
 import { InvoicesPage } from "@/features/billing/pages/InvoicesPage";
+import { NotificationsPage } from "@/features/billing/pages/NotificationsPage";
 import { OverviewPage } from "@/features/billing/pages/OverviewPage";
 import { PaymentsPage } from "@/features/billing/pages/PaymentsPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -226,6 +227,7 @@ export default function App() {
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="invoices/:invoiceId" element={<InvoiceDetailPage />} />
           <Route path="payments" element={<PaymentsPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
         <Route
           path="/reports"

@@ -9,6 +9,7 @@ from app.api.v1 import (
     clinical_records,
     departments,
     imaging,
+    inbox,
     insurance,
     inventory,
     lab,
@@ -49,4 +50,5 @@ api_router.include_router(departments.router)
 api_router.include_router(specialty.router)
 api_router.include_router(phase2_ops.router)
 api_router.include_router(notifications.router)
+api_router.include_router(inbox.router)
 api_router.include_router(portal.router)

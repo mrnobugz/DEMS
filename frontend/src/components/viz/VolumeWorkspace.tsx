@@ -6,7 +6,7 @@
  * reconstruction from mapped anatomy (not a diagnostic radiograph).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Mouth3DLazy } from "./Mouth3DLazy";
 import { ObjectsPanel, type ObjectLayerKey } from "./ObjectsPanel";
 import { PERMANENT_LOWER, PERMANENT_UPPER, archPoint } from "./teeth";
@@ -135,21 +135,28 @@ function SliceView({
     ctx.stroke();
   }, [slice, plane, implants, showNerve]);
 
+  const sliderId = `${plane}-slice`;
   return (
     <div className="overflow-hidden rounded-xl bg-black">
-      <div className="flex items-center justify-between px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-        {label}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-slate-100">
+        <label htmlFor={sliderId}>{label}</label>
         <span>{slice}</span>
       </div>
-      <canvas ref={ref} width={320} height={220} className="h-40 w-full" />
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={slice}
-        onChange={(e) => onSlice(Number(e.target.value))}
-        className="w-full"
-      />
+      <canvas ref={ref} width={320} height={220} className="h-40 w-full" aria-hidden />
+      <div className="px-3 pb-3">
+        <input
+          id={sliderId}
+          type="range"
+          min={0}
+          max={100}
+          value={slice}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={slice}
+          onChange={(e) => onSlice(Number(e.target.value))}
+          className="h-11 w-full cursor-pointer"
+        />
+      </div>
     </div>
   );
 }
@@ -177,6 +184,8 @@ export function VolumeWorkspace({
     wire: false,
   });
 
+  const toothSelectId = useId();
+  const titleId = "mpr-heading";
   const panPoints = useMemo(() => {
     const ids = [...PERMANENT_UPPER, ...PERMANENT_LOWER];
     return ids.map((fdi, i) => {
@@ -186,26 +195,53 @@ export function VolumeWorkspace({
   }, []);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="font-display text-lg font-bold text-brand-900">3D / MPR workspace</h3>
-          <p className="text-xs text-muted">
-            Orthogonal slicing · curved panoramic · nerve mapping · objects toolbox
-            {scoutUrl ? "" : " · planning reconstruction (no voxel volume attached)"}
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h2 id={titleId} className="font-display text-lg font-bold text-brand-900">
+          3D / MPR workspace
+        </h2>
+        <p className="mt-1 text-sm text-muted">Orthogonal slices, a curved panoramic strip, and an objects list.</p>
       </div>
-      <div className="grid gap-3 lg:grid-cols-[1fr_200px]">
-        <div className="grid gap-3 md:grid-cols-2">
+      <p role="status" className="rounded-2xl border border-brand-100 bg-canvas px-4 py-3 text-sm text-ink">
+        {scoutUrl
+          ? "Planning sketch only. These slices are not a diagnostic CBCT, even when a 2D image is open beside this view. Do not measure or diagnose from this panel."
+          : "Planning sketch only. These slices are not a diagnostic CBCT. No image is attached to this planning view. Do not measure or diagnose from this panel."}
+      </p>
+      <div>
+        <label htmlFor={toothSelectId} className="text-sm">
+          <span className="label">Tooth on this volume</span>
+          <select
+            id={toothSelectId}
+            className="input"
+            value={selected ?? ""}
+            onChange={(e) => {
+              if (e.target.value) onSelect?.(e.target.value);
+            }}
+          >
+            <option value="">Select a tooth</option>
+            {[...PERMANENT_UPPER, ...PERMANENT_LOWER].map((fdi) => (
+              <option key={fdi} value={fdi}>
+                {fdi}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-2 text-sm text-muted">
+          Use this list to select a tooth. The strip below highlights the same tooth.
+          {onSelect ? " The selection also fills the tooth field on Register study." : ""}
+        </p>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <SliceView label="Axial" slice={axial} onSlice={setAxial} plane="axial" implants={implants} showNerve={objects.nerves} />
           <SliceView label="Coronal" slice={coronal} onSlice={setCoronal} plane="coronal" implants={implants} showNerve={objects.nerves} />
           <SliceView label="Sagittal" slice={sagittal} onSlice={setSagittal} plane="sagittal" implants={implants} showNerve={objects.nerves} />
           <div className="overflow-hidden rounded-xl bg-slate-950">
-            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">3D view</div>
+            <div className="px-3 py-2 text-sm font-semibold text-slate-100">3D view</div>
             <Mouth3DLazy
               title="Volume 3D"
               height={220}
+              eager
               selected={selected}
               onSelect={onSelect}
               layers={{
@@ -226,11 +262,10 @@ export function VolumeWorkspace({
           onToggle={(key) => setObjects((o) => ({ ...o, [key]: !o[key] }))}
         />
       </div>
-      <div className="rounded-2xl bg-slate-950 p-3">
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-          Curved panoramic (arch mapping)
-        </p>
-        <svg viewBox="0 0 460 120" className="w-full">
+      <div className="rounded-2xl bg-slate-950 p-4">
+        <p className="mb-2 text-sm font-semibold text-slate-100">Curved panoramic strip</p>
+        <p className="mb-2 text-sm text-slate-200">Pointer map of the arch. Select a tooth from the list above to change it.</p>
+        <svg viewBox="0 0 460 120" className="w-full" aria-hidden="true">
           <rect width="460" height="120" fill="#0b1220" rx="8" />
           <path d="M30 40 Q230 8 430 40" fill="none" stroke="#334155" strokeWidth="18" />
           <path d="M30 82 Q230 112 430 82" fill="none" stroke="#334155" strokeWidth="16" />

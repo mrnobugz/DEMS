@@ -24,10 +24,12 @@ class Settings(BaseSettings):
     auto_migrate: bool = True
     enable_rls: bool = True  # Postgres Row-Level Security (no-op on SQLite)
 
-    # Security
+    # Security — clinic staff stay signed in until they log out.
+    # Access JWT is short-lived for API calls; refresh slides for years and is
+    # revoked on logout (see /auth/logout). Override via env if needed.
     secret_key: str = "demsta-dev-change-me-in-production-use-openssl-rand"
-    access_token_expire_minutes: int = 15
-    refresh_token_expire_days: int = 7
+    access_token_expire_minutes: int = 1440  # 24 hours
+    refresh_token_expire_days: int = 3650  # ~10 years; ends on logout
     algorithm: str = "HS256"
     # NoDecode: skip the source-level JSON decode so parse_cors_origins can accept
     # a comma-separated string ("https://a,https://b") as well as a JSON list

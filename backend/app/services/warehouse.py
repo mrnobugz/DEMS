@@ -207,6 +207,32 @@ async def _maybe_flag_low_stock(
             },
             actor_id=actor_id,
         )
+        try:
+            from app.services import staff_inbox as inbox
+
+            await inbox.notify_staff(
+                db,
+                clinic_id=item.clinic_id,
+                category="inventory",
+                event_type=inbox.STOCK_BELOW_PAR,
+                title=f"Low stock: {item.name}",
+                body=f"{item.sku} is at {current:g} (reorder at {threshold:g}).",
+                link_path="/inventory",
+                payload={
+                    "inventory_item_id": item.id,
+                    "sku": item.sku,
+                    "quantity": current,
+                    "reorder_level": threshold,
+                },
+                actor_id=actor_id,
+                exclude_actor=False,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("demsta.warehouse").exception(
+                "staff inbox notify failed for low stock %s", item.id
+            )
 
 
 async def _refresh_item_qty(

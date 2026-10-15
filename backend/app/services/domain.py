@@ -3,7 +3,7 @@ import json
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -244,6 +244,33 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> tuple[User, st
     )
     await db.flush()
     return user, access, new_refresh
+
+
+async def revoke_refresh_token(db: AsyncSession, refresh_token: str) -> None:
+    """Idempotent revoke of one refresh token (and its rotation chain stop)."""
+    payload = safe_decode(refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        return
+    token_hash = _hash_token(refresh_token)
+    stored = (
+        await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
+    ).scalar_one_or_none()
+    if not stored or stored.revoked:
+        return
+    stored.revoked = True
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == stored.user_id, RefreshToken.revoked.is_(False))
+        .values(revoked=True)
+    )
+    await db.flush()
+
+
+async def revoke_all_refresh_tokens(db: AsyncSession, user_id: str) -> None:
+    await db.execute(
+        update(RefreshToken).where(RefreshToken.user_id == user_id).values(revoked=True)
+    )
+    await db.flush()
 
 
 # ── Patients ──────────────────────────────────────────
@@ -2336,7 +2363,50 @@ async def create_invoice(db: AsyncSession, clinic_id: str, actor_id: str, data: 
         resource_id=invoice.id,
         after={"total": total},
     )
-    return await get_invoice(db, clinic_id, invoice.id)
+    loaded = await get_invoice(db, clinic_id, invoice.id)
+    try:
+        from app.services import events as bus
+        from app.services import staff_inbox as inbox
+
+        patient = loaded.patient
+        patient_name = (
+            f"{patient.first_name} {patient.last_name}".strip()
+            if patient
+            else "Patient"
+        )
+        kinds = {str(li.line_kind or "") for li in loaded.line_items}
+        await bus.publish(
+            db,
+            clinic_id=clinic_id,
+            event_type=bus.INVOICE_CREATED,
+            aggregate_type="invoice",
+            aggregate_id=loaded.id,
+            payload={
+                "invoice_number": loaded.invoice_number,
+                "total": float(loaded.total),
+                "currency": loaded.currency,
+                "patient_id": loaded.patient_id,
+            },
+            actor_id=actor_id,
+        )
+        await inbox.notify_invoice_created(
+            db,
+            clinic_id=clinic_id,
+            actor_id=actor_id,
+            invoice_id=loaded.id,
+            invoice_number=loaded.invoice_number,
+            patient_name=patient_name,
+            total=float(loaded.total),
+            currency=loaded.currency or "TZS",
+            notes=loaded.notes,
+            line_kinds=kinds,
+            idempotency_key=loaded.idempotency_key,
+        )
+    except Exception:  # noqa: BLE001 — never block posting a charge on inbox failure
+        import logging
+
+        logging.getLogger("demsta.billing").exception("staff inbox notify failed for invoice %s", loaded.id)
+    return loaded
 
 
 async def get_invoice(db: AsyncSession, clinic_id: str, invoice_id: str) -> Invoice:

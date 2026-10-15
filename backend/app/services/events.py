@@ -18,6 +18,8 @@ PROCEDURE_COMPLETED = "procedure.completed"
 STOCK_BELOW_PAR = "stock.below_par"
 REQUISITION_APPROVED = "requisition.approved"
 NOTE_SIGNED = "note.signed"
+INVOICE_CREATED = "invoice.created"
+CLAIM_DENIED = "claim.denied"
 
 
 async def publish(

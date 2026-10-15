@@ -63,7 +63,7 @@ export function AddSkuDialog({
   onCreated,
 }: {
   onClose: () => void;
-  onCreated: () => Promise<void>;
+  onCreated: (message: string) => Promise<void>;
 }) {
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
@@ -114,7 +114,7 @@ export function AddSkuDialog({
           notes: form.notes.trim() || null,
         }),
       });
-      await onCreated();
+      await onCreated(`Added ${sku} · ${name}.`);
     } catch (err: unknown) {
       setError(explainFailure(err, "Could not add this SKU."));
     } finally {
@@ -142,28 +142,30 @@ export function AddSkuDialog({
         <div className="md:col-span-2">
           <ConfigStatus error={error} />
         </div>
-        <ConfigField label="SKU" hint={skuIssue ? undefined : "Short code used on requests and labels."}>
+        <ConfigField label="SKU (required)" hint={skuIssue ? undefined : "Short code used on requests and labels."}>
           <input
             className="input"
             value={form.sku}
             onChange={(e) => setForm({ ...form, sku: e.target.value })}
             onBlur={() => markTouched("sku")}
             aria-invalid={skuIssue ? true : undefined}
+            aria-describedby={skuIssue ? "add-sku-sku-error" : undefined}
             required
             autoComplete="off"
           />
-          {skuIssue && <span className="text-sm text-danger" role="alert">{skuIssue}</span>}
+          {skuIssue && <span id="add-sku-sku-error" className="text-sm text-danger" role="alert">{skuIssue}</span>}
         </ConfigField>
-        <ConfigField label="Name">
+        <ConfigField label="Name (required)">
           <input
             className="input"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             onBlur={() => markTouched("name")}
             aria-invalid={nameIssue ? true : undefined}
+            aria-describedby={nameIssue ? "add-sku-name-error" : undefined}
             required
           />
-          {nameIssue && <span className="text-sm text-danger" role="alert">{nameIssue}</span>}
+          {nameIssue && <span id="add-sku-name-error" className="text-sm text-danger" role="alert">{nameIssue}</span>}
         </ConfigField>
         <ConfigField label="Category">
           <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -204,7 +206,7 @@ export function AddSkuDialog({
           <input className="input" type="number" min={0} step="any" value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: Number(e.target.value) })} />
         </ConfigField>
         {needExpiry && (
-          <ConfigField label="Expiry date" hint={expiryIssue ? undefined : "Required because this opening quantity is a dated supply."}>
+          <ConfigField label="Expiry date (required)" hint={expiryIssue ? undefined : "Required because this opening quantity is a dated supply."}>
             <input
               className="input"
               type="date"
@@ -212,9 +214,10 @@ export function AddSkuDialog({
               onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
               onBlur={() => markTouched("expiry")}
               aria-invalid={expiryIssue ? true : undefined}
+              aria-describedby={expiryIssue ? "add-sku-expiry-error" : undefined}
               required
             />
-            {expiryIssue && <span className="text-sm text-danger" role="alert">{expiryIssue}</span>}
+            {expiryIssue && <span id="add-sku-expiry-error" className="text-sm text-danger" role="alert">{expiryIssue}</span>}
           </ConfigField>
         )}
         <ConfigField label="Notes">
@@ -483,7 +486,7 @@ export function ImportSkuDialog({
                 {preview.map((row) => (
                   <tr key={row.line}>
                     <td>{row.line}</td>
-                    <td className="font-mono text-xs">{row.sku || "—"}</td>
+                    <td className="font-mono text-sm">{row.sku || "—"}</td>
                     <td>{row.name || "—"}</td>
                     <td>{row.issue || "Ready"}</td>
                   </tr>
@@ -510,7 +513,7 @@ export function ImportSkuDialog({
                 {serverErrors.map((row) => (
                   <tr key={`${row.line}-${row.sku}-${row.message}`}>
                     <td>{row.line}</td>
-                    <td className="font-mono text-xs">{row.sku || "—"}</td>
+                    <td className="font-mono text-sm">{row.sku || "—"}</td>
                     <td>{row.message}</td>
                   </tr>
                 ))}
@@ -532,7 +535,7 @@ export function EditSkuDialog({
   item: InventoryItem;
   locations: StockLocation[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (message: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<InventoryItem>(item);
   const [counted, setCounted] = useState(item.quantity);
@@ -566,7 +569,7 @@ export function EditSkuDialog({
         }),
       });
       setOk("Saved.");
-      await onSaved();
+      await onSaved(`Saved ${item.sku} · ${draft.name.trim()}.`);
     } catch (err: unknown) {
       setError(explainFailure(err, "Could not save this SKU."));
     } finally {
@@ -574,8 +577,11 @@ export function EditSkuDialog({
     }
   }
 
+  const unit = draft.unit || "unit";
+
   async function postStocktake() {
     setError("");
+    setBusy(true);
     try {
       await api("/api/v1/inventory/stocktake", {
         method: "POST",
@@ -585,14 +591,21 @@ export function EditSkuDialog({
           reason: "cycle count",
         }),
       });
-      await onSaved();
+      await onSaved(`Counted ${item.sku}: clinic quantity set to ${counted} ${unit}.`);
     } catch (err: unknown) {
-      setError(explainFailure(err, "Stocktake failed."));
+      setError(explainFailure(err, "Stocktake failed. The quantity was not changed."));
+    } finally {
+      setBusy(false);
     }
   }
 
   async function postWriteoff() {
     setError("");
+    if (!(writeQty > 0)) {
+      setError("Enter a write-off quantity greater than zero.");
+      return;
+    }
+    setBusy(true);
     try {
       await api("/api/v1/inventory/writeoff", {
         method: "POST",
@@ -602,9 +615,11 @@ export function EditSkuDialog({
           reason: writeReason,
         }),
       });
-      await onSaved();
+      await onSaved(`Wrote off ${writeQty} ${unit} of ${item.name} (${writeReason}).`);
     } catch (err: unknown) {
-      setError(explainFailure(err, "Write-off failed."));
+      setError(explainFailure(err, "Write-off failed. No stock was removed."));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -628,7 +643,7 @@ export function EditSkuDialog({
         <div className="md:col-span-2">
           <ConfigStatus error={error} ok={ok} />
         </div>
-        <ConfigField label="Name">
+        <ConfigField label="Name (required)">
           <input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required />
         </ConfigField>
         <ConfigField label="Category">
@@ -678,7 +693,14 @@ export function EditSkuDialog({
               <input className="input" type="number" min={0} step="any" value={counted} onChange={(e) => setCounted(Number(e.target.value))} />
             </ConfigField>
             <div className="flex items-end">
-              <ConfirmAction label="Save count" confirmLabel="Apply count" onConfirm={postStocktake} />
+              <ConfirmAction
+                label="Save count"
+                confirmLabel="Apply count"
+                cancelLabel="Keep current quantity"
+                disabled={busy}
+                message={`Set the clinic quantity of ${item.name} from ${item.quantity} to ${counted} ${unit}? The difference is recorded as a stock movement.`}
+                onConfirm={postStocktake}
+              />
             </div>
             <ConfigField label="Write-off quantity">
               <input className="input" type="number" min={0.01} step="any" value={writeQty} onChange={(e) => setWriteQty(Number(e.target.value))} />
@@ -691,7 +713,16 @@ export function EditSkuDialog({
               </select>
             </ConfigField>
             <div>
-              <ConfirmAction label={`Write off ${writeQty}`} confirmLabel="Write off" onConfirm={postWriteoff} />
+              <ConfirmAction
+                label={`Write off ${writeQty} ${unit}`}
+                confirmLabel="Yes, write off"
+                cancelLabel="Keep stock"
+                variant="danger"
+                destructive
+                disabled={busy}
+                message={`Remove ${writeQty} ${unit} of ${item.name} as ${writeReason}? This cannot be undone here; it is recorded as a write-off.`}
+                onConfirm={postWriteoff}
+              />
             </div>
           </div>
         )}

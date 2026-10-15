@@ -44,6 +44,7 @@ export function createInvoice(body: {
     quantity: number;
     unit_price: number;
     line_kind: string;
+    procedure_code?: string;
   }>;
 }) {
   return api<BillingInvoice>("/api/v1/billing/invoices", {
@@ -72,4 +73,22 @@ export function voidInvoice(invoiceId: string) {
 
 export function searchPatients(q: string) {
   return api<Page<Patient>>(`/api/v1/patients?limit=20&q=${encodeURIComponent(q)}`);
+}
+
+export type FeeScheduleOption = {
+  id: string;
+  code: string;
+  label: string;
+  category: string;
+  unit_price: number;
+  currency: string;
+  billable: boolean;
+  is_active: boolean;
+  catalog_kind?: string | null;
+};
+
+export function fetchFeeSchedule(active = true) {
+  return api<FeeScheduleOption[]>(
+    `/api/v1/billing/fee-schedule${query({ billable: "true", active: active ? "true" : undefined })}`,
+  );
 }

@@ -703,7 +703,11 @@ async def list_lab_cases(
     status: str | None = None,
     overdue_only: bool = False,
 ) -> list[LabCase]:
-    q = select(LabCase).where(LabCase.clinic_id == clinic_id)
+    q = (
+        select(LabCase)
+        .where(LabCase.clinic_id == clinic_id)
+        .options(selectinload(LabCase.patient), selectinload(LabCase.dentist))
+    )
     if status:
         q = q.where(LabCase.status == status)
     if overdue_only:
@@ -803,6 +807,9 @@ async def create_lab_case(
             restoration_case_id=restoration_case_id,
         )
         await db.flush()
+    case.patient = patient
+    if actor.role == Role.DENTIST:
+        case.dentist = actor
     await _sync_lab_charge(db, clinic_id, actor.id, case)
     return case
 
@@ -843,7 +850,9 @@ async def update_lab_case(
 ) -> LabCase:
     case = (
         await db.execute(
-            select(LabCase).where(LabCase.id == case_id, LabCase.clinic_id == clinic_id)
+            select(LabCase)
+            .where(LabCase.id == case_id, LabCase.clinic_id == clinic_id)
+            .options(selectinload(LabCase.patient), selectinload(LabCase.dentist))
         )
     ).scalar_one_or_none()
     if not case:
@@ -857,7 +866,24 @@ async def update_lab_case(
         if st == LabCaseStatus.SENT and not case.sent_at:
             case.sent_at = now
         elif st == LabCaseStatus.RECEIVED:
+            was_received = case.received_at is not None
             case.received_at = now
+            if not was_received:
+                from app.services.staff_inbox import notify_lab_case_received
+
+                p_name = f"{case.patient.first_name} {case.patient.last_name}".strip() if case.patient else "Patient"
+                await notify_lab_case_received(
+                    db,
+                    clinic_id=clinic_id,
+                    actor_id=actor_id,
+                    case_id=case.id,
+                    patient_id=case.patient_id,
+                    patient_name=p_name,
+                    case_type=case.case_type,
+                    tooth=case.tooth,
+                    lab_name=case.lab_name,
+                    dentist_id=case.dentist_id,
+                )
         elif st == LabCaseStatus.FITTED:
             case.fitted_at = now
     for k, v in payload.items():

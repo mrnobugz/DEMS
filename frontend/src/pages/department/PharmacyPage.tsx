@@ -1,6 +1,20 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Layers,
+  PackageOpen,
+  Pill,
+  Plus,
+  Printer,
+  Search,
+  ShoppingCart,
+  Trash2,
+} from "lucide-react";
 import { ConfigField, ConfigStatus, ConfirmAction, onTabListKeyDown } from "@/components/config/ConfigUi";
 import { EmptyState } from "@/components/EmptyState";
 import { Modal } from "@/components/Modal";
@@ -359,34 +373,95 @@ export function PharmacyPage() {
           </p>
         </div>
         {canDispense && (
-          <button className="btn-primary" type="button" onClick={() => setPrescribeOpen(true)}>
+          <button className="btn-primary min-h-[var(--touch-min)] gap-2" type="button" onClick={() => setPrescribeOpen(true)}>
+            <Plus size={18} aria-hidden />
             New prescription
           </button>
         )}
       </header>
 
       {board && (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            ["Waiting", board.waiting],
-            ["Partial fills", board.partial],
-            ["Dispensed today", board.dispensed_today],
-            ["Sales today", board.sales_today],
-            ["Shelf short", board.shelf_short],
-          ].map(([label, value]) => (
-            <div key={String(label)} className="glass-panel">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
-              <p className="font-display text-2xl font-bold text-brand-900">{value}</p>
+            {
+              id: "waiting",
+              label: "Waiting",
+              value: board.waiting,
+              icon: Clock,
+              tone: "text-amber-600 dark:text-amber-400",
+              hint: "Prescriptions ready for dispensing",
+            },
+            {
+              id: "partial",
+              label: "Partial fills",
+              value: board.partial,
+              icon: Layers,
+              tone: "text-blue-600 dark:text-blue-400",
+              hint: "Lines pending full stock",
+            },
+            {
+              id: "dispensed_today",
+              label: "Dispensed today",
+              value: board.dispensed_today,
+              icon: CheckCircle2,
+              tone: "text-emerald-600 dark:text-emerald-400",
+              hint: "Fulfillments completed today",
+            },
+            {
+              id: "sales_today",
+              label: "Sales today",
+              value: board.sales_today,
+              icon: ShoppingCart,
+              tone: "text-brand-600 dark:text-brand-400",
+              hint: "Counter OTC sales",
+            },
+            {
+              id: "shelf_short",
+              label: "Shelf short",
+              value: board.shelf_short,
+              icon: AlertTriangle,
+              tone: board.shelf_short > 0 ? "text-danger" : "text-muted",
+              hint: "Items at or below reorder",
+            },
+          ].map((stat) => (
+            <div key={stat.id} className="glass-panel relative flex flex-col justify-between overflow-hidden p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">{stat.label}</span>
+                <stat.icon size={18} className={stat.tone} aria-hidden />
+              </div>
+              <p className="font-display mt-2 text-2xl font-bold text-ink">{stat.value}</p>
+              <p className="mt-1 truncate text-xs text-muted" title={stat.hint}>
+                {stat.hint}
+              </p>
             </div>
           ))}
         </div>
       )}
 
       {board && board.expiring.length > 0 && (
-        <p className="text-sm text-muted" role="status">
-          Expiring on the shelf within 90 days:{" "}
-          {board.expiring.map((lot) => `${lot.name} lot ${lot.lot_code} (${lot.expiry_date})`).join("; ")}
-        </p>
+        <div
+          role="alert"
+          aria-live="polite"
+          className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/90 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertCircle size={20} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold">Expiring on the shelf within 90 days</p>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {board.expiring.map((lot) => (
+                <span
+                  key={`${lot.sku}-${lot.lot_code}`}
+                  className="inline-flex items-center gap-1 rounded-md bg-white/70 px-2 py-0.5 font-medium shadow-xs dark:bg-black/40"
+                >
+                  <strong>{lot.name}</strong>
+                  <span className="text-muted">lot {lot.lot_code}</span>
+                  <span className="font-semibold text-danger">exp {lot.expiry_date}</span>
+                  <span>({lot.quantity} left)</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       <div
@@ -424,8 +499,8 @@ export function PharmacyPage() {
       <ConfigStatus loading={loading && rows.length === 0} error={error} ok={ok} />
 
       {view === "queue" && (
-        <section className="glass-panel space-y-3">
-          <div className="grid gap-3 md:grid-cols-[1fr_12rem]">
+        <section className="glass-panel space-y-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_13rem]">
             <label className="block text-sm">
               <span className="label">Find a prescription</span>
               <span className="search-field">
@@ -434,54 +509,85 @@ export function PharmacyPage() {
                   className="input"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Patient, file number, or Rx number"
+                  placeholder="Patient name, code, or Rx number…"
                 />
               </span>
             </label>
             <label className="text-sm">
-              <span className="label">Show</span>
+              <span className="label">Filter by status</span>
               <select className="input" value={queueFilter} onChange={(e) => setQueueFilter(e.target.value)}>
-                <option value="waiting">Waiting and partial</option>
+                <option value="waiting">Waiting & partial fills</option>
                 <option value="partial">Partial only</option>
                 <option value="dispensed">Dispensed</option>
                 <option value="cancelled">Cancelled</option>
-                <option value="all">All</option>
+                <option value="all">All statuses</option>
               </select>
             </label>
           </div>
           {rows.length === 0 && !loading ? (
-            <EmptyState title="No prescriptions in this list" hint="A chair prescription appears here as soon as it is signed." />
+            <EmptyState
+              title="No prescriptions in this view"
+              hint="Chairside prescriptions appear here in real-time as soon as they are signed."
+            />
           ) : (
-            <ul className="divide-y divide-brand-100">
-              {rows.map((rx) => (
-                <li key={rx.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-brand-700">{rx.rx_number || "RX"}</span>
-                      <span className={`status-pill ${statusTone(rx.status)}`}>{titleCase(rx.status)}</span>
+            <ul className="divide-y divide-border/60">
+              {rows.map((rx) => {
+                const isPendingAction =
+                  canDispense && (rx.status === "active" || rx.status === "partial" || rx.status === "draft");
+                return (
+                  <li
+                    key={rx.id}
+                    className="flex flex-col gap-3 py-3.5 transition-colors sm:flex-row sm:items-center sm:justify-between hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-brand-100/70 px-2 py-0.5 font-mono text-xs font-bold text-brand-900 dark:bg-brand-950 dark:text-brand-300">
+                          {rx.rx_number || "RX"}
+                        </span>
+                        <span className={`status-pill ${statusTone(rx.status)}`}>{titleCase(rx.status)}</span>
+                        {rx.order_billed && (
+                          <span className="status-pill status-pill--info text-[11px]">Billed</span>
+                        )}
+                      </div>
+                      <p className="font-semibold text-brand-950 dark:text-brand-100">
+                        <Link
+                          to={`/patients/${rx.patient_id}`}
+                          className="hover:underline focus-visible:underline"
+                        >
+                          {rx.patient_name || "Patient"}
+                        </Link>
+                        {rx.patient_code ? (
+                          <span className="ml-2 font-mono text-xs text-muted">({rx.patient_code})</span>
+                        ) : null}
+                      </p>
+                      <p className="text-sm font-medium text-ink">
+                        {rx.items.map((item) => item.drug_name).join(", ")}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {rx.items.map((item) => courseSummary(item) || item.dose).join("; ")}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {rx.prescriber_name ? `Prescribed by ${rx.prescriber_name}` : "Signed"} ·{" "}
+                        {new Date(rx.prescribed_at).toLocaleString()}
+                      </p>
                     </div>
-                    <p className="font-semibold text-brand-900">
-                      <Link to={`/patients/${rx.patient_id}`}>{rx.patient_name || "Patient"}</Link>
-                      {rx.patient_code ? <span className="ml-2 text-xs text-muted">{rx.patient_code}</span> : null}
-                    </p>
-                    <p className="text-sm text-muted">
-                      {rx.items.map((item) => item.drug_name).join(", ")}
-                    </p>
-                    <p className="text-xs text-muted">
-                      {rx.items.map((item) => courseSummary(item) || item.dose).join("; ")}
-                    </p>
-                    <p className="text-xs text-muted">
-                      {rx.prescriber_name ? `Signed by ${rx.prescriber_name}` : "Signed"} ·{" "}
-                      {new Date(rx.prescribed_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <button className="btn-ghost" type="button" onClick={() => setActive(rx)}>
-                    {canDispense && (rx.status === "active" || rx.status === "partial" || rx.status === "draft")
-                      ? "Dispense"
-                      : "Open"}
-                  </button>
-                </li>
-              ))}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        className={
+                          isPendingAction
+                            ? "btn-primary min-h-[var(--touch-min)] px-4"
+                            : "btn-ghost min-h-[var(--touch-min)] px-3"
+                        }
+                        type="button"
+                        onClick={() => setActive(rx)}
+                      >
+                        {isPendingAction ? "Dispense" : "Review"}
+                        <ArrowRight size={16} className="ml-1 opacity-70" aria-hidden />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -580,55 +686,88 @@ function ShelfPanel({
 }) {
   const short = rows.filter((row) => row.is_active && row.inventory_item_id && row.shelf_on_hand <= row.reorder_level);
   return (
-    <section className="glass-panel space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted">
-          Dispensing uses the pharmacy shelf only. The main store stays in Warehouse until it is issued here.
-        </p>
+    <section className="glass-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-ink">Pharmacy Shelf Inventory</h3>
+          <p className="text-sm text-muted">
+            Dispensing uses the pharmacy shelf only. The main stock remains in Warehouse until requested and transferred here.
+          </p>
+        </div>
         {canRequest && (
-          <button className="btn-primary" type="button" onClick={onRequest} disabled={short.length === 0}>
-            Request short stock
+          <button
+            className="btn-primary min-h-[var(--touch-min)] gap-2"
+            type="button"
+            onClick={onRequest}
+            disabled={short.length === 0}
+          >
+            <PackageOpen size={18} aria-hidden />
+            Request short stock {short.length > 0 ? `(${short.length})` : ""}
           </button>
         )}
       </div>
-      <p className="text-sm">
-        <Link to="/inventory?view=requests">Open warehouse requests</Link>
-        <span className="text-muted"> to approve and issue.</span>
-      </p>
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <span>Need store transfer approvals?</span>
+        <Link to="/inventory?view=requests" className="font-semibold text-brand-700 hover:underline dark:text-brand-300">
+          Open warehouse requisitions →
+        </Link>
+      </div>
       {rows.length === 0 ? (
-        <EmptyState title="No formulary drugs" hint="Add a drug and link it to a warehouse SKU." />
+        <EmptyState title="No formulary drugs on shelf" hint="Add a drug in Formulary and link it to a warehouse SKU." />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-border/80">
           <table className="admin-table w-full text-left">
             <thead>
               <tr>
-                <th>Drug</th>
-                <th>Shelf</th>
-                <th>Main store</th>
-                <th>Reorder</th>
-                <th>Price</th>
+                <th scope="col">Drug / Formulary Item</th>
+                <th scope="col" className="text-right">Shelf stock</th>
+                <th scope="col" className="text-right">Main store</th>
+                <th scope="col" className="text-right">Reorder level</th>
+                <th scope="col" className="text-right">Sale price</th>
+                <th scope="col" className="text-center">Status</th>
               </tr>
             </thead>
             <tbody>
               {rows.filter((row) => row.is_active).map((row) => {
-                const low = Boolean(row.inventory_item_id) && row.shelf_on_hand <= row.reorder_level;
+                const hasSku = Boolean(row.inventory_item_id);
+                const low = hasSku && row.shelf_on_hand <= row.reorder_level;
+                const out = hasSku && row.shelf_on_hand <= 0;
                 return (
                   <tr key={row.template_id}>
                     <td>
-                      <div className="font-semibold">{row.name}</div>
-                      <div className="text-xs text-muted">
-                        {row.sku || "Not linked to stock"} · {row.form}
-                        {row.is_controlled ? " · Controlled" : ""}
+                      <div className="font-semibold text-ink">{row.name}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                        <span className="font-mono">{row.sku || "No SKU linked"}</span>
+                        <span>·</span>
+                        <span>{titleCase(row.form)}</span>
+                        {row.is_controlled && (
+                          <span className="rounded bg-red-100 px-1 py-0.2 text-[10px] font-bold text-red-800 dark:bg-red-950 dark:text-red-300">
+                            Controlled
+                          </span>
+                        )}
                       </div>
                     </td>
-                    <td className={low ? "font-semibold text-danger" : ""}>
-                      {showQty(row.shelf_on_hand)} {row.unit || ""}
+                    <td className={`text-right font-mono ${low ? "font-bold text-danger" : "font-medium"}`}>
+                      {showQty(row.shelf_on_hand)} <span className="text-xs text-muted">{row.unit || ""}</span>
                     </td>
-                    <td>
-                      {showQty(row.store_on_hand)} {row.unit || ""}
+                    <td className="text-right font-mono text-muted">
+                      {showQty(row.store_on_hand)} <span className="text-xs">{row.unit || ""}</span>
                     </td>
-                    <td>{showQty(row.reorder_level)}</td>
-                    <td>{row.sale_price != null ? money(row.sale_price) : "—"}</td>
+                    <td className="text-right font-mono text-muted">{showQty(row.reorder_level)}</td>
+                    <td className="text-right font-semibold text-ink">
+                      {row.sale_price != null ? money(row.sale_price) : "—"}
+                    </td>
+                    <td className="text-center">
+                      {!hasSku ? (
+                        <span className="status-pill status-pill--warning text-[11px]">Unlinked</span>
+                      ) : out ? (
+                        <span className="status-pill status-pill--danger text-[11px]">Stockout</span>
+                      ) : low ? (
+                        <span className="status-pill status-pill--warning text-[11px]">Reorder</span>
+                      ) : (
+                        <span className="status-pill status-pill--success text-[11px]">In stock</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -657,12 +796,17 @@ function FormularyPanel({
 }) {
   const sku = useMemo(() => new Map(stock.map((item) => [item.id, item])), [stock]);
   return (
-    <section className="glass-panel space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted">The formulary is what clinicians prescribe. Link each drug to the SKU on the shelf.</p>
+    <section className="glass-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-ink">Formulary Catalog</h3>
+          <p className="text-sm text-muted">
+            The formulary defines what clinicians can prescribe. Link each drug to a warehouse inventory SKU so shelf stock tracks automatically.
+          </p>
+        </div>
         {canEdit && (
           <button
-            className="btn-primary"
+            className="btn-primary min-h-[var(--touch-min)] gap-2"
             type="button"
             onClick={() =>
               onEdit({
@@ -679,37 +823,55 @@ function FormularyPanel({
               })
             }
           >
+            <Plus size={18} aria-hidden />
             Add drug
           </button>
         )}
       </div>
       {templates.length === 0 ? (
-        <EmptyState title="Formulary is empty" />
+        <EmptyState title="Formulary is empty" hint="Add your first drug template with default doses and quantities." />
       ) : (
-        <ul className="divide-y divide-brand-100">
+        <ul className="divide-y divide-border/60 rounded-xl border border-border/80 bg-surface-0/60 shadow-xs">
           {templates.map((row) => {
             const item = row.inventory_item_id ? sku.get(row.inventory_item_id) : undefined;
             return (
-              <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <div>
-                  <p className="font-semibold">
-                    {row.name}{" "}
-                    {!row.is_active && <span className="status-pill status-pill--warning">Inactive</span>}
-                    {row.is_controlled && <span className="status-pill status-pill--danger">Controlled</span>}
-                  </p>
-                  <p className="text-sm text-muted">
-                    {titleCase(row.category)} · {row.form} · {row.default_dose} · qty {row.default_quantity}
-                    {item ? ` · ${item.sku}` : " · no SKU"}
+              <li
+                key={row.id}
+                className="flex flex-col gap-3 p-3.5 transition-colors sm:flex-row sm:items-center sm:justify-between hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+              >
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-ink">{row.name}</span>
+                    {!row.is_active && <span className="status-pill status-pill--warning text-[11px]">Inactive</span>}
+                    {row.is_controlled && (
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-950 dark:text-red-300">
+                        Controlled
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted">
+                    <span className="font-medium text-ink">{titleCase(row.category)}</span> · {row.form} · default {row.default_dose} · qty {row.default_quantity}
+                    {item ? (
+                      <span className="ml-1 font-mono font-medium text-brand-700 dark:text-brand-300">· SKU: {item.sku}</span>
+                    ) : (
+                      <span className="ml-1 text-amber-700 dark:text-amber-300">· no warehouse SKU</span>
+                    )}
                   </p>
                 </div>
                 {canEdit && row.is_active && (
-                  <div className="flex flex-wrap gap-2">
-                    <button className="btn-ghost" type="button" onClick={() => onEdit(row)}>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      className="btn-ghost min-h-[var(--touch-min)] px-3 text-xs font-semibold"
+                      type="button"
+                      onClick={() => onEdit(row)}
+                    >
                       Edit
                     </button>
                     <ConfirmAction
                       label="Deactivate"
-                      confirmLabel="Deactivate drug"
+                      confirmLabel="Confirm deactivation"
+                      variant="danger"
+                      className="min-h-[var(--touch-min)] text-xs font-semibold"
                       onConfirm={async () => {
                         try {
                           await api(`/api/v1/pharmacy/templates/${row.id}`, {
@@ -912,13 +1074,22 @@ function CounterPanel({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
       <section className="glass-panel space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display text-lg font-bold text-ink">Pharmacy Shelf Counter</h3>
+            <p className="text-sm text-muted">Pick available shelf items for direct walk-in dispensing.</p>
+          </div>
+          <span className="text-xs font-semibold text-muted">
+            {catalog.length} {catalog.length === 1 ? "drug" : "drugs"} listed
+          </span>
+        </div>
         <label className="block text-sm">
           <span className="label">Find a shelf item</span>
           <span className="search-field">
             <Search className="search-field__icon" size={18} aria-hidden />
-            <input className="input" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Name or SKU" />
+            <input className="input" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search by name, SKU, or category…" />
           </span>
         </label>
         {catalog.length === 0 ? (
@@ -943,16 +1114,20 @@ function CounterPanel({
                     <span>
                       <span className="font-semibold text-brand-900">
                         {row.name}
-                        {row.is_controlled ? <span className="ml-2 text-xs font-semibold text-red-700">Controlled</span> : null}
+                        {row.is_controlled ? (
+                          <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-950 dark:text-red-300">
+                            Controlled
+                          </span>
+                        ) : null}
                       </span>
                       <span className="mt-0.5 block text-sm text-muted">
-                        {row.sku || "No SKU"} · shelf {showQty(row.shelf_on_hand)}
+                        <span className="font-mono">{row.sku || "No SKU"}</span> · shelf {showQty(row.shelf_on_hand)}
                         {row.unit ? ` ${row.unit}` : ""} · {priced ? money(row.sale_price || 0) : "No sale price"}
                         {reason ? ` · ${reason}` : ""}
                       </span>
                     </span>
                     <span className="counter-pick__action">
-                      {inCart ? `In cart · ${inCart.quantity}` : canAdd ? "Add" : "Unavailable"}
+                      {inCart ? `In cart (${inCart.quantity})` : canAdd ? "+ Add" : "Unavailable"}
                     </span>
                   </button>
                 </li>
@@ -962,20 +1137,35 @@ function CounterPanel({
         )}
       </section>
 
-      <section className="glass-panel counter-cart space-y-3">
-        <h3 className="font-display text-lg font-bold text-brand-900">Cart</h3>
+      <section className="glass-panel counter-cart space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-2">
+          <h3 className="font-display text-lg font-bold text-ink">Checkout Cart</h3>
+          {cart.length > 0 && (
+            <button
+              className="btn-ghost text-xs text-muted hover:text-danger"
+              type="button"
+              onClick={() => setCart([])}
+            >
+              Clear cart
+            </button>
+          )}
+        </div>
         <ConfigStatus error={error} />
-        {!canSell && <p className="text-sm text-muted">You can review the shelf. Selling needs pharmacy access.</p>}
+        {!canSell && (
+          <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            You can review the shelf. Taking payment requires pharmacy permissions.
+          </p>
+        )}
         <label className="block text-sm">
           <span className="label">Patient</span>
           {patient ? (
-            <span className="flex items-center justify-between gap-2">
+            <span className="flex items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/60 p-2 text-sm dark:border-brand-900 dark:bg-brand-950/50">
               <span>
-                {patient.first_name} {patient.last_name}{" "}
-                <span className="text-muted">{patient.patient_code}</span>
+                <strong className="text-ink">{patient.first_name} {patient.last_name}</strong>{" "}
+                <span className="font-mono text-xs text-muted">({patient.patient_code})</span>
               </span>
-              <button className="btn-ghost" type="button" onClick={() => setPatient(null)}>
-                Change
+              <button className="btn-ghost min-h-[var(--touch-min)] text-xs font-semibold" type="button" onClick={() => setPatient(null)}>
+                Change patient
               </button>
             </span>
           ) : (
@@ -983,16 +1173,16 @@ function CounterPanel({
               className="input"
               value={patientQuery}
               onChange={(e) => setPatientQuery(e.target.value)}
-              placeholder="Name or file number"
+              placeholder="Search patient name or file code…"
             />
           )}
         </label>
         {hits.length > 0 && (
-          <ul className="rounded-xl border border-border">
+          <ul className="divide-y divide-border/60 rounded-xl border border-border shadow-xs">
             {hits.map((hit) => (
               <li key={hit.id}>
                 <button
-                  className="btn-ghost w-full justify-start"
+                  className="btn-ghost min-h-[var(--touch-min)] w-full justify-start text-left text-sm"
                   type="button"
                   onClick={() => {
                     setPatient(hit);
@@ -1000,7 +1190,8 @@ function CounterPanel({
                     setHits([]);
                   }}
                 >
-                  {hit.first_name} {hit.last_name} · {hit.patient_code}
+                  <span className="font-medium">{hit.first_name} {hit.last_name}</span>
+                  <span className="ml-2 font-mono text-xs text-muted">· {hit.patient_code}</span>
                 </button>
               </li>
             ))}
@@ -1010,38 +1201,45 @@ function CounterPanel({
         {cart.length === 0 ? (
           <EmptyState title="Cart is empty" hint="Add shelf items, choose the patient, then take payment." />
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {cart.map((line) => (
-              <li key={line.inventory_item_id} className="rounded-xl border border-border p-3">
+              <li key={line.inventory_item_id} className="rounded-xl border border-border/80 bg-surface-0/60 p-3 shadow-xs">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{line.name}</p>
-                    <p className="text-sm text-muted">
-                      {line.sku} · {money(line.unit_price)} · shelf {showQty(line.shelf_on_hand)}
+                    <p className="font-semibold text-ink">{line.name}</p>
+                    <p className="text-xs text-muted">
+                      <span className="font-mono">{line.sku}</span> · {money(line.unit_price)} each · shelf {showQty(line.shelf_on_hand)}
                     </p>
                   </div>
-                  <p className="font-semibold">{money(line.quantity * line.unit_price)}</p>
+                  <p className="font-display font-bold text-ink">{money(line.quantity * line.unit_price)}</p>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2.5 flex items-center justify-between border-t border-border/40 pt-2">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      className="btn-ghost min-h-[var(--touch-min)] min-w-[var(--touch-min)] rounded-md font-bold"
+                      type="button"
+                      aria-label={`Decrease ${line.name}`}
+                      onClick={() => setQty(line.inventory_item_id, line.quantity - 1, Math.floor(line.shelf_on_hand))}
+                    >
+                      −
+                    </button>
+                    <span className="min-w-8 text-center font-mono text-sm font-bold text-ink">{line.quantity}</span>
+                    <button
+                      className="btn-ghost min-h-[var(--touch-min)] min-w-[var(--touch-min)] rounded-md font-bold"
+                      type="button"
+                      aria-label={`Increase ${line.name}`}
+                      disabled={line.quantity >= Math.floor(line.shelf_on_hand)}
+                      onClick={() => setQty(line.inventory_item_id, line.quantity + 1, Math.floor(line.shelf_on_hand))}
+                    >
+                      +
+                    </button>
+                  </div>
                   <button
-                    className="btn-ghost min-h-[var(--touch-min)] min-w-[var(--touch-min)]"
+                    className="btn-ghost min-h-[var(--touch-min)] text-xs text-muted hover:text-danger"
                     type="button"
-                    aria-label={`Decrease ${line.name}`}
-                    onClick={() => setQty(line.inventory_item_id, line.quantity - 1, Math.floor(line.shelf_on_hand))}
+                    onClick={() => setCart((current) => current.filter((row) => row.inventory_item_id !== line.inventory_item_id))}
                   >
-                    −
-                  </button>
-                  <span className="min-w-8 text-center text-sm font-semibold">{line.quantity}</span>
-                  <button
-                    className="btn-ghost min-h-[var(--touch-min)] min-w-[var(--touch-min)]"
-                    type="button"
-                    aria-label={`Increase ${line.name}`}
-                    disabled={line.quantity >= Math.floor(line.shelf_on_hand)}
-                    onClick={() => setQty(line.inventory_item_id, line.quantity + 1, Math.floor(line.shelf_on_hand))}
-                  >
-                    +
-                  </button>
-                  <button className="btn-ghost" type="button" onClick={() => setCart((current) => current.filter((row) => row.inventory_item_id !== line.inventory_item_id))}>
+                    <Trash2 size={14} className="mr-1 inline" aria-hidden />
                     Remove
                   </button>
                 </div>
@@ -1049,9 +1247,14 @@ function CounterPanel({
             ))}
           </ul>
         )}
-        <p className="font-display text-xl font-bold text-brand-900">Total {money(total)}</p>
+        <div className="rounded-xl border border-border/70 bg-brand-50/50 p-3.5 dark:bg-brand-950/30">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-medium text-muted">Total Payable</span>
+            <span className="font-display text-2xl font-bold text-brand-950 dark:text-brand-100">{money(total)}</span>
+          </div>
+        </div>
         <label className="block text-sm">
-          <span className="label">Payment</span>
+          <span className="label">Payment method</span>
           <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
             {PAY_METHODS.map((option) => (
               <option key={option.id} value={option.id}>
@@ -1064,74 +1267,94 @@ function CounterPanel({
           <label className="block text-sm">
             <span className="label">Cash received</span>
             <input
-              className="input"
+              className="input tabular-nums"
               inputMode="decimal"
               value={tendered}
               onChange={(e) => setTendered(e.target.value)}
+              placeholder="0.00"
               required
             />
           </label>
         ) : (
           <label className="block text-sm">
-            <span className="label">Reference</span>
-            <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} />
+            <span className="label">Reference code</span>
+            <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M-Pesa or Card Ref" />
           </label>
         )}
         {method === "cash" && tendered.trim() !== "" && (
-          <p className="text-sm" role="status">
-            Change {money(change)}
-          </p>
+          <div className="flex items-center justify-between rounded-lg bg-surface-1 p-2.5 text-sm" role="status">
+            <span className="text-muted">Change due</span>
+            <span className={`font-mono font-bold ${shortCash ? "text-danger" : "text-emerald-700 dark:text-emerald-300"}`}>
+              {money(change)}
+            </span>
+          </div>
         )}
         <label className="block text-sm">
-          <span className="label">{controlled ? "Controlled-drug register note" : "Sale note"}</span>
-          <textarea className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} required={controlled} />
+          <span className="label">{controlled ? "Controlled-drug register note *" : "Sale note"}</span>
+          <textarea
+            className="input"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder={controlled ? "Mandatory register dispensing note…" : "Optional counsel notes…"}
+            required={controlled}
+          />
         </label>
         {canSell && (
           <ConfirmAction
-            label="Take payment"
-            confirmLabel={busy ? "Saving…" : "Complete sale"}
+            label={busy ? "Saving…" : "Take payment"}
+            confirmLabel="Confirm & complete sale"
+            variant="primary"
+            className="w-full justify-center"
+            disabled={busy || cart.length === 0 || !patient || shortCash}
             onConfirm={() => void checkout(false)}
           />
         )}
         {receipt && (
-          <div className="rounded-xl bg-brand-50/70 p-3 text-sm" role="status">
-            <p className="font-semibold">
-              {receipt.sale_number} · {receipt.patient_name} · {money(receipt.total)}
-            </p>
-            <p className="text-muted">
-              Paid {money(receipt.amount_paid)}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-sm dark:border-emerald-900 dark:bg-emerald-950/40" role="status">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-emerald-900 dark:text-emerald-200">{receipt.sale_number}</span>
+              <span className="font-bold text-ink">{money(receipt.total)}</span>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              {receipt.patient_name} · Paid {money(receipt.amount_paid)}
               {receipt.change_due > 0 ? ` · change ${money(receipt.change_due)}` : ""}
-              {receipt.invoice_number ? ` · ${receipt.invoice_number}` : ""}
+              {receipt.invoice_number ? ` · Inv: ${receipt.invoice_number}` : ""}
             </p>
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-2 space-y-1 border-t border-border/40 pt-2 text-xs">
               {receipt.lines.map((line) => (
-                <li key={line.id}>
-                  {line.description} × {line.quantity} · {money(line.line_total)}
+                <li key={line.id} className="flex justify-between">
+                  <span>{line.description} × {line.quantity}</span>
+                  <span className="font-mono">{money(line.line_total)}</span>
                 </li>
               ))}
             </ul>
-            <button className="btn-ghost mt-2" type="button" onClick={() => printReceipt(receipt)}>
+            <button className="btn-ghost mt-3 min-h-[var(--touch-min)] w-full justify-center gap-1.5" type="button" onClick={() => printReceipt(receipt)}>
+              <Printer size={16} aria-hidden />
               Print receipt
             </button>
           </div>
         )}
-        <h3 className="font-display text-base font-bold">Recent sales</h3>
-        {sales.length === 0 ? (
-          <p className="text-sm text-muted">No counter sales yet.</p>
-        ) : (
-          <ul className="divide-y divide-brand-100">
-            {sales.slice(0, 8).map((sale) => (
-              <li key={sale.id} className="py-2 text-sm">
-                <p className="font-semibold">
-                  {sale.sale_number} · {sale.patient_name || "Patient"} · {money(sale.total)}
-                </p>
-                <p className="text-muted">
-                  {titleCase(sale.payment_method.replaceAll("_", " "))} · {new Date(sale.created_at).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="border-t border-border/60 pt-3">
+          <h4 className="font-display text-sm font-bold text-ink">Recent Counter Sales</h4>
+          {sales.length === 0 ? (
+            <p className="mt-1 text-xs text-muted">No counter sales recorded today.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-border/40">
+              {sales.slice(0, 6).map((sale) => (
+                <li key={sale.id} className="py-2 text-xs">
+                  <div className="flex justify-between font-semibold text-ink">
+                    <span>{sale.sale_number} · {sale.patient_name || "Patient"}</span>
+                    <span>{money(sale.total)}</span>
+                  </div>
+                  <p className="text-muted">
+                    {titleCase(sale.payment_method.replaceAll("_", " "))} · {new Date(sale.created_at).toLocaleTimeString()}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -1274,19 +1497,19 @@ function PrescribeDialog({
           />
         </ConfigField>
         {!patient && hits.length > 0 && (
-          <ul className="divide-y divide-brand-100 rounded-xl border border-border">
+          <ul className="divide-y divide-border/60 rounded-xl border border-border bg-surface-0 shadow-xs">
             {hits.map((hit) => (
               <li key={hit.id}>
                 <button
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-brand-50"
+                  className="btn-ghost min-h-[var(--touch-min)] w-full justify-start px-3 py-2 text-left text-sm"
                   type="button"
                   onClick={() => {
                     setPatient(hit);
                     setHits([]);
                   }}
                 >
-                  {hit.first_name} {hit.last_name}{" "}
-                  <span className="text-muted">{hit.patient_code}</span>
+                  <span className="font-semibold text-ink">{hit.first_name} {hit.last_name}</span>{" "}
+                  <span className="ml-2 font-mono text-xs text-muted">({hit.patient_code})</span>
                 </button>
               </li>
             ))}
@@ -1294,16 +1517,28 @@ function PrescribeDialog({
         )}
         {patient && <PatientSafetyBanner patientId={patient.id} />}
         {lines.map((line, index) => (
-          <fieldset key={line.key} className="grid gap-3 rounded-xl border border-border p-3 md:grid-cols-2">
-            <legend className="px-1 text-sm font-semibold">Drug {index + 1}</legend>
-            <ConfigField label="Formulary">
+          <fieldset key={line.key} className="grid gap-3 rounded-xl border border-border/80 bg-surface-0/60 p-3.5 shadow-xs md:grid-cols-2">
+            <div className="flex items-center justify-between md:col-span-2">
+              <legend className="px-1 font-display text-sm font-bold text-ink">Prescription Line #{index + 1}</legend>
+              {lines.length > 1 && (
+                <button
+                  className="btn-ghost min-h-[var(--touch-min)] px-2 text-xs text-muted hover:text-danger"
+                  type="button"
+                  onClick={() => setLines((current) => current.filter((row) => row.key !== line.key))}
+                >
+                  <Trash2 size={14} className="mr-1 inline" aria-hidden />
+                  Remove line
+                </button>
+              )}
+            </div>
+            <ConfigField label="Formulary drug">
               <select
                 className="input"
                 value={line.templateId}
                 onChange={(e) => applyTemplate(line.key, e.target.value)}
                 required
               >
-                <option value="">Choose</option>
+                <option value="">Choose a drug…</option>
                 {templates.map((tmpl) => (
                   <option key={tmpl.id} value={tmpl.id}>
                     {tmpl.name}
@@ -1312,17 +1547,18 @@ function PrescribeDialog({
                 ))}
               </select>
             </ConfigField>
-            <ConfigField label="Dose">
+            <ConfigField label="Dosage">
               <input
                 className="input"
                 value={line.dose}
                 onChange={(e) =>
                   setLines((current) => current.map((row) => (row.key === line.key ? { ...row, dose: e.target.value } : row)))
                 }
+                placeholder="e.g. 500mg tds"
                 required
               />
             </ConfigField>
-            <ConfigField label="Quantity to give" hint="Packs, tablets, or bottles.">
+            <ConfigField label="Quantity to dispense" hint="Packs, capsules, tablets, or bottles.">
               <input
                 className="input"
                 value={line.quantity}
@@ -1331,10 +1567,11 @@ function PrescribeDialog({
                     current.map((row) => (row.key === line.key ? { ...row, quantity: e.target.value } : row)),
                   )
                 }
+                placeholder="e.g. 21"
                 required
               />
             </ConfigField>
-            <ConfigField label="Instructions">
+            <ConfigField label="Directions / Instructions">
               <input
                 className="input"
                 value={line.instructions}
@@ -1343,12 +1580,13 @@ function PrescribeDialog({
                     current.map((row) => (row.key === line.key ? { ...row, instructions: e.target.value } : row)),
                   )
                 }
+                placeholder="e.g. Take after food"
               />
             </ConfigField>
           </fieldset>
         ))}
         <button
-          className="btn-ghost"
+          className="btn-ghost min-h-[var(--touch-min)] w-full justify-center gap-1.5 border border-dashed border-border py-2 text-xs font-semibold"
           type="button"
           onClick={() =>
             setLines((current) => [
@@ -1357,10 +1595,11 @@ function PrescribeDialog({
             ])
           }
         >
-          Add another drug
+          <Plus size={15} aria-hidden />
+          Add another drug to prescription
         </button>
-        <ConfigField label="Note for pharmacy">
-          <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        <ConfigField label="Prescription notes for pharmacy">
+          <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Clinical indications, allergies noted, or instructions for the pharmacist…" />
         </ConfigField>
       </form>
     </Modal>
@@ -1862,15 +2101,19 @@ function DispenseDialog({
                       <p className="text-sm text-muted">This drug is not linked to a shelf SKU.</p>
                     )}
                     <div className="flex items-end">
-                      <button className="btn-ghost" type="button" onClick={() => void release(item.id)}>
-                        Patient will buy outside
-                      </button>
+                      <ConfirmAction
+                        label="Patient will buy outside"
+                        confirmLabel="Confirm external release"
+                        variant="ghost"
+                        className="text-xs"
+                        onConfirm={() => void release(item.id)}
+                      />
                     </div>
                   </div>
                 )}
                 {shelfShort && shelfId && canDispense && (
                   <button
-                    className="btn-ghost"
+                    className="btn-ghost min-h-[var(--touch-min)] gap-1 text-xs font-semibold text-brand-700 dark:text-brand-300"
                     type="button"
                     onClick={() =>
                       void onRequest([
@@ -1881,6 +2124,7 @@ function DispenseDialog({
                       ])
                     }
                   >
+                    <PackageOpen size={15} aria-hidden />
                     Request {showQty(Math.max(left, draft.quantity, 1))} from the main store
                   </button>
                 )}
@@ -1957,13 +2201,27 @@ function DispenseDialog({
             >
               <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} required={controlled} />
             </ConfigField>
-            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-              <ConfigField label="Cancel reason">
-                <input className="input" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
-              </ConfigField>
-              <button className="btn-ghost self-end" type="button" onClick={() => void cancelRx()}>
-                Cancel prescription
-              </button>
+            <div className="rounded-xl border border-border/70 bg-surface-1/40 p-3">
+              <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                <ConfigField label="Cancel prescription" hint="Provide cancellation reason to void this unfulfilled prescription.">
+                  <input
+                    className="input"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="e.g. Prescriber changed treatment, patient refused…"
+                  />
+                </ConfigField>
+                <div className="flex items-end">
+                  <ConfirmAction
+                    label="Cancel prescription"
+                    confirmLabel="Confirm cancel"
+                    variant="danger"
+                    className="min-h-[var(--touch-min)]"
+                    disabled={cancelReason.trim().length < 3}
+                    onConfirm={() => void cancelRx()}
+                  />
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -1988,7 +2246,8 @@ function DispenseDialog({
                   {event.expiry_date ? ` · exp ${event.expiry_date}` : ""}
                 </p>
                 {event.label_text && (
-                  <button className="btn-ghost mt-2" type="button" onClick={() => printLabel(event.label_text || "")}>
+                  <button className="btn-ghost mt-2 min-h-[var(--touch-min)] gap-1.5" type="button" onClick={() => printLabel(event.label_text || "")}>
+                    <Printer size={15} aria-hidden />
                     Print label
                   </button>
                 )}
@@ -2007,9 +2266,16 @@ function DispenseDialog({
                       <span className="label">Reason</span>
                       <input className="input" value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
                     </label>
-                    <button className="btn-ghost self-end" type="button" onClick={() => void sendBack(event.id)}>
-                      Return to shelf
-                    </button>
+                    <div className="flex items-end">
+                      <ConfirmAction
+                        label="Return to shelf"
+                        confirmLabel="Confirm return"
+                        variant="ghost"
+                        className="min-h-[var(--touch-min)] text-xs"
+                        disabled={Number(returnQty[event.id] || 0) <= 0 || returnReason.trim().length < 3}
+                        onConfirm={() => void sendBack(event.id)}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -2081,25 +2347,27 @@ function DrugDialog({
   return (
     <Modal
       title={editing ? "Edit formulary drug" : "Add formulary drug"}
-      subtitle="Link the warehouse SKU so the shelf quantity is real."
+      subtitle="Link the warehouse SKU so the shelf quantity and reorders are tracked accurately."
       onClose={onClose}
       footer={
         <>
-          <button className="btn-ghost" type="button" onClick={onClose}>
+          <button className="btn-ghost min-h-[var(--touch-min)]" type="button" onClick={onClose}>
             Close
           </button>
-          <button className="btn-primary" type="submit" form="drug-form" disabled={busy}>
+          <button className="btn-primary min-h-[var(--touch-min)] px-5" type="submit" form="drug-form" disabled={busy}>
             {busy ? "Saving…" : "Save drug"}
           </button>
         </>
       }
     >
-      <form id="drug-form" className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-        <ConfigStatus error={error} />
-        <ConfigField label="Name">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+      <form id="drug-form" className="grid gap-3.5 md:grid-cols-2" onSubmit={onSubmit}>
+        <div className="md:col-span-2">
+          <ConfigStatus error={error} />
+        </div>
+        <ConfigField label="Drug generic / brand name">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Amoxicillin + Clavulanic acid" required />
         </ConfigField>
-        <ConfigField label="Category">
+        <ConfigField label="Therapeutic category">
           <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
             {CATEGORIES.map((item) => (
               <option key={item} value={item}>
@@ -2108,7 +2376,7 @@ function DrugDialog({
             ))}
           </select>
         </ConfigField>
-        <ConfigField label="Form">
+        <ConfigField label="Dosage form">
           <select className="input" value={form} onChange={(e) => setForm(e.target.value)}>
             {FORMS.map((item) => (
               <option key={item} value={item}>
@@ -2117,38 +2385,53 @@ function DrugDialog({
             ))}
           </select>
         </ConfigField>
-        <ConfigField label="Strength">
-          <input className="input" value={strength} onChange={(e) => setStrength(e.target.value)} placeholder="500 mg" />
+        <ConfigField label="Strength / concentration">
+          <input className="input" value={strength} onChange={(e) => setStrength(e.target.value)} placeholder="e.g. 625 mg or 125 mg/5ml" />
         </ConfigField>
-        <ConfigField label="Route">
-          <input className="input" value={route} onChange={(e) => setRoute(e.target.value)} required />
+        <ConfigField label="Route of administration">
+          <input className="input" value={route} onChange={(e) => setRoute(e.target.value)} placeholder="e.g. oral, topical, infiltration" required />
         </ConfigField>
-        <ConfigField label="Default dose">
-          <input className="input" value={dose} onChange={(e) => setDose(e.target.value)} required />
+        <ConfigField label="Default unit dose">
+          <input className="input" value={dose} onChange={(e) => setDose(e.target.value)} placeholder="e.g. 1 tablet or 5ml" required />
         </ConfigField>
-        <ConfigField label="Default quantity">
-          <input className="input" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
+        <ConfigField label="Default total quantity" hint="Initial pack / unit quantity suggestion.">
+          <input className="input" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="e.g. 14" required />
         </ConfigField>
-        <ConfigField label="Reorder level" hint="Request from the store when the shelf is at or below this.">
-          <input className="input" inputMode="decimal" value={reorder} onChange={(e) => setReorder(e.target.value)} />
+        <ConfigField label="Shelf reorder threshold" hint="Flag low stock when shelf drops at or below this count.">
+          <input className="input tabular-nums" inputMode="decimal" value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="0" />
         </ConfigField>
-        <ConfigField label="Shelf SKU">
-          <select className="input" value={skuId} onChange={(e) => setSkuId(e.target.value)}>
-            <option value="">Not linked</option>
-            {stock.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.sku} · {item.name}
-              </option>
-            ))}
-          </select>
-        </ConfigField>
-        <label className="flex items-center gap-2 text-sm md:col-span-2">
-          <input type="checkbox" checked={controlled} onChange={(e) => setControlled(e.target.checked)} />
-          Controlled medicine (a register note is required at dispense)
-        </label>
-        <ConfigField label="Default instructions">
-          <textarea className="input md:col-span-2" rows={2} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-        </ConfigField>
+        <div className="md:col-span-2">
+          <ConfigField label="Warehouse inventory SKU link" hint="Connects this drug to real warehouse stock lots and batches on the shelf.">
+            <select className="input" value={skuId} onChange={(e) => setSkuId(e.target.value)}>
+              <option value="">-- Not linked to warehouse stock --</option>
+              {stock.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} · {item.name}
+                </option>
+              ))}
+            </select>
+          </ConfigField>
+        </div>
+        <div className="rounded-xl border border-border/80 bg-surface-1/40 p-3 md:col-span-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={controlled} onChange={(e) => setControlled(e.target.checked)} />
+            <span className="font-semibold text-ink">Controlled medicine</span>
+          </label>
+          <p className="mt-1 text-xs text-muted">
+            Requires mandatory register entry and dispense documentation notes at checkout.
+          </p>
+        </div>
+        <div className="md:col-span-2">
+          <ConfigField label="Default administration directions">
+            <textarea
+              className="input"
+              rows={2}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="e.g. Take immediately after meals with plenty of water"
+            />
+          </ConfigField>
+        </div>
       </form>
     </Modal>
   );

@@ -44,13 +44,14 @@ export function ObjectsPanel({
 }) {
   return (
     <div className="rounded-2xl border border-brand-100 bg-canvas/80 p-3">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">Objects</p>
-      <ul className="space-y-1">
+      <p className="mb-2 text-sm font-semibold text-ink">Objects</p>
+      <ul className="flex flex-col gap-2">
         {LABELS.map((row) => (
           <li key={row.key}>
-            <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold">
+            <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm font-semibold">
               <input
                 type="checkbox"
+                className="size-5 shrink-0"
                 checked={layers[row.key]}
                 onChange={() => onToggle(row.key)}
               />

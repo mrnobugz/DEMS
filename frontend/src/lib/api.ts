@@ -50,6 +50,50 @@ async function refreshAccess(): Promise<string | null> {
   return refreshInFlight;
 }
 
+/**
+ * Quietly rotate tokens while the app is open.
+ * Network blips do not sign the user out; only an explicit reject clears the session.
+ */
+export async function keepSessionAlive(): Promise<boolean> {
+  const { refreshToken, setSession, clear, user } = useAuth.getState();
+  if (!refreshToken) return false;
+  const used = refreshToken;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: used }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      if (useAuth.getState().refreshToken === used) clear();
+      return false;
+    }
+    if (!res.ok) return false;
+    const data = await res.json();
+    setSession(data.access_token, data.refresh_token, data.user ?? user);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Revoke server refresh tokens, then clear local auth. Safe to call offline. */
+export async function signOutSession(): Promise<void> {
+  const { refreshToken, clear } = useAuth.getState();
+  if (refreshToken) {
+    try {
+      await fetch(`${API_BASE}/api/v1/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch {
+      /* offline — still clear local session */
+    }
+  }
+  clear();
+}
+
 function authHeaders(base?: HeadersInit, jsonBody = false): Headers {
   const headers = new Headers(base);
   if (jsonBody && !headers.has("Content-Type")) {

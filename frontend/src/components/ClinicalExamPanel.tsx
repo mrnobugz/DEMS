@@ -21,6 +21,8 @@ type Props = {
   /** Clinical department this exam is being recorded in. */
   department?: string;
   defaultOpen?: boolean;
+  /** Tooth selected on the department odontogram — carried into radiology / photo fields. */
+  selectedTooth?: string | null;
 };
 
 const emptyVitals = (): VisitVitals => ({
@@ -167,9 +169,11 @@ export function ClinicalExamPanel({
   onMessage,
   department,
   defaultOpen = false,
+  selectedTooth,
 }: Props) {
   const [visits, setVisits] = useState<ClinicalVisit[]>([]);
   const [open, setOpen] = useState(defaultOpen);
+  const chartTooth = (selectedTooth || "").trim();
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [complaint, setComplaint] = useState(chiefComplaint || "");
   const [status, setStatus] = useState("in_progress");
@@ -205,6 +209,15 @@ export function ClinicalExamPanel({
     if (!editingId) setComplaint(chiefComplaint || "");
   }, [chiefComplaint, editingId]);
 
+  useEffect(() => {
+    if (!chartTooth) return;
+    setIx((prev) => ({
+      ...prev,
+      radiograph_tooth: chartTooth,
+      photography_tooth: chartTooth,
+    }));
+  }, [chartTooth, patientId]);
+
   function resetForm() {
     setEditingId(null);
     setVisitDate(new Date().toISOString().slice(0, 10));
@@ -213,7 +226,11 @@ export function ClinicalExamPanel({
     setVitals(readingToVisitVitals(nurseVitals));
     setExtra(emptyExtra());
     setIntra(emptyIntra());
-    setIx(emptyIx());
+    setIx({
+      ...emptyIx(),
+      radiograph_tooth: chartTooth,
+      photography_tooth: chartTooth,
+    });
     setDx(emptyDx());
     setNotes("");
     setVitalsOpen(hasVitalsValues(nurseVitals));
@@ -350,7 +367,10 @@ export function ClinicalExamPanel({
             patient_id: patientId,
             visit_id: editingId || null,
             study_type: "photo",
-            notes: "Investigation photo",
+            tooth: chartTooth || null,
+            notes: chartTooth
+              ? `Investigation photo · tooth ${chartTooth}`
+              : "Investigation photo",
           }),
         },
       );
@@ -369,6 +389,7 @@ export function ClinicalExamPanel({
         photography_url: `/api/v1/imaging/studies/${studyId}/content`,
         photography_date: captured.slice(0, 10),
         photography_storage_key: uploaded.storage_key || study.storage_key || studyId,
+        photography_tooth: chartTooth || prev.photography_tooth,
       }));
       onMessage("Investigation photo uploaded");
     } catch (err) {
@@ -1169,6 +1190,7 @@ export function ClinicalExamPanel({
           patientId={patientId}
           visitId={editingId}
           items={ix.radiology_items || []}
+          defaultTooth={chartTooth || ix.radiograph_tooth || null}
           onSave={(items: RadiologyInvestigationItem[]) =>
             setIx((prev) => ({ ...prev, radiology_items: items }))
           }

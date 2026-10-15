@@ -1591,6 +1591,29 @@ class NotificationOutbox(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin)
     patient: Mapped[Optional["Patient"]] = relationship(back_populates="notifications")
 
 
+class StaffNotification(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """In-app staff inbox — one row per recipient for read-state and live push."""
+
+    __tablename__ = "staff_notifications"
+    __table_args__ = (
+        Index("ix_staff_notifications_user_created", "user_id", "created_at"),
+        Index("ix_staff_notifications_clinic_cat_created", "clinic_id", "category", "created_at"),
+    )
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # billing|inventory|requisition|appointments|system
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    link_path: Mapped[Optional[str]] = mapped_column(String(300))
+    payload_json: Mapped[Optional[str]] = mapped_column(Text)
+    actor_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    actor: Mapped[Optional["User"]] = relationship(foreign_keys=[actor_id])
+
+
 # ── Configurations (Wave 0 + C1) ─────────────────────────────────────────────
 
 

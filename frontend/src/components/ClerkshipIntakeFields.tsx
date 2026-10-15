@@ -776,31 +776,16 @@ export function ClerkshipIntakeFields({
         </div>
       </section>
       <section className={sectionClass}>
-        <h4 className={titleClass}>Review of systems</h4>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {SYMPTOM_LABELS.map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-2 text-sm text-brand-900">
-              <input
-                type="checkbox"
-                checked={form.reported_symptoms[key]}
-                onChange={(e) =>
-                  set("reported_symptoms", {
-                    ...form.reported_symptoms,
-                    [key]: e.target.checked,
-                  })
-                }
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-        <label className="label mt-2">Other systems</label>
+        <h4 className={titleClass} id="omfs-review-of-systems">
+          Review of systems
+        </h4>
         <textarea
           className="input"
-          rows={2}
+          rows={3}
           value={form.notes}
           onChange={(e) => set("notes", e.target.value)}
           placeholder="CVS, RS, CNS, GI — relevant positives / negatives"
+          aria-labelledby="omfs-review-of-systems"
         />
       </section>
       </>

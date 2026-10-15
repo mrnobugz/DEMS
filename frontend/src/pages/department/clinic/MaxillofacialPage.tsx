@@ -4,6 +4,7 @@ import { ConsentPad } from "@/components/ConsentPad";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcedureInvoicePanel } from "@/components/ProcedureInvoicePanel";
 import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
+import { DepartmentOdontogram } from "@/components/viz/DepartmentOdontogram";
 import { JawMap, jawRegionLabel } from "@/components/viz/JawMap";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api, apiUpload, imagingContentUrl } from "@/lib/api";
@@ -189,7 +190,7 @@ export function MaxillofacialPage() {
     <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
         title="Oral maxillofacial surgery"
-        subtitle="Clerkship sheet · history · exam · imaging · plan · procedure · pharmacy · post-op"
+        subtitle="Step through clerkship, chart the site, then record the procedure."
       />
       {overview && (
         <StatCards
@@ -207,89 +208,119 @@ export function MaxillofacialPage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {notice && <p className="text-sm text-brand-700">{notice}</p>}
 
-      <section className="glass-panel rounded-3xl p-5">
-        <PatientSelect
-          patients={patients}
-          value={form.patient_id}
-          onChange={(id) => setForm({ ...form, patient_id: id })}
-          label="Patient for this clerkship"
-        />
-      </section>
-
       <DepartmentChairwork
         dept="maxillofacial"
         patientId={form.patient_id || undefined}
         selectedTooth={/^\d{2}$/.test(form.site) ? form.site : null}
-      />
-
-      <section className="space-y-3">
-        <h3 className="font-display text-lg font-bold text-brand-900">Radiology (imaging)</h3>
-        <Clinical3DImaging
-          mode="surgical"
-          patientId={form.patient_id || undefined}
-          selected={/^\d{2}$/.test(form.site) ? form.site : null}
-          onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
-          colors={surgicalViz.colors}
-          implants={surgicalViz.implants}
-          missing={surgicalViz.missing}
-          onAction={(actionId, tooth, meta) => {
-            setForm((f) => ({
-              ...f,
-              site: tooth,
-              procedure_type:
-                actionId === "extract"
-                  ? "extraction"
-                  : actionId === "implant" || actionId === "pdip" || actionId === "auto-crown-implant"
-                    ? "implant_placement"
-                    : f.procedure_type,
-              diagnosis:
-                actionId === "auto-crown" && meta?.crown
-                  ? f.diagnosis ||
-                    `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl} mm · ${Math.round(meta.crown.confidence * 100)}%`
-                  : actionId === "auto-crown-implant" && meta?.crown && meta.implant
-                    ? `PDIP AI crown+implant Ø${meta.implant.diameter}×${meta.implant.length} + ${meta.crown.md}×${meta.crown.bl} mm crown`
-                    : actionId === "implant" && meta?.implant
+        queueSlot={
+          <div className="rounded-xl border border-border/40 bg-surface-elevated/30 p-3">
+            <PatientSelect
+              patients={patients}
+              value={form.patient_id}
+              onChange={(id) => setForm({ ...form, patient_id: id })}
+              label="Or search any patient"
+            />
+          </div>
+        }
+        chartSlot={
+          <div className="space-y-3">
+            <DepartmentOdontogram
+              mode="surgical"
+              patientId={form.patient_id || undefined}
+              selected={/^\d{2}$/.test(form.site) ? form.site : null}
+              onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
+              colors={surgicalViz.colors}
+              implants={surgicalViz.implants}
+              missing={surgicalViz.missing}
+              onAction={(actionId, tooth) => {
+                setForm((f) => ({
+                  ...f,
+                  site: tooth,
+                  procedure_type:
+                    actionId === "extract"
+                      ? "extraction"
+                      : actionId === "implant"
+                        ? "implant_placement"
+                        : f.procedure_type,
+                }));
+                if (actionId === "followup") {
+                  const match = cases.find((c) => c.site === tooth);
+                  if (match) setFollowUpFor(match.id);
+                }
+              }}
+            />
+            <section className="glass-panel rounded-3xl p-4">
+              <h4 className="font-display text-base font-bold text-brand-900">Non-tooth sites</h4>
+              <p className="text-xs text-muted">Jaw regions for trauma, cysts, and orthognathic work</p>
+              <div className="mx-auto mt-2 max-w-xl">
+                <JawMap
+                  marks={surgicalViz.regionMarks}
+                  selected={!/^\d{2}$/.test(form.site) && form.site ? form.site : null}
+                  onSelect={(site) => setForm((f) => ({ ...f, site }))}
+                />
+              </div>
+            </section>
+          </div>
+        }
+        treatSlot={
+          <div className="space-y-3">
+            <Clinical3DImaging
+              mode="surgical"
+              patientId={form.patient_id || undefined}
+              selected={/^\d{2}$/.test(form.site) ? form.site : null}
+              onSelect={(fdi) => setForm((f) => ({ ...f, site: fdi }))}
+              colors={surgicalViz.colors}
+              implants={surgicalViz.implants}
+              missing={surgicalViz.missing}
+              onAction={(actionId, tooth, meta) => {
+                setForm((f) => ({
+                  ...f,
+                  site: tooth,
+                  procedure_type:
+                    actionId === "extract"
+                      ? "extraction"
+                      : actionId === "implant" || actionId === "pdip" || actionId === "auto-crown-implant"
+                        ? "implant_placement"
+                        : f.procedure_type,
+                  diagnosis:
+                    actionId === "auto-crown" && meta?.crown
                       ? f.diagnosis ||
-                        `PDIP Ø${meta.implant.diameter} × ${meta.implant.length} mm` +
-                          (meta.clearanceMm != null ? ` · IAN ${meta.clearanceMm} mm` : "")
-                      : f.diagnosis,
-            }));
-            if (actionId === "followup") {
-              const match = cases.find((c) => c.site === tooth);
-              if (match) setFollowUpFor(match.id);
-            }
-          }}
-        />
-        <section className="glass-panel rounded-3xl p-5">
-          <div>
-            <h4 className="font-display text-base font-bold text-brand-900">Non-tooth sites</h4>
-            <p className="text-xs text-muted">
-              Jaw regions for trauma, cysts, and orthognathic work
-            </p>
-          </div>
-          <div className="mx-auto mt-2 max-w-xl">
-            <JawMap
-              marks={surgicalViz.regionMarks}
-              selected={!/^\d{2}$/.test(form.site) && form.site ? form.site : null}
-              onSelect={(site) => setForm((f) => ({ ...f, site }))}
+                        `AI virtual crown ${meta.crown.material.replace("_", " ")} ${meta.crown.md}×${meta.crown.bl} mm · ${Math.round(meta.crown.confidence * 100)}%`
+                      : actionId === "auto-crown-implant" && meta?.crown && meta.implant
+                        ? `PDIP AI crown+implant Ø${meta.implant.diameter}×${meta.implant.length} + ${meta.crown.md}×${meta.crown.bl} mm crown`
+                        : actionId === "implant" && meta?.implant
+                          ? f.diagnosis ||
+                            `PDIP Ø${meta.implant.diameter} × ${meta.implant.length} mm` +
+                              (meta.clearanceMm != null ? ` · IAN ${meta.clearanceMm} mm` : "")
+                          : f.diagnosis,
+                }));
+                if (actionId === "followup") {
+                  const match = cases.find((c) => c.site === tooth);
+                  if (match) setFollowUpFor(match.id);
+                }
+              }}
             />
+            {form.patient_id && (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ProcedureInvoicePanel
+                  patientId={form.patient_id}
+                  kind="imaging"
+                  title="Radiology (imaging) billing"
+                  hint="Bill OPG, PA, CBCT, or clinical photos from the catalog."
+                  defaultTooth={/^\d{2}$/.test(form.site) ? form.site : null}
+                  onDone={() => setNotice("Imaging invoice created")}
+                />
+                <RadiologyPhoto
+                  patientId={form.patient_id}
+                  tooth={/^\d{2}$/.test(form.site) ? form.site : null}
+                  onDone={setNotice}
+                />
+              </div>
+            )}
+            <OmfsTreatmentPlan patientId={form.patient_id || undefined} onMessage={setNotice} />
           </div>
-        </section>
-        {form.patient_id && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ProcedureInvoicePanel
-              patientId={form.patient_id}
-              kind="imaging"
-              title="Radiology (imaging) billing"
-              hint="Bill OPG, PA, CBCT, or clinical photos from the catalog."
-              onDone={() => setNotice("Imaging invoice created")}
-            />
-            <RadiologyPhoto patientId={form.patient_id} onDone={setNotice} />
-          </div>
-        )}
-      </section>
-
-      <OmfsTreatmentPlan patientId={form.patient_id || undefined} onMessage={setNotice} />
+        }
+      />
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>
         <div className="md:col-span-3">
@@ -377,6 +408,7 @@ export function MaxillofacialPage() {
             kind="surgery"
             title="Procedure done (billing)"
             hint="Bill the extraction, biopsy, implant, or other operation from the catalog."
+            defaultTooth={/^\d{2}$/.test(form.site) ? form.site : null}
           />
           <ConsentPad
             patientId={form.patient_id}
@@ -558,13 +590,16 @@ export function MaxillofacialPage() {
 
 function RadiologyPhoto({
   patientId,
+  tooth,
   onDone,
 }: {
   patientId: string;
+  tooth?: string | null;
   onDone: (msg: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
+  const chartTooth = (tooth || "").trim();
 
   async function upload(file: File) {
     setBusy(true);
@@ -575,7 +610,10 @@ function RadiologyPhoto({
         body: JSON.stringify({
           patient_id: patientId,
           study_type: kind,
-          notes: "OMFS clerkship radiology photo",
+          tooth: chartTooth || null,
+          notes: chartTooth
+            ? `OMFS clerkship radiology photo · tooth ${chartTooth}`
+            : "OMFS clerkship radiology photo",
         }),
       });
       const fd = new FormData();

@@ -1,10 +1,10 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 import { ConfigField, ConfigStatus, ConfirmAction, onTabListKeyDown } from "@/components/config/ConfigUi";
 import { EmptyState } from "@/components/EmptyState";
 import { useAnnounce } from "@/components/ui/sonner";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatMoney } from "@/lib/i18n";
 import { hasEffectivePermission } from "@/lib/nav";
@@ -35,12 +35,14 @@ type View =
   | "analysis"
   | "fees";
 
+type StockStatus = "all" | "low" | "short" | "hidden";
+
 const VIEWS: { id: View; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "requests", label: "Store requests" },
   { id: "stock", label: "Stock" },
-  { id: "receive", label: "Receive" },
-  { id: "issues", label: "Issues" },
+  { id: "receive", label: "Receive stock" },
+  { id: "issues", label: "Issue stock" },
   { id: "orders", label: "Purchase orders" },
   { id: "suppliers", label: "Suppliers" },
   { id: "movements", label: "Movements" },
@@ -97,11 +99,13 @@ export function InventoryPage() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [analysis, setAnalysis] = useState<WarehouseAnalysis | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [error, setError] = useState("");
-  useAnnounce(error);
+  const [patientsFailed, setPatientsFailed] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  useAnnounce(loadError);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
-  const [stockStatus, setStockStatus] = useState<"all" | "low" | "short" | "hidden">("all");
+  const [stockStatus, setStockStatus] = useState<StockStatus>("all");
 
   function setView(next: View) {
     const nextParams = new URLSearchParams(params);
@@ -110,7 +114,13 @@ export function InventoryPage() {
     setParams(nextParams, { replace: true });
   }
 
+  function showLowStock() {
+    setStockStatus("low");
+    setView("stock");
+  }
+
   async function load() {
+    setLoading(true);
     try {
       const [i, loc, s, po, mv, an] = await Promise.all([
         api<InventoryItem[]>("/api/v1/inventory?include_inactive=true"),
@@ -126,9 +136,10 @@ export function InventoryPage() {
       setOrders(po);
       setMovements(mv);
       setAnalysis(an);
-      setError("");
+      setLoadError("");
+      setLoaded(true);
     } catch (err: unknown) {
-      setError(explainFailure(err, "load the warehouse"));
+      setLoadError(explainFailure(err, "load the warehouse"));
     } finally {
       setLoading(false);
     }
@@ -137,8 +148,14 @@ export function InventoryPage() {
   useEffect(() => {
     void load();
     api<{ items: Patient[] }>("/api/v1/patients?limit=80")
-      .then((p) => setPatients(p.items))
-      .catch(() => setPatients([]));
+      .then((p) => {
+        setPatients(p.items);
+        setPatientsFailed(false);
+      })
+      .catch(() => {
+        setPatients([]);
+        setPatientsFailed(true);
+      });
   }, []);
 
   const stockItems = useMemo(() => items.filter((i) => i.item_kind !== "service"), [items]);
@@ -150,28 +167,7 @@ export function InventoryPage() {
       <div className="clin-head">
         <div>
           <h2 className="font-display text-xl font-bold leading-tight text-brand-900">Warehouse</h2>
-          <p className="text-sm text-muted">Stock, store requests, receiving, issues, and purchase orders.</p>
-        </div>
-        <div className="admin-counts" role="group" aria-label="Warehouse summaries">
-          <button type="button" className={`admin-count ${view === "stock" ? "admin-count--on" : ""}`} onClick={() => setView("stock")}>
-            <strong>{analysis?.sku_count ?? stockItems.length}</strong> SKUs
-          </button>
-          <button type="button" className={`admin-count ${view === "analysis" ? "admin-count--on" : ""}`} onClick={() => setView("analysis")}>
-            <strong>{money(analysis?.on_hand_value || 0)}</strong> on hand
-          </button>
-          <button type="button" className={`admin-count ${(analysis?.low_stock_count || 0) ? "admin-count--alert" : ""} ${view === "stock" && stockStatus === "low" ? "admin-count--on" : ""}`} onClick={() => { setStockStatus("low"); setView("stock"); }}>
-            <strong>{analysis?.low_stock_count ?? 0}</strong> low
-          </button>
-          <button type="button" className={`admin-count ${(analysis?.expiring_count || 0) ? "admin-count--alert" : ""}`} onClick={() => setView("analysis")}>
-            <strong>{analysis?.expiring_count ?? 0}</strong> expiring
-          </button>
-          <button
-            type="button"
-            className={`admin-count ${(analysis?.open_requisitions || 0) ? "admin-count--alert" : ""} ${view === "requests" ? "admin-count--on" : ""}`}
-            onClick={() => setView("requests")}
-          >
-            <strong>{analysis?.open_requisitions ?? 0}</strong> requests
-          </button>
+          <WarehouseSummary analysis={analysis} money={money} />
         </div>
       </div>
 
@@ -198,6 +194,7 @@ export function InventoryPage() {
             type="button"
             role="tab"
             aria-selected={view === tab.id}
+            aria-controls="wh-panel"
             tabIndex={view === tab.id ? 0 : -1}
             className={`admin-tab ${view === tab.id ? "admin-tab--on" : ""}`}
             onClick={() => setView(tab.id)}
@@ -207,73 +204,115 @@ export function InventoryPage() {
         ))}
       </div>
 
-      {error && <p className="text-sm text-danger" role="alert">{error}</p>}
-      {loading && items.length === 0 && <WarehouseSkeleton />}
+      {!loaded && loading && <WarehouseSkeleton />}
+      {!loaded && !loading && loadError && (
+        <section className="glass-panel space-y-3 p-4">
+          <p className="text-sm font-semibold text-danger" role="alert">{loadError}</p>
+          <p className="text-sm text-muted">No stock, orders, or requests were changed.</p>
+          <button type="button" className="btn-primary" onClick={() => void load()}>
+            Retry loading warehouse
+          </button>
+        </section>
+      )}
+      {loaded && loadError && (
+        <div className="glass-panel flex flex-wrap items-center justify-between gap-2 p-3">
+          <p className="text-sm font-semibold text-danger" role="alert">
+            Could not refresh warehouse figures. What you see may be out of date.
+          </p>
+          <button type="button" className="btn-ghost" disabled={loading} onClick={() => void load()}>
+            {loading ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      )}
 
-      {(!loading || items.length > 0) && view === "overview" && (
-        <OverviewPanel analysis={analysis} money={money} onJump={setView} />
-      )}
-      {(!loading || items.length > 0) && view === "requests" && (
-        <StoreRequestsPanel canApprove={canApprove} canFulfill={canFulfill} onChanged={load} />
-      )}
-      {(!loading || items.length > 0) && view === "stock" && (
-        <StockPanel
-          items={stockItems}
-          locations={locations}
-          query={query}
-          setQuery={setQuery}
-          stockStatus={stockStatus}
-          setStockStatus={setStockStatus}
-          canManage={canManage}
-          canIssue={canIssue}
-          money={money}
-          onReload={load}
-          setError={setError}
-        />
-      )}
-      {(!loading || items.length > 0) && view === "receive" && (
-        <ReceivePanel
-          items={stockItems}
-          locations={locations}
-          suppliers={suppliers}
-          canIssue={canIssue}
-          defaultLocation={mainId}
-          onReload={load}
-          setError={setError}
-        />
-      )}
-      {(!loading || items.length > 0) && view === "issues" && (
-        <IssuePanel
-          items={stockItems}
-          locations={locations}
-          patients={patients}
-          canIssue={canIssue}
-          defaultLocation={mainId}
-          onReload={load}
-          setError={setError}
-        />
-      )}
-      {(!loading || items.length > 0) && view === "orders" && (
-        <OrdersPanel
-          orders={orders}
-          items={stockItems}
-          suppliers={suppliers.filter((s) => s.is_active)}
-          lowStock={analysis?.low_stock || []}
-          canManage={canManage}
-          canIssue={canIssue}
-          onReload={load}
-          setError={setError}
-        />
-      )}
-      {(!loading || items.length > 0) && view === "suppliers" && (
-        <SuppliersPanel suppliers={suppliers} canManage={canManage} onReload={load} setError={setError} />
-      )}
-      {(!loading || items.length > 0) && view === "movements" && <MovementsPanel movements={movements} items={items} locations={locations} />}
-      {(!loading || items.length > 0) && view === "analysis" && <WarehouseAnalysisPanel />}
-      {(!loading || items.length > 0) && view === "fees" && (
-        <FeesPanel items={feeItems} canManage={canManage} money={money} onReload={load} setError={setError} />
+      {loaded && (
+        <div id="wh-panel" role="tabpanel" aria-labelledby={`wh-tab-${view}`}>
+          {view === "overview" && (
+            <OverviewPanel analysis={analysis} money={money} onJump={setView} onShowLow={showLowStock} />
+          )}
+          {view === "requests" && (
+            <StoreRequestsPanel canApprove={canApprove} canFulfill={canFulfill} onChanged={load} />
+          )}
+          {view === "stock" && (
+            <StockPanel
+              items={stockItems}
+              locations={locations}
+              query={query}
+              setQuery={setQuery}
+              stockStatus={stockStatus}
+              setStockStatus={setStockStatus}
+              canManage={canManage}
+              canIssue={canIssue}
+              money={money}
+              onReload={load}
+            />
+          )}
+          {view === "receive" && (
+            <ReceivePanel
+              items={stockItems}
+              locations={locations}
+              suppliers={suppliers}
+              canIssue={canIssue}
+              defaultLocation={mainId}
+              onReload={load}
+            />
+          )}
+          {view === "issues" && (
+            <IssuePanel
+              items={stockItems}
+              locations={locations}
+              patients={patients}
+              patientsFailed={patientsFailed}
+              canIssue={canIssue}
+              defaultLocation={mainId}
+              onReload={load}
+            />
+          )}
+          {view === "orders" && (
+            <OrdersPanel
+              orders={orders}
+              items={stockItems}
+              suppliers={suppliers.filter((s) => s.is_active)}
+              lowStock={analysis?.low_stock || []}
+              canManage={canManage}
+              canIssue={canIssue}
+              onReload={load}
+            />
+          )}
+          {view === "suppliers" && <SuppliersPanel suppliers={suppliers} canManage={canManage} onReload={load} />}
+          {view === "movements" && <MovementsPanel movements={movements} items={items} locations={locations} />}
+          {view === "analysis" && <WarehouseAnalysisPanel />}
+          {view === "fees" && <FeesPanel items={feeItems} canManage={canManage} money={money} onReload={load} />}
+        </div>
       )}
     </div>
+  );
+}
+
+function WarehouseSummary({ analysis, money }: { analysis: WarehouseAnalysis | null; money: (n: number) => string }) {
+  if (!analysis) {
+    return <p className="text-sm text-muted">Stock, store requests, receiving, issues, and purchase orders.</p>;
+  }
+  const alerts = [
+    { count: analysis.low_stock_count, label: "low in store" },
+    { count: analysis.expiring_count, label: analysis.expiring_count === 1 ? "lot expiring" : "lots expiring" },
+    { count: analysis.open_requisitions ?? 0, label: (analysis.open_requisitions ?? 0) === 1 ? "open request" : "open requests" },
+  ];
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+      <span>
+        <strong className="text-text">{analysis.sku_count}</strong> SKUs
+      </span>
+      <span>
+        <strong className="text-text">{money(analysis.on_hand_value)}</strong> on hand
+      </span>
+      {alerts.map((alert) => (
+        <span key={alert.label} className={`inline-flex items-center gap-1 ${alert.count ? "font-semibold text-danger" : ""}`}>
+          {alert.count > 0 && <AlertTriangle className="h-4 w-4" aria-hidden="true" />}
+          {alert.count} {alert.label}
+        </span>
+      ))}
+    </p>
   );
 }
 
@@ -286,6 +325,49 @@ function explainFailure(err: unknown, action: string) {
   const lead = detail && !/^error\s*\d+/i.test(detail) ? detail : `Could not ${action}.`;
   if (/try again\.?$/i.test(lead)) return lead;
   return `${lead} Check your connection and try again.`;
+}
+
+function humanize(value: string) {
+  return value.replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase());
+}
+
+/** One pending/success/error status per form or list, with a guard against double submits. */
+function useSubmit() {
+  const [busyKey, setBusyKey] = useState("");
+  const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const inFlight = useRef(false);
+
+  const run = useCallback(async (task: () => Promise<unknown>, done: string, failing: string, key = "form") => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setBusyKey(key);
+    setError("");
+    setOk("");
+    try {
+      await task();
+      setOk(done);
+      return true;
+    } catch (err: unknown) {
+      setError(explainFailure(err, failing));
+      return false;
+    } finally {
+      inFlight.current = false;
+      setBusyKey("");
+    }
+  }, []);
+
+  const fail = useCallback((message: string) => {
+    setOk("");
+    setError(message);
+  }, []);
+
+  const succeed = useCallback((message: string) => {
+    setError("");
+    setOk(message);
+  }, []);
+
+  return { busy: busyKey !== "", busyKey, error, ok, run, fail, succeed };
 }
 
 function WarehouseSkeleton() {
@@ -302,7 +384,11 @@ function WarehouseSkeleton() {
 function qtyLabel(value?: number | null) {
   if (value == null || Number.isNaN(value)) return "—";
   const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return String(rounded);
+}
+
+function qtyUnit(value: number, unit?: string | null) {
+  return [qtyLabel(value), unit].filter(Boolean).join(" ");
 }
 
 function outstandingOf(line: Requisition["lines"][number]) {
@@ -343,6 +429,7 @@ function StoreRequestsPanel({
 }) {
   const [rows, setRows] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState("");
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -354,12 +441,16 @@ function StoreRequestsPanel({
     setRows(data.filter((row) => ["submitted", "approved"].includes(reqStatus(row.status))));
   }
 
-  useEffect(() => {
+  function refresh() {
     setLoading(true);
-    setError("");
+    setLoadFailed("");
     loadInbox()
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load store requests"))
+      .catch((e: unknown) => setLoadFailed(explainFailure(e, "load store requests")))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    refresh();
   }, []);
 
   async function act(id: string, path: string, okMsg: string, body?: object) {
@@ -376,8 +467,8 @@ function StoreRequestsPanel({
         /* The request itself was saved. The warehouse totals refresh on the next load. */
       }
       return true;
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "That action failed");
+    } catch (e: unknown) {
+      setError(explainFailure(e, "save this request"));
       return false;
     } finally {
       setBusyId("");
@@ -385,7 +476,7 @@ function StoreRequestsPanel({
   }
 
   return (
-    <section className="glass-panel space-y-3 p-4">
+    <section className="glass-panel space-y-3 p-4" aria-busy={loading || undefined}>
       <div>
         <h3 className="reg-section__title">Store requests</h3>
         <p className="text-sm text-muted">
@@ -393,14 +484,20 @@ function StoreRequestsPanel({
         </p>
       </div>
       <ConfigStatus loading={loading} error={error} ok={ok} />
-      {!loading && !rows.length && (
+      {loadFailed && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold text-danger" role="alert">{loadFailed}</p>
+          <button type="button" className="btn-ghost" onClick={refresh}>Retry</button>
+        </div>
+      )}
+      {!loading && !loadFailed && !rows.length && (
         <EmptyState
           title="No requests at the store"
           hint="When a department submits a requisition, it appears here for the inventory manager."
         />
       )}
       {rows.length > 0 && (
-      <ul className="admin-scroll space-y-2">
+      <ul className="space-y-2">
         {rows.map((row, index) => {
           const status = reqStatus(row.status);
           const busy = busyId === row.id;
@@ -455,7 +552,7 @@ function StoreRequestsPanel({
                               <label className="text-sm">
                                 <span className="sr-only">Issue now for {name}</span>
                                 <input
-                                  className="input w-28"
+                                  className="input w-28 min-h-[var(--touch-min)]!"
                                   type="number"
                                   min={0}
                                   max={cap}
@@ -477,31 +574,39 @@ function StoreRequestsPanel({
               <div className="mt-3 flex flex-wrap items-end gap-2" role="group" aria-label={`Actions for ${row.req_number}`}>
                 {status === "submitted" && canApprove && (
                   <>
-                    <label className="text-sm">
-                      <span className="label">Reject reason</span>
-                      <input
-                        className="input"
-                        value={reasons[row.id] || ""}
-                        onChange={(e) => setReasons({ ...reasons, [row.id]: e.target.value })}
-                      />
-                    </label>
                     <button
                       type="button"
                       className="btn-primary"
                       disabled={busy}
                       onClick={() => void act(row.id, `/api/v1/requisitions/${row.id}/approve`, `Approved ${row.req_number}`)}
                     >
-                      Approve
+                      {busy ? "Saving…" : "Approve"}
                     </button>
-                    <ConfirmAction
-                      label="Reject"
-                      confirmLabel="Yes, reject"
-                      onConfirm={() => {
-                        void act(row.id, `/api/v1/requisitions/${row.id}/reject`, `Rejected ${row.req_number}`, {
-                          reason: (reasons[row.id] || "").trim() || undefined,
-                        });
-                      }}
-                    />
+                    <span className="flex flex-wrap items-end gap-2 sm:ml-auto">
+                      <label className="text-sm">
+                        <span className="label">Reject reason (optional)</span>
+                        <input
+                          className="input"
+                          value={reasons[row.id] || ""}
+                          disabled={busy}
+                          onChange={(e) => setReasons({ ...reasons, [row.id]: e.target.value })}
+                        />
+                      </label>
+                      <ConfirmAction
+                        label="Reject"
+                        confirmLabel="Yes, reject request"
+                        cancelLabel="Keep request"
+                        variant="danger"
+                        destructive
+                        disabled={busy}
+                        message={`Reject ${row.req_number}? No stock is issued and the request leaves the store queue.`}
+                        onConfirm={() => {
+                          void act(row.id, `/api/v1/requisitions/${row.id}/reject`, `Rejected ${row.req_number}`, {
+                            reason: (reasons[row.id] || "").trim() || undefined,
+                          });
+                        }}
+                      />
+                    </span>
                   </>
                 )}
                 {status === "approved" && canFulfill && (
@@ -542,7 +647,7 @@ function StoreRequestsPanel({
                       });
                     }}
                   >
-                    Issue to department
+                    {busy ? "Issuing…" : "Issue to department"}
                   </button>
                 )}
                 {status === "approved" && canFulfill && !canSend && (
@@ -568,46 +673,77 @@ function OverviewPanel({
   analysis,
   money,
   onJump,
+  onShowLow,
 }: {
   analysis: WarehouseAnalysis | null;
   money: (n: number) => string;
   onJump: (v: View) => void;
+  onShowLow: () => void;
 }) {
-  if (!analysis) return <EmptyState title="Loading warehouse" hint="On-hand value and alerts appear here." />;
+  if (!analysis) return <EmptyState title="No warehouse totals yet" hint="On-hand value and alerts appear after stock is received." />;
+  const low = analysis.low_stock;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <section className="glass-panel space-y-2 p-4">
+      <section className="glass-panel space-y-3 p-4">
         <h3 className="reg-section__title">Alerts</h3>
         <p className="text-sm text-muted">
           {analysis.low_stock_count} below reorder · {analysis.expiring_count} lots expiring · {analysis.open_pos} open POs
           {(analysis.open_requisitions || 0) > 0 ? ` · ${analysis.open_requisitions} open chair requests` : ""}
         </p>
-        {analysis.low_stock.slice(0, 6).map((row) => (
-          <button key={row.id} type="button" className="admin-list w-full text-left" onClick={() => onJump("stock")}>
-            <span className="status-pill status-pill--warning">Low</span> {row.sku} {row.name} ({row.quantity})
+        {low.length > 0 ? (
+          <ul className="space-y-2">
+            {low.slice(0, 6).map((row) => (
+              <li key={row.id}>
+                <button type="button" className="btn-ghost w-full justify-start text-left" onClick={onShowLow}>
+                  <span className="status-pill status-pill--warning">Low</span>
+                  <span className="min-w-0 flex-1 truncate" title={`${row.sku} ${row.name}`}>
+                    <span className="font-mono">{row.sku}</span> {row.name}
+                  </span>
+                  <span className="text-sm font-normal text-muted">
+                    {qtyLabel(row.quantity)} on hand · reorder at {qtyLabel(row.reorder_level)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">No SKUs are below their reorder level.</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {low.length > 0 && (
+            <button type="button" className="btn-primary" onClick={onShowLow}>
+              Show all {analysis.low_stock_count} low-stock SKUs
+            </button>
+          )}
+          <button type="button" className="btn-ghost" onClick={() => onJump("requests")}>
+            Open store requests
           </button>
-        ))}
-        {!analysis.low_stock.length && <p className="text-sm text-muted">No low-stock SKUs.</p>}
-        <button type="button" className="btn-ghost text-sm" onClick={() => onJump("requests")}>
-          Open store requests
-        </button>
+        </div>
       </section>
       <section className="glass-panel space-y-2 p-4">
         <h3 className="reg-section__title">Value</h3>
         <p className="text-lg font-semibold">{money(analysis.on_hand_value)} on hand</p>
         <p className="text-sm text-muted">COGS 90d {money(analysis.cogs_90d)} · billed supplies {money(analysis.billed_supply_revenue)}</p>
-        <button type="button" className="btn-ghost text-sm" onClick={() => onJump("analysis")}>Open analysis</button>
+        <button type="button" className="btn-ghost" onClick={() => onJump("analysis")}>Open analysis</button>
       </section>
     </div>
   );
 }
 
+function ExpiryMark({ date }: { date?: string | null }) {
+  if (!date) return null;
+  const days = Math.floor((new Date(date).getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return <span className="status-pill status-pill--danger ml-2">Expired {date}</span>;
+  if (days <= 90) return <span className="status-pill status-pill--warning ml-2">Expires {date}</span>;
+  return <span className="status-pill ml-2">Expires {date}</span>;
+}
+
 function StockMarks({ item, inStore, requested }: { item: InventoryItem; inStore: number; requested: number }) {
   return (
     <>
-      {inStore <= item.reorder_level && <span className="status-pill status-pill--warning ml-2">Low</span>}
-      {requested > inStore && <span className="status-pill status-pill--warning ml-2">Short</span>}
-      {item.expiry_date && <span className="status-pill status-pill--warning ml-2">Exp {item.expiry_date}</span>}
+      {inStore <= item.reorder_level && <span className="status-pill status-pill--warning ml-2">Low in store</span>}
+      {requested > inStore && <span className="status-pill status-pill--warning ml-2">Short for requests</span>}
+      <ExpiryMark date={item.expiry_date} />
       {item.track_lots && <span className="status-pill ml-2">Lots</span>}
       {expiryRequired(item) && <span className="status-pill ml-2">Expiry required</span>}
       {!item.is_active && <span className="status-pill ml-2">Hidden</span>}
@@ -619,27 +755,59 @@ interface StockActionsProps {
   item: InventoryItem;
   canIssue: boolean;
   canManage: boolean;
-  onAdjust: (id: string, delta: number) => void;
+  busy: boolean;
+  onAdjust: (item: InventoryItem, delta: number) => void;
   onEdit: (item: InventoryItem) => void;
-  onToggle: (item: InventoryItem) => Promise<void>;
+  onToggle: (item: InventoryItem) => void;
 }
 
-function StockActions({ item, canIssue, canManage, onAdjust, onEdit, onToggle }: StockActionsProps) {
+function StockActions({ item, canIssue, canManage, busy, onAdjust, onEdit, onToggle }: StockActionsProps) {
+  const unit = item.unit || "unit";
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-2">
       {canIssue && (
         <>
-          <button type="button" className="btn-ghost" aria-label={`Add one ${item.name}`} onClick={() => onAdjust(item.id, 1)}>+1</button>
-          <button type="button" className="btn-ghost" aria-label={`Remove one ${item.name}`} onClick={() => onAdjust(item.id, -1)}>-1</button>
+          <button
+            type="button"
+            className="btn-ghost"
+            aria-label={`Add one ${unit} of ${item.name}`}
+            title={`Add one ${unit}`}
+            disabled={busy}
+            onClick={() => onAdjust(item, 1)}
+          >
+            +1
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            aria-label={`Remove one ${unit} of ${item.name}`}
+            title={`Remove one ${unit}`}
+            disabled={busy}
+            onClick={() => onAdjust(item, -1)}
+          >
+            -1
+          </button>
         </>
       )}
       {canManage && (
         <>
-          <button type="button" className="btn-ghost" onClick={() => onEdit(item)}>Edit</button>
+          <button type="button" className="btn-ghost" aria-label={`Edit ${item.name}`} disabled={busy} onClick={() => onEdit(item)}>
+            Edit
+          </button>
           {item.is_active ? (
-            <ConfirmAction label="Hide" confirmLabel="Hide SKU" onConfirm={() => onToggle(item)} />
+            <ConfirmAction
+              label="Hide"
+              confirmLabel="Hide SKU"
+              cancelLabel="Keep visible"
+              destructive
+              disabled={busy}
+              message={`Hide ${item.name} from stock lists? Its stock and history stay. Find it again under Show: Hidden.`}
+              onConfirm={() => onToggle(item)}
+            />
           ) : (
-            <button type="button" className="btn-ghost" onClick={() => void onToggle(item)}>Show</button>
+            <button type="button" className="btn-ghost" disabled={busy} onClick={() => onToggle(item)}>
+              Show again
+            </button>
           )}
         </>
       )}
@@ -658,29 +826,28 @@ function StockPanel({
   canIssue,
   money,
   onReload,
-  setError,
 }: {
   items: InventoryItem[];
   locations: StockLocation[];
   query: string;
   setQuery: (v: string) => void;
-  stockStatus: "all" | "low" | "short" | "hidden";
-  setStockStatus: (v: "all" | "low" | "short" | "hidden") => void;
+  stockStatus: StockStatus;
+  setStockStatus: (v: StockStatus) => void;
   canManage: boolean;
   canIssue: boolean;
   money: (n: number) => string;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [edit, setEdit] = useState<InventoryItem | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [kind, setKind] = useState("all");
-  const [notice, setNotice] = useState("");
+  const status = useSubmit();
   const closeAdd = useCallback(() => setAddOpen(false), []);
   const closeImport = useCallback(() => setImportOpen(false), []);
   const closeEdit = useCallback(() => setEdit(null), []);
   const cats = Array.from(new Set(items.map((i) => i.category))).sort();
+  const filtered = query.trim() !== "" || kind !== "all" || stockStatus !== "all";
   const visible = items.filter((i) => {
     const hay = `${i.sku} ${i.name} ${i.category}`.toLowerCase();
     if (query && !hay.includes(query.toLowerCase())) return false;
@@ -693,26 +860,51 @@ function StockPanel({
     return true;
   });
 
-  async function toggleHidden(item: InventoryItem) {
-    try {
-      await api(`/api/v1/inventory/${item.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ is_active: !item.is_active }),
-      });
-      await onReload();
-    } catch (err: unknown) {
-      setError(explainFailure(err, "update this SKU"));
-    }
+  function clearFilters() {
+    setQuery("");
+    setKind("all");
+    setStockStatus("all");
   }
 
-  async function adjust(id: string, delta: number) {
-    try {
-      await api(`/api/v1/inventory/${id}/adjust`, { method: "POST", body: JSON.stringify({ delta, reason: "manual" }) });
-      await onReload();
-    } catch (err: unknown) {
-      setError(explainFailure(err, "adjust this quantity"));
-    }
+  function toggleHidden(item: InventoryItem) {
+    void status.run(
+      async () => {
+        await api(`/api/v1/inventory/${item.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: !item.is_active }),
+        });
+        await onReload();
+      },
+      item.is_active ? `Hid ${item.name}. Find it under Show: Hidden.` : `${item.name} is back in the stock list.`,
+      "update this SKU",
+      item.id,
+    );
   }
+
+  function adjust(item: InventoryItem, delta: number) {
+    const unit = item.unit || "unit";
+    void status.run(
+      async () => {
+        await api(`/api/v1/inventory/${item.id}/adjust`, { method: "POST", body: JSON.stringify({ delta, reason: "manual" }) });
+        await onReload();
+      },
+      delta > 0 ? `Added 1 ${unit} to ${item.name}.` : `Removed 1 ${unit} from ${item.name}.`,
+      "adjust this quantity",
+      item.id,
+    );
+  }
+
+  const actionsFor = (item: InventoryItem) => (
+    <StockActions
+      item={item}
+      canIssue={canIssue}
+      canManage={canManage}
+      busy={status.busyKey === item.id}
+      onAdjust={adjust}
+      onEdit={setEdit}
+      onToggle={toggleHidden}
+    />
+  );
 
   return (
     <div className="space-y-3">
@@ -727,6 +919,7 @@ function StockPanel({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="SKU or name"
+              autoComplete="off"
             />
           </span>
         </label>
@@ -741,97 +934,116 @@ function StockPanel({
         </label>
         <label className="text-sm">
           <span className="label">Show</span>
-          <select className="input" value={stockStatus} onChange={(e) => setStockStatus(e.target.value as "all" | "low" | "short" | "hidden")}>
+          <select className="input" value={stockStatus} onChange={(e) => setStockStatus(e.target.value as StockStatus)}>
             <option value="all">All SKUs</option>
             <option value="low">Low in store</option>
             <option value="short">Short for requests</option>
             <option value="hidden">Hidden</option>
           </select>
         </label>
+        {filtered && (
+          <button type="button" className="btn-ghost" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
         {canManage && (
-          <>
+          <div className="flex flex-wrap gap-2 sm:ml-auto">
             <button type="button" className="btn-primary" onClick={() => setAddOpen(true)}>Add SKU</button>
             <button type="button" className="btn-ghost" onClick={() => setImportOpen(true)}>Import SKUs</button>
-          </>
+          </div>
         )}
       </div>
-      <ConfigStatus ok={notice} />
+      <ConfigStatus error={status.error} ok={status.ok} />
       <p className="text-sm text-muted" aria-live="polite">
-        {visible.length} of {items.length} SKUs. The list filters as you type.
+        Showing {visible.length} of {items.length} SKUs. The list filters as you type.
       </p>
-      {!visible.length && (
-        <EmptyState
-          title={query || kind !== "all" || stockStatus !== "all" ? "No matching SKUs" : "No stock SKUs"}
-          hint={query || kind !== "all" || stockStatus !== "all" ? "Clear the search or filters." : "Add gloves, composites, and anesthetics here."}
-        />
+      {!visible.length &&
+        (filtered ? (
+          <EmptyState
+            title="No matching SKUs"
+            hint="Nothing matches this search and these filters."
+            action={
+              <button type="button" className="btn-ghost" onClick={clearFilters}>
+                Clear filters
+              </button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No stock SKUs yet"
+            hint={canManage ? "Add gloves, composites, and anesthetics here, or import a spreadsheet." : "The clinic admin adds stock SKUs."}
+          />
+        ))}
+      {visible.length > 0 && (
+        <ul className="space-y-2 lg:hidden">
+          {visible.map((item) => {
+            const inStore = item.store_on_hand ?? item.quantity;
+            const requested = item.quantity_requested_open ?? 0;
+            const issued = item.quantity_issued_open ?? 0;
+            return (
+              <li key={item.id} className="rounded-2xl border border-border bg-canvas p-3">
+                <p className="font-mono text-sm text-muted">{item.sku}</p>
+                <p className="text-base font-semibold text-text">
+                  {item.name}
+                  <StockMarks item={item} inStore={inStore} requested={requested} />
+                </p>
+                <p className="mt-1 text-sm text-muted">
+                  In store {qtyLabel(inStore)} {item.unit} · Requested {qtyLabel(requested)} · Issued {qtyLabel(issued)} · In clinic {qtyLabel(item.quantity)}
+                </p>
+                <p className="mb-2 text-sm text-muted">Cost {money(item.unit_cost)} · Sale {money(item.sale_price)}</p>
+                {actionsFor(item)}
+              </li>
+            );
+          })}
+        </ul>
       )}
-      <ul className="space-y-2 md:hidden">
-        {visible.map((item) => {
-          const inStore = item.store_on_hand ?? item.quantity;
-          const requested = item.quantity_requested_open ?? 0;
-          const issued = item.quantity_issued_open ?? 0;
-          return (
-            <li key={item.id} className="rounded-2xl border border-border bg-canvas p-3">
-              <p className="font-mono text-sm text-muted">{item.sku}</p>
-              <p className="text-base font-semibold text-text">
-                {item.name}
-                <StockMarks item={item} inStore={inStore} requested={requested} />
-              </p>
-              <p className="mt-1 text-sm text-muted">
-                In store {qtyLabel(inStore)} {item.unit} · Requested {qtyLabel(requested)} · Issued {qtyLabel(issued)} · In clinic {qtyLabel(item.quantity)}
-              </p>
-              <p className="text-sm text-muted">{money(item.unit_cost)} / {money(item.sale_price)}</p>
-              <StockActions item={item} canIssue={canIssue} canManage={canManage} onAdjust={adjust} onEdit={setEdit} onToggle={toggleHidden} />
-            </li>
-          );
-        })}
-      </ul>
-      <div className="admin-scroll hidden overflow-x-auto md:block">
-        <table className="admin-table min-w-full">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Name</th>
-              <th>In store</th>
-              <th>Requested</th>
-              <th>Issued</th>
-              <th>In clinic</th>
-              <th>Cost / sale</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((item) => {
-              const inStore = item.store_on_hand ?? item.quantity;
-              const requested = item.quantity_requested_open ?? 0;
-              const issued = item.quantity_issued_open ?? 0;
-              return (
-                <tr key={item.id}>
-                  <td className="font-mono text-sm">{item.sku}</td>
-                  <td>
-                    {item.name}
-                    <StockMarks item={item} inStore={inStore} requested={requested} />
-                  </td>
-                  <td>{qtyLabel(inStore)} {item.unit}</td>
-                  <td>{qtyLabel(requested)} {item.unit}</td>
-                  <td>{qtyLabel(issued)} {item.unit}</td>
-                  <td>{qtyLabel(item.quantity)} {item.unit}</td>
-                  <td>{money(item.unit_cost)} / {money(item.sale_price)}</td>
-                  <td>
-                    <StockActions item={item} canIssue={canIssue} canManage={canManage} onAdjust={adjust} onEdit={setEdit} onToggle={toggleHidden} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {visible.length > 0 && (
+        <div className="admin-scroll hidden overflow-x-auto lg:block">
+          <table className="admin-table min-w-full">
+            <caption className="sr-only">Stock SKUs</caption>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Name</th>
+                <th>In store</th>
+                <th>Requested</th>
+                <th>Issued</th>
+                <th>In clinic</th>
+                <th>Cost / sale</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((item) => {
+                const inStore = item.store_on_hand ?? item.quantity;
+                const requested = item.quantity_requested_open ?? 0;
+                const issued = item.quantity_issued_open ?? 0;
+                return (
+                  <tr key={item.id}>
+                    <td className="font-mono text-sm">{item.sku}</td>
+                    <td>
+                      {item.name}
+                      <StockMarks item={item} inStore={inStore} requested={requested} />
+                    </td>
+                    <td>{qtyLabel(inStore)} {item.unit}</td>
+                    <td>{qtyLabel(requested)} {item.unit}</td>
+                    <td>{qtyLabel(issued)} {item.unit}</td>
+                    <td>{qtyLabel(item.quantity)} {item.unit}</td>
+                    <td>{money(item.unit_cost)} / {money(item.sale_price)}</td>
+                    <td>{actionsFor(item)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {addOpen && (
         <AddSkuDialog
           onClose={closeAdd}
-          onCreated={async () => {
+          onCreated={async (message) => {
             setAddOpen(false);
-            setNotice("SKU added.");
+            status.succeed(message);
             await onReload();
           }}
         />
@@ -847,8 +1059,9 @@ function StockPanel({
           item={edit}
           locations={locations}
           onClose={closeEdit}
-          onSaved={async () => {
+          onSaved={async (message) => {
             setEdit(null);
+            status.succeed(message);
             await onReload();
           }}
         />
@@ -864,7 +1077,6 @@ function ReceivePanel({
   canIssue,
   defaultLocation,
   onReload,
-  setError,
 }: {
   items: InventoryItem[];
   locations: StockLocation[];
@@ -872,7 +1084,6 @@ function ReceivePanel({
   canIssue: boolean;
   defaultLocation?: string;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState(1);
@@ -881,71 +1092,87 @@ function ReceivePanel({
   const [expiry, setExpiry] = useState("");
   const [locationId, setLocationId] = useState(defaultLocation || "");
   const [supplierId, setSupplierId] = useState("");
+  const status = useSubmit();
 
   const selected = items.find((i) => i.id === itemId);
   const needExpiry = expiryRequired(selected);
 
   useEffect(() => {
     if (defaultLocation && !locationId) setLocationId(defaultLocation);
-    if (!itemId && items[0]) setItemId(items[0].id);
-  }, [defaultLocation, items, itemId, locationId]);
+  }, [defaultLocation, locationId]);
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canIssue) return;
     if (needExpiry && !expiry) {
-      setError("Enter the expiry date before receiving this medical supply.");
+      status.fail("Enter the expiry date before receiving this medical supply.");
       return;
     }
-    try {
-      await api("/api/v1/inventory/receive", {
-        method: "POST",
-        body: JSON.stringify({
-          location_id: locationId || null,
-          supplier_id: supplierId || null,
-          lines: [
-            {
-              inventory_item_id: itemId,
-              quantity: qty,
-              unit_cost: cost,
-              lot_code: lot || null,
-              expiry_date: expiry || null,
-            },
-          ],
-        }),
-      });
-      setQty(1);
-      setLot("");
-      setExpiry("");
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    const where = locations.find((l) => l.id === locationId)?.name || "the store";
+    const done = `Received ${qtyUnit(qty, selected?.unit)} of ${selected?.name || "this supply"} into ${where}.`;
+    void status.run(
+      async () => {
+        await api("/api/v1/inventory/receive", {
+          method: "POST",
+          body: JSON.stringify({
+            location_id: locationId || null,
+            supplier_id: supplierId || null,
+            lines: [
+              {
+                inventory_item_id: itemId,
+                quantity: qty,
+                unit_cost: cost,
+                lot_code: lot || null,
+                expiry_date: expiry || null,
+              },
+            ],
+          }),
+        });
+        setQty(1);
+        setLot("");
+        setExpiry("");
+        await onReload();
+      },
+      done,
+      "receive this delivery",
+    );
+  }
+
+  if (!items.length || !locations.length) {
+    return (
+      <section className="glass-panel p-4">
+        <EmptyState
+          title={!items.length ? "No stock SKUs to receive" : "No stock locations"}
+          hint={!items.length ? "Add a SKU under Stock first, then receive deliveries here." : "Ask the clinic admin to set up stock locations."}
+        />
+      </section>
+    );
   }
 
   return (
     <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={onSubmit}>
-      <h3 className="reg-section__title md:col-span-3">Goods received</h3>
-      <ConfigField label="Supply">
+      <h3 className="reg-section__title md:col-span-3">Receive stock</h3>
+      <ConfigField label="Supply (required)">
         <select className="input" value={itemId} onChange={(e) => setItemId(e.target.value)} required>
+          <option value="">Choose supply…</option>
           {items.map((i) => (
             <option key={i.id} value={i.id}>{i.sku} · {i.name}</option>
           ))}
         </select>
       </ConfigField>
-      <ConfigField label="Quantity">
-        <input className="input" type="number" min={0.01} step="0.01" value={qty} onChange={(e) => setQty(Number(e.target.value))} required />
+      <ConfigField label="Quantity (required)">
+        <input className="input" type="number" inputMode="decimal" min={0.01} step="0.01" value={qty} onChange={(e) => setQty(Number(e.target.value))} required />
       </ConfigField>
       <ConfigField label="Unit cost">
-        <input className="input" type="number" min={0} step="0.01" value={cost} onChange={(e) => setCost(Number(e.target.value))} />
+        <input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={cost} onChange={(e) => setCost(Number(e.target.value))} />
       </ConfigField>
       <ConfigField label="Lot code">
-        <input className="input" value={lot} onChange={(e) => setLot(e.target.value)} />
+        <input className="input" value={lot} autoComplete="off" onChange={(e) => setLot(e.target.value)} />
       </ConfigField>
-      <ConfigField label="Expiry date" hint={needExpiry ? "Required for medical supplies" : "Optional"}>
+      <ConfigField label={needExpiry ? "Expiry date (required)" : "Expiry date"} hint={needExpiry ? "Required for medical supplies" : "Optional"}>
         <input className="input" type="date" required={needExpiry} value={expiry} onChange={(e) => setExpiry(e.target.value)} />
       </ConfigField>
-      <ConfigField label="Location">
+      <ConfigField label="Location (required)">
         <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)} required>
           {locations.map((l) => (
             <option key={l.id} value={l.id}>{l.name}</option>
@@ -960,8 +1187,14 @@ function ReceivePanel({
           ))}
         </select>
       </ConfigField>
+      <div className="flex flex-wrap items-center gap-3 md:col-span-3">
+        <button className="btn-primary" type="submit" disabled={!canIssue || status.busy}>
+          {status.busy ? "Receiving…" : "Receive stock"}
+        </button>
+        {!canIssue && <p className="text-sm text-muted">Your role can view this form but cannot post receipts.</p>}
+      </div>
       <div className="md:col-span-3">
-        <button className="btn-primary" type="submit" disabled={!canIssue}>Post receive</button>
+        <ConfigStatus error={status.error} ok={status.ok} />
       </div>
     </form>
   );
@@ -971,18 +1204,18 @@ function IssuePanel({
   items,
   locations,
   patients,
+  patientsFailed,
   canIssue,
   defaultLocation,
   onReload,
-  setError,
 }: {
   items: InventoryItem[];
   locations: StockLocation[];
   patients: Patient[];
+  patientsFailed: boolean;
   canIssue: boolean;
   defaultLocation?: string;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [mode, setMode] = useState<"department" | "patient">("department");
   const [itemId, setItemId] = useState("");
@@ -992,71 +1225,156 @@ function IssuePanel({
   const [patientId, setPatientId] = useState("");
   const [bill, setBill] = useState(true);
   const [reason, setReason] = useState("");
+  const status = useSubmit();
+  const sameLocation = mode === "department" && !!fromId && fromId === toId;
 
   useEffect(() => {
     if (defaultLocation && !fromId) setFromId(defaultLocation);
-    if (!itemId && items[0]) setItemId(items[0].id);
     if (!toId && locations.find((l) => l.code === "REST")) setToId(locations.find((l) => l.code === "REST")!.id);
-    if (!patientId && patients[0]) setPatientId(patients[0].id);
-  }, [defaultLocation, items, locations, patients, fromId, itemId, toId, patientId]);
+  }, [defaultLocation, locations, fromId, toId]);
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
-    try {
-      await api("/api/v1/inventory/issue", {
-        method: "POST",
-        body: JSON.stringify(
-          mode === "department"
-            ? { inventory_item_id: itemId, quantity: qty, from_location_id: fromId, to_location_id: toId, reason }
-            : { inventory_item_id: itemId, quantity: qty, location_id: fromId, patient_id: patientId, bill, reason },
-        ),
-      });
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
+    if (!canIssue) return;
+    if (sameLocation) {
+      status.fail("Choose a destination that is different from the location you issue from.");
+      return;
     }
+    if (mode === "patient" && !patientId) {
+      status.fail("Choose the patient this supply is sold to.");
+      return;
+    }
+    const item = items.find((i) => i.id === itemId);
+    const what = `${qtyUnit(qty, item?.unit)} of ${item?.name || "this supply"}`;
+    const locName = (id: string) => locations.find((l) => l.id === id)?.name || "the selected location";
+    const patient = patients.find((p) => p.id === patientId);
+    const done =
+      mode === "department"
+        ? `Issued ${what} from ${locName(fromId)} to ${locName(toId)}.`
+        : `Issued ${what} to ${patient ? `${patient.first_name} ${patient.last_name}` : "the patient"}${bill ? " and created an invoice" : ""}.`;
+    void status.run(
+      async () => {
+        await api("/api/v1/inventory/issue", {
+          method: "POST",
+          body: JSON.stringify(
+            mode === "department"
+              ? { inventory_item_id: itemId, quantity: qty, from_location_id: fromId, to_location_id: toId, reason }
+              : { inventory_item_id: itemId, quantity: qty, location_id: fromId, patient_id: patientId, bill, reason },
+          ),
+        });
+        await onReload();
+      },
+      done,
+      "issue this stock",
+    );
+  }
+
+  if (!items.length || !locations.length) {
+    return (
+      <section className="glass-panel p-4">
+        <EmptyState
+          title={!items.length ? "No stock SKUs to issue" : "No stock locations"}
+          hint={!items.length ? "Add a SKU under Stock and receive it before issuing." : "Ask the clinic admin to set up stock locations."}
+        />
+      </section>
+    );
   }
 
   return (
-    <form className="glass-panel grid gap-2 p-4 md:grid-cols-3" onSubmit={onSubmit}>
-      <div className="admin-chips md:col-span-3">
-        <button type="button" className={`admin-chip ${mode === "department" ? "admin-chip--on" : ""}`} onClick={() => setMode("department")}>To department</button>
-        <button type="button" className={`admin-chip ${mode === "patient" ? "admin-chip--on" : ""}`} onClick={() => setMode("patient")}>Patient sale</button>
-      </div>
-      <select className="input" value={itemId} onChange={(e) => setItemId(e.target.value)}>
-        {items.map((i) => (
-          <option key={i.id} value={i.id}>{i.sku} · {i.name} ({i.quantity})</option>
-        ))}
-      </select>
-      <input className="input" type="number" min={0.01} step="0.01" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
-      <select className="input" value={fromId} onChange={(e) => setFromId(e.target.value)}>
-        {locations.map((l) => (
-          <option key={l.id} value={l.id}>From {l.name}</option>
-        ))}
-      </select>
-      {mode === "department" ? (
-        <select className="input" value={toId} onChange={(e) => setToId(e.target.value)}>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>To {l.name}</option>
+    <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={onSubmit}>
+      <h3 className="reg-section__title md:col-span-3">Issue stock</h3>
+      <fieldset className="md:col-span-3">
+        <legend className="label">Issue to</legend>
+        <div className="flex flex-wrap gap-x-6">
+          <label className="choice-row">
+            <input type="radio" name="issue-mode" value="department" checked={mode === "department"} onChange={() => setMode("department")} />
+            A department
+          </label>
+          <label className="choice-row">
+            <input type="radio" name="issue-mode" value="patient" checked={mode === "patient"} onChange={() => setMode("patient")} />
+            A patient (sale)
+          </label>
+        </div>
+      </fieldset>
+      <ConfigField label="Supply (required)">
+        <select className="input" value={itemId} onChange={(e) => setItemId(e.target.value)} required>
+          <option value="">Choose supply…</option>
+          {items.map((i) => (
+            <option key={i.id} value={i.id}>{i.sku} · {i.name} ({qtyLabel(i.quantity)} in clinic)</option>
           ))}
         </select>
-      ) : (
-        <>
-          <select className="input" value={patientId} onChange={(e) => setPatientId(e.target.value)}>
-            {patients.map((p) => (
-              <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+      </ConfigField>
+      <ConfigField label="Quantity (required)">
+        <input className="input" type="number" inputMode="decimal" min={0.01} step="0.01" value={qty} onChange={(e) => setQty(Number(e.target.value))} required />
+      </ConfigField>
+      <ConfigField label="From location (required)">
+        <select className="input" value={fromId} onChange={(e) => setFromId(e.target.value)} required>
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
+      </ConfigField>
+      {mode === "department" ? (
+        <ConfigField label="To location (required)">
+          <select
+            className="input"
+            value={toId}
+            onChange={(e) => setToId(e.target.value)}
+            required
+            aria-invalid={sameLocation || undefined}
+            aria-describedby={sameLocation ? "issue-to-error" : undefined}
+          >
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
             ))}
           </select>
-          <label className="flex items-center gap-2 text-sm">
+          {sameLocation && (
+            <span id="issue-to-error" className="text-sm text-danger">
+              Choose a location different from where you issue from.
+            </span>
+          )}
+        </ConfigField>
+      ) : (
+        <>
+          <ConfigField
+            label="Patient (required)"
+            hint={patientsFailed ? "Could not load patients. Reload the page to try again." : `Showing the first ${patients.length} patients.`}
+          >
+            <select className="input" value={patientId} onChange={(e) => setPatientId(e.target.value)} required disabled={!patients.length}>
+              <option value="">{patients.length ? "Choose patient…" : "No patients loaded"}</option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+              ))}
+            </select>
+          </ConfigField>
+          <label className="choice-row">
             <input type="checkbox" checked={bill} onChange={(e) => setBill(e.target.checked)} />
-            Create invoice
+            Create an invoice for this sale
           </label>
         </>
       )}
-      <input className="input md:col-span-2" placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button className="btn-primary" type="submit" disabled={!canIssue}>Post issue</button>
+      <div className="md:col-span-2">
+        <ConfigField label="Reason (optional)">
+          <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </ConfigField>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 md:col-span-3">
+        <button className="btn-primary" type="submit" disabled={!canIssue || status.busy}>
+          {status.busy ? "Issuing…" : "Issue stock"}
+        </button>
+        {!canIssue && <p className="text-sm text-muted">Your role can view this form but cannot issue stock.</p>}
+      </div>
+      <div className="md:col-span-3">
+        <ConfigStatus error={status.error} ok={status.ok} />
+      </div>
     </form>
   );
+}
+
+function poTone(status: string) {
+  if (status === "received") return "status-pill--success";
+  if (status === "cancelled") return "";
+  return "status-pill--info";
 }
 
 function OrdersPanel({
@@ -1067,7 +1385,6 @@ function OrdersPanel({
   canManage,
   canIssue,
   onReload,
-  setError,
 }: {
   orders: PurchaseOrder[];
   items: InventoryItem[];
@@ -1076,20 +1393,29 @@ function OrdersPanel({
   canManage: boolean;
   canIssue: boolean;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id || "");
-  const [itemId, setItemId] = useState(items[0]?.id || "");
+  const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState(10);
   const [cost, setCost] = useState(0);
   const [receivePo, setReceivePo] = useState<PurchaseOrder | null>(null);
   const [poExpiry, setPoExpiry] = useState("");
   const [poLot, setPoLot] = useState("");
+  const createStatus = useSubmit();
+  const rowStatus = useSubmit();
+  const receiveFirstField = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!supplierId && suppliers[0]) setSupplierId(suppliers[0].id);
-    if (!itemId && items[0]) setItemId(items[0].id);
-  }, [suppliers, items, supplierId, itemId]);
+  }, [suppliers, supplierId]);
+
+  useEffect(() => {
+    if (receivePo) receiveFirstField.current?.focus();
+  }, [receivePo]);
+
+  const itemName = (id: string) => items.find((i) => i.id === id)?.name || "Item";
+  const supplierName = (po: PurchaseOrder) =>
+    po.supplier_name || suppliers.find((s) => s.id === po.supplier_id)?.name || "Unknown supplier";
 
   function poNeedsExpiry(po: PurchaseOrder) {
     return po.lines.some((line) => {
@@ -1098,20 +1424,23 @@ function OrdersPanel({
     });
   }
 
-  async function onCreate(e: FormEvent) {
+  function onCreate(e: FormEvent) {
     e.preventDefault();
-    try {
-      await api("/api/v1/inventory/purchase-orders", {
-        method: "POST",
-        body: JSON.stringify({
-          supplier_id: supplierId,
-          lines: [{ inventory_item_id: itemId, qty, unit_cost: cost }],
-        }),
-      });
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    const supplier = suppliers.find((s) => s.id === supplierId)?.name || "the supplier";
+    void createStatus.run(
+      async () => {
+        await api("/api/v1/inventory/purchase-orders", {
+          method: "POST",
+          body: JSON.stringify({
+            supplier_id: supplierId,
+            lines: [{ inventory_item_id: itemId, qty, unit_cost: cost }],
+          }),
+        });
+        await onReload();
+      },
+      `Created an order for ${qtyLabel(qty)} ${itemName(itemId)} from ${supplier}.`,
+      "create this purchase order",
+    );
   }
 
   async function postReceive(po: PurchaseOrder, expiry: string, lot: string) {
@@ -1129,31 +1458,41 @@ function OrdersPanel({
     });
   }
 
-  async function receiveAll(po: PurchaseOrder) {
+  function receiveAll(po: PurchaseOrder) {
     if (poNeedsExpiry(po)) {
       setReceivePo(po);
       setPoExpiry("");
       setPoLot("");
       return;
     }
-    try {
-      await postReceive(po, "", "");
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    void rowStatus.run(
+      async () => {
+        await postReceive(po, "", "");
+        await onReload();
+      },
+      `Received the remaining items from ${supplierName(po)}.`,
+      "receive this order",
+      po.id,
+    );
   }
 
-  async function confirmReceive(e: FormEvent) {
+  function confirmReceive(e: FormEvent) {
     e.preventDefault();
     if (!receivePo) return;
-    try {
-      await postReceive(receivePo, poExpiry, poLot);
-      setReceivePo(null);
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    const po = receivePo;
+    void rowStatus
+      .run(
+        async () => {
+          await postReceive(po, poExpiry, poLot);
+          await onReload();
+        },
+        `Received the remaining items from ${supplierName(po)}.`,
+        "receive this order",
+        po.id,
+      )
+      .then((saved) => {
+        if (saved) setReceivePo(null);
+      });
   }
 
   function suggestLow() {
@@ -1163,85 +1502,145 @@ function OrdersPanel({
     setItemId(row.id);
     setQty(Math.max((row.reorder_level || 0) * 2 - (row.quantity || 0), 1));
     if (sku) setCost(sku.unit_cost);
+    createStatus.succeed(`Filled in ${row.name}. Check the quantity, then create the order.`);
   }
 
-  async function cancelPo(id: string) {
-    try {
-      await api(`/api/v1/inventory/purchase-orders/${id}/cancel`, { method: "POST" });
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+  function cancelPo(po: PurchaseOrder) {
+    void rowStatus.run(
+      async () => {
+        await api(`/api/v1/inventory/purchase-orders/${po.id}/cancel`, { method: "POST" });
+        await onReload();
+      },
+      `Cancelled the order from ${supplierName(po)}.`,
+      "cancel this order",
+      po.id,
+    );
   }
 
   return (
     <div className="space-y-3">
       {canManage && (
         <form className="glass-panel grid gap-3 p-4 md:grid-cols-4" onSubmit={onCreate}>
-          <ConfigField label="Supplier">
-            <select className="input" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
+          <h3 className="reg-section__title md:col-span-4">New purchase order</h3>
+          {!suppliers.length && (
+            <p className="text-sm text-muted md:col-span-4">Add an active supplier under Suppliers before creating an order.</p>
+          )}
+          <ConfigField label="Supplier (required)">
+            <select className="input" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required disabled={!suppliers.length}>
               {suppliers.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
           </ConfigField>
-          <ConfigField label="Supply">
+          <ConfigField label="Supply (required)">
             <select className="input" value={itemId} onChange={(e) => setItemId(e.target.value)} required>
+              <option value="">Choose supply…</option>
               {items.map((i) => (
                 <option key={i.id} value={i.id}>{i.sku} · {i.name}</option>
               ))}
             </select>
           </ConfigField>
-          <ConfigField label="Quantity">
-            <input className="input" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} required />
+          <ConfigField label="Quantity (required)">
+            <input className="input" type="number" inputMode="numeric" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} required />
           </ConfigField>
           <ConfigField label="Unit cost">
-            <input className="input" type="number" min={0} value={cost} onChange={(e) => setCost(Number(e.target.value))} />
+            <input className="input" type="number" inputMode="decimal" min={0} step="any" value={cost} onChange={(e) => setCost(Number(e.target.value))} />
           </ConfigField>
-          <button className="btn-primary md:col-span-3" type="submit">Create purchase order</button>
-          <button className="btn-ghost" type="button" onClick={suggestLow} disabled={!lowStock.length}>From low stock</button>
+          <div className="flex flex-wrap gap-2 md:col-span-4">
+            <button className="btn-primary" type="submit" disabled={createStatus.busy || !suppliers.length || !items.length}>
+              {createStatus.busy ? "Creating…" : "Create purchase order"}
+            </button>
+            <button className="btn-ghost" type="button" onClick={suggestLow} disabled={!lowStock.length || createStatus.busy}>
+              Fill from low stock
+            </button>
+          </div>
+          <div className="md:col-span-4">
+            <ConfigStatus error={createStatus.error} ok={createStatus.ok} />
+          </div>
         </form>
       )}
       {receivePo && (
         <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={confirmReceive}>
-          <h3 className="reg-section__title md:col-span-3">Receive remaining for this order</h3>
+          <h3 className="reg-section__title md:col-span-3">Receive remaining from {supplierName(receivePo)}</h3>
           <ConfigField label="Lot code">
-            <input className="input" value={poLot} onChange={(e) => setPoLot(e.target.value)} />
+            <input ref={receiveFirstField} className="input" value={poLot} autoComplete="off" onChange={(e) => setPoLot(e.target.value)} />
           </ConfigField>
-          <ConfigField label="Expiry date" hint="Required for medical supplies on this order">
+          <ConfigField label="Expiry date (required)" hint="Required for medical supplies on this order">
             <input className="input" type="date" required value={poExpiry} onChange={(e) => setPoExpiry(e.target.value)} />
           </ConfigField>
-          <div className="flex items-end gap-2">
-            <button className="btn-primary" type="submit">Post receive</button>
-            <button className="btn-ghost" type="button" onClick={() => setReceivePo(null)}>Cancel</button>
+          <div className="flex flex-wrap items-end gap-2">
+            <button className="btn-primary" type="submit" disabled={rowStatus.busy}>
+              {rowStatus.busy ? "Receiving…" : "Receive remaining"}
+            </button>
+            <button className="btn-ghost" type="button" onClick={() => setReceivePo(null)} disabled={rowStatus.busy}>
+              Not now
+            </button>
           </div>
         </form>
       )}
-      <div className="admin-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr><th>Status</th><th>Supplier</th><th>Lines</th><th></th></tr>
-          </thead>
-          <tbody>
-            {orders.map((po) => (
-              <tr key={po.id}>
-                <td><span className="status-pill status-pill--info">{po.status}</span></td>
-                <td>{po.supplier_name || suppliers.find((s) => s.id === po.supplier_id)?.name || "—"}</td>
-                <td>{po.lines?.map((l) => `${l.quantity_received}/${l.quantity_ordered}`).join(", ")}</td>
-                <td className="space-x-1">
-                  {canIssue && po.status !== "received" && po.status !== "cancelled" && (
-                    <button type="button" className="btn-ghost text-xs" onClick={() => void receiveAll(po)}>Receive remaining</button>
-                  )}
-                  {canManage && po.status !== "received" && po.status !== "cancelled" && (
-                    <ConfirmAction label="Cancel" confirmLabel="Yes, cancel order" onConfirm={() => cancelPo(po.id)} />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!orders.length && <EmptyState title="No purchase orders" hint="Create an order from low-stock SKUs." />}
-      </div>
+      <ConfigStatus error={rowStatus.error} ok={rowStatus.ok} />
+      {!orders.length ? (
+        <EmptyState
+          title="No purchase orders"
+          hint={canManage ? "Create the first order above, or fill it from low-stock SKUs." : "Orders appear here once the clinic admin creates them."}
+        />
+      ) : (
+        <div className="admin-scroll">
+          <table className="admin-table">
+            <caption className="sr-only">Purchase orders</caption>
+            <thead>
+              <tr><th>Created</th><th>Supplier</th><th>Status</th><th>Received of ordered</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {orders.map((po) => {
+                const open = po.status !== "received" && po.status !== "cancelled";
+                const busy = rowStatus.busyKey === po.id;
+                return (
+                  <tr key={po.id}>
+                    <td>{new Date(po.created_at).toLocaleDateString()}</td>
+                    <td>{supplierName(po)}</td>
+                    <td><span className={`status-pill ${poTone(po.status)}`}>{humanize(po.status)}</span></td>
+                    <td>
+                      <ul className="space-y-0.5">
+                        {po.lines?.map((l) => (
+                          <li key={l.id}>
+                            {itemName(l.inventory_item_id)}: {qtyLabel(l.quantity_received)} of {qtyLabel(l.quantity_ordered)}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td>
+                      {open && (canIssue || canManage) ? (
+                        <div className="flex flex-wrap gap-2">
+                          {canIssue && (
+                            <button type="button" className="btn-ghost" disabled={rowStatus.busy} onClick={() => receiveAll(po)}>
+                              {busy ? "Receiving…" : "Receive remaining"}
+                            </button>
+                          )}
+                          {canManage && (
+                            <ConfirmAction
+                              label="Cancel order"
+                              confirmLabel="Yes, cancel order"
+                              cancelLabel="Keep order"
+                              variant="danger"
+                              destructive
+                              disabled={rowStatus.busy}
+                              message={`Cancel the order from ${supplierName(po)}? Items not yet received can no longer be received on it.`}
+                              onConfirm={() => cancelPo(po)}
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted">No actions</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1250,102 +1649,214 @@ function SuppliersPanel({
   suppliers,
   canManage,
   onReload,
-  setError,
 }: {
   suppliers: WarehouseSupplier[];
   canManage: boolean;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [search, setSearch] = useState("");
   const [edit, setEdit] = useState<WarehouseSupplier | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
   const [history, setHistory] = useState<SupplierHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState("");
   const [historyError, setHistoryError] = useState("");
+  const createStatus = useSubmit();
+  const editStatus = useSubmit();
+  const editFirstField = useRef<HTMLInputElement>(null);
+  const keepActiveButton = useRef<HTMLButtonElement>(null);
+  const historyHeading = useRef<HTMLHeadingElement>(null);
 
-  async function onCreate(e: FormEvent) {
+  const original = edit ? suppliers.find((s) => s.id === edit.id) : undefined;
+  const deactivating = !!original?.is_active && !!edit && !edit.is_active;
+  const term = search.trim().toLowerCase();
+  const visible = term
+    ? suppliers.filter((s) => `${s.name} ${s.contact_phone || ""} ${s.contact_email || ""}`.toLowerCase().includes(term))
+    : suppliers;
+
+  useEffect(() => {
+    if (edit) editFirstField.current?.focus();
+  }, [edit?.id]);
+
+  useEffect(() => {
+    if (confirmDeactivate) keepActiveButton.current?.focus();
+  }, [confirmDeactivate]);
+
+  useEffect(() => {
+    if (history) historyHeading.current?.focus();
+  }, [history]);
+
+  function openEdit(s: WarehouseSupplier) {
+    setConfirmDeactivate(false);
+    editStatus.succeed("");
+    setEdit(s);
+  }
+
+  function closeEdit(id: string) {
+    setConfirmDeactivate(false);
+    setEdit(null);
+    queueMicrotask(() => document.getElementById(`supplier-edit-${id}`)?.focus());
+  }
+
+  function onCreate(e: FormEvent) {
     e.preventDefault();
-    try {
-      await api("/api/v1/inventory/suppliers", {
-        method: "POST",
-        body: JSON.stringify({ name, contact_phone: phone || null, contact_email: email || null }),
-      });
-      setName("");
-      setPhone("");
-      setEmail("");
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    const added = name.trim();
+    void createStatus.run(
+      async () => {
+        await api("/api/v1/inventory/suppliers", {
+          method: "POST",
+          body: JSON.stringify({ name, contact_phone: phone || null, contact_email: email || null }),
+        });
+        setName("");
+        setPhone("");
+        setEmail("");
+        await onReload();
+      },
+      `Added supplier ${added}.`,
+      "add this supplier",
+    );
   }
 
   async function loadHistory(id: string) {
     setHistoryError("");
+    setHistoryLoading(id);
     try {
       setHistory(await api<SupplierHistory>(`/api/v1/inventory/suppliers/${id}/history`));
-    } catch (err: any) {
-      setHistoryError(err.message);
+    } catch (err: unknown) {
+      setHistoryError(explainFailure(err, "load this supplier's history"));
+    } finally {
+      setHistoryLoading("");
     }
   }
 
-  async function saveEdit(e: FormEvent) {
+  function saveEdit(e: FormEvent) {
     e.preventDefault();
     if (!edit) return;
-    try {
-      await api(`/api/v1/inventory/suppliers/${edit.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: edit.name,
-          contact_phone: edit.contact_phone || null,
-          contact_email: edit.contact_email || null,
-          is_active: edit.is_active,
-        }),
-      });
-      setEdit(null);
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
+    if (deactivating && !confirmDeactivate) {
+      setConfirmDeactivate(true);
+      return;
     }
+    const draft = edit;
+    void editStatus
+      .run(
+        async () => {
+          await api(`/api/v1/inventory/suppliers/${draft.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              name: draft.name,
+              contact_phone: draft.contact_phone || null,
+              contact_email: draft.contact_email || null,
+              is_active: draft.is_active,
+            }),
+          });
+          await onReload();
+        },
+        deactivating ? `Deactivated ${draft.name}.` : `Saved ${draft.name}.`,
+        "save this supplier",
+      )
+      .then((saved) => {
+        if (!saved) return;
+        closeEdit(draft.id);
+        createStatus.succeed(deactivating ? `Deactivated ${draft.name}.` : `Saved ${draft.name}.`);
+      });
   }
 
   return (
     <div className="space-y-3">
       {canManage && (
         <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={onCreate}>
-          <ConfigField label="Supplier name">
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+          <h3 className="reg-section__title md:col-span-3">Add supplier</h3>
+          <ConfigField label="Supplier name (required)">
+            <input className="input" value={name} autoComplete="organization" onChange={(e) => setName(e.target.value)} required />
           </ConfigField>
           <ConfigField label="Phone">
-            <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input className="input" type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </ConfigField>
           <ConfigField label="Email">
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input className="input" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </ConfigField>
-          <button className="btn-primary md:col-span-3" type="submit">Add supplier</button>
+          <div className="md:col-span-3">
+            <button className="btn-primary" type="submit" disabled={createStatus.busy}>
+              {createStatus.busy ? "Adding…" : "Add supplier"}
+            </button>
+          </div>
         </form>
       )}
-      <ul className="space-y-2">
-        {suppliers.map((s) => (
-          <li key={s.id} className="admin-list flex items-center justify-between gap-2">
-            <span>
-              <strong>{s.name}</strong>
-              <span className="text-muted text-sm"> {s.contact_phone || s.contact_email || ""}</span>
-              {!s.is_active && <span className="status-pill ml-2">Inactive</span>}
-            </span>
-            <span className="flex gap-1">
-              <button type="button" className="btn-ghost text-xs" onClick={() => void loadHistory(s.id)}>History</button>
-              {canManage && (
-                <button type="button" className="btn-ghost text-xs" onClick={() => setEdit(s)}>Edit</button>
+      <ConfigStatus error={createStatus.error} ok={createStatus.ok} />
+      {!suppliers.length ? (
+        <EmptyState
+          title="No suppliers"
+          hint={canManage ? "Add the vendors you buy from." : "The clinic admin adds the vendors the clinic buys from."}
+        />
+      ) : (
+        <section className="glass-panel space-y-3 p-4">
+          <h3 className="reg-section__title">Suppliers ({suppliers.length})</h3>
+          {suppliers.length > 8 && (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[14rem] flex-1 text-sm">
+                <span className="label">Search suppliers</span>
+                <span className="search-field">
+                  <Search className="search-field__icon" aria-hidden="true" />
+                  <input
+                    className="input"
+                    type="search"
+                    value={search}
+                    autoComplete="off"
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Name, phone, or email"
+                  />
+                </span>
+              </label>
+              {term && (
+                <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button>
               )}
-            </span>
-          </li>
-        ))}
-      </ul>
-      {historyError && <p className="text-sm text-danger" role="alert">{historyError}</p>}
+              <p className="basis-full text-sm text-muted" aria-live="polite">
+                Showing {visible.length} of {suppliers.length} suppliers.
+              </p>
+            </div>
+          )}
+          {!visible.length && <p className="text-sm text-muted">No suppliers match this search.</p>}
+          <ul className="divide-y divide-brand-100">
+            {visible.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="min-w-0 text-sm">
+                  <strong className="text-text">{s.name}</strong>
+                  <span className="text-muted"> {s.contact_phone || s.contact_email || ""}</span>
+                  {!s.is_active && <span className="status-pill ml-2">Inactive</span>}
+                </span>
+                <span className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    aria-label={`History for ${s.name}`}
+                    disabled={historyLoading === s.id}
+                    onClick={() => void loadHistory(s.id)}
+                  >
+                    {historyLoading === s.id ? "Loading…" : "History"}
+                  </button>
+                  {canManage && (
+                    <button
+                      id={`supplier-edit-${s.id}`}
+                      type="button"
+                      className="btn-ghost"
+                      aria-label={`Edit ${s.name}`}
+                      onClick={() => openEdit(s)}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {historyError && <p className="text-sm font-semibold text-danger" role="alert">{historyError}</p>}
       {history && (
         <section className="glass-panel space-y-3 p-4">
-          <h3 className="reg-section__title">Procurement history · {history.supplier.name}</h3>
+          <h3 ref={historyHeading} tabIndex={-1} className="reg-section__title">Procurement history · {history.supplier.name}</h3>
           <p className="text-sm text-muted">{history.purchase_orders.length} purchase orders · {history.receives.length} receives</p>
           {history.purchase_orders.length === 0 ? (
             <p className="text-sm text-muted">No purchase orders for this vendor yet.</p>
@@ -1354,35 +1865,83 @@ function SuppliersPanel({
               {history.purchase_orders.slice(0, 8).map((po) => (
                 <li key={po.id} className="flex items-center justify-between py-2 text-sm">
                   <span>
-                    <span className={`status-pill ${po.status === "received" ? "status-pill--success" : "status-pill--info"} mr-2`}>
-                      {po.status}
-                    </span>
-                    {po.lines?.map((l) => `${l.quantity_received}/${l.quantity_ordered}`).join(", ")}
+                    <span className={`status-pill ${poTone(po.status)} mr-2`}>{humanize(po.status)}</span>
+                    {po.lines?.map((l) => `${qtyLabel(l.quantity_received)} of ${qtyLabel(l.quantity_ordered)}`).join(", ")}
                   </span>
-                  <span className="text-xs text-muted">{new Date(po.created_at).toLocaleDateString()}</span>
+                  <span className="text-sm text-muted">{new Date(po.created_at).toLocaleDateString()}</span>
                 </li>
               ))}
             </ul>
           )}
-          <button type="button" className="btn-ghost text-sm" onClick={() => setHistory(null)}>Close history</button>
+          <button type="button" className="btn-ghost" onClick={() => setHistory(null)}>Close history</button>
         </section>
       )}
       {edit && (
-        <form className="glass-panel grid gap-2 p-4 md:grid-cols-3" onSubmit={saveEdit}>
-          <input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
-          <input className="input" placeholder="Phone" value={edit.contact_phone || ""} onChange={(e) => setEdit({ ...edit, contact_phone: e.target.value })} />
-          <input className="input" placeholder="Email" value={edit.contact_email || ""} onChange={(e) => setEdit({ ...edit, contact_email: e.target.value })} />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />
-            Active
+        <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={saveEdit}>
+          <h3 className="reg-section__title md:col-span-3">Edit supplier · {original?.name || edit.name}</h3>
+          <ConfigField label="Supplier name (required)">
+            <input
+              ref={editFirstField}
+              className="input"
+              value={edit.name}
+              autoComplete="organization"
+              required
+              onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+            />
+          </ConfigField>
+          <ConfigField label="Phone">
+            <input className="input" type="tel" autoComplete="tel" value={edit.contact_phone || ""} onChange={(e) => setEdit({ ...edit, contact_phone: e.target.value })} />
+          </ConfigField>
+          <ConfigField label="Email">
+            <input className="input" type="email" autoComplete="email" value={edit.contact_email || ""} onChange={(e) => setEdit({ ...edit, contact_email: e.target.value })} />
+          </ConfigField>
+          <label className="choice-row md:col-span-3">
+            <input
+              type="checkbox"
+              checked={edit.is_active}
+              onChange={(e) => {
+                setConfirmDeactivate(false);
+                setEdit({ ...edit, is_active: e.target.checked });
+              }}
+            />
+            Active (shown when ordering and receiving)
           </label>
-          <div className="md:col-span-2 flex gap-2">
-            <button className="btn-primary" type="submit">Save</button>
-            <button className="btn-ghost" type="button" onClick={() => setEdit(null)}>Cancel</button>
+          {confirmDeactivate ? (
+            <div className="flex flex-wrap items-center gap-2 md:col-span-3" role="group" aria-labelledby="supplier-deactivate-msg">
+              <p id="supplier-deactivate-msg" className="basis-full text-sm text-text">
+                Deactivate {original?.name || edit.name}? It will no longer appear when creating orders or receiving stock. Its order history stays.
+              </p>
+              <button className="btn-ghost text-danger" type="submit" disabled={editStatus.busy}>
+                {editStatus.busy ? "Saving…" : "Deactivate supplier"}
+              </button>
+              <button
+                ref={keepActiveButton}
+                className="btn-ghost"
+                type="button"
+                disabled={editStatus.busy}
+                onClick={() => {
+                  setConfirmDeactivate(false);
+                  setEdit({ ...edit, is_active: true });
+                }}
+              >
+                Keep active
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 md:col-span-3">
+              <button className="btn-primary" type="submit" disabled={editStatus.busy}>
+                {editStatus.busy ? "Saving…" : "Save supplier"}
+              </button>
+              <button className="btn-ghost" type="button" disabled={editStatus.busy} onClick={() => closeEdit(edit.id)}>
+                Cancel
+              </button>
+            </div>
+          )}
+          <div className="md:col-span-3">
+            <ConfigStatus error={editStatus.error} />
           </div>
         </form>
       )}
-      {!suppliers.length && <EmptyState title="No suppliers" hint="Add the vendors you buy from." />}
     </div>
   );
 }
@@ -1397,40 +1956,91 @@ function MovementsPanel({
   locations: StockLocation[];
 }) {
   const [type, setType] = useState("all");
+  const [search, setSearch] = useState("");
   const names = Object.fromEntries(items.map((i) => [i.id, `${i.sku} ${i.name}`]));
-  const locs = Object.fromEntries(locations.map((l) => [l.id, l.code]));
+  const locs = Object.fromEntries(locations.map((l) => [l.id, l.name || l.code]));
   const types = Array.from(new Set(movements.map((m) => m.movement_type))).sort();
-  const rows = type === "all" ? movements : movements.filter((m) => m.movement_type === type);
+  const term = search.trim().toLowerCase();
+  const filtered = type !== "all" || term !== "";
+  const rows = movements.filter((m) => {
+    if (type !== "all" && m.movement_type !== type) return false;
+    if (!term) return true;
+    return `${names[m.inventory_item_id] || ""} ${m.reason || ""}`.toLowerCase().includes(term);
+  });
+
+  function clearFilters() {
+    setType("all");
+    setSearch("");
+  }
+
+  if (!movements.length) {
+    return <EmptyState title="No movements yet" hint="Receives, issues, and write-offs appear here." />;
+  }
+
   return (
     <div className="space-y-3">
-      <div className="admin-toolbar">
-        <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-      </div>
-      <div className="admin-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr><th>When</th><th>Type</th><th>Item</th><th>Qty</th><th>From / to</th><th>Reason</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.id}>
-                <td className="text-xs">{new Date(m.created_at).toLocaleString()}</td>
-                <td><span className="status-pill">{m.movement_type}</span></td>
-                <td>{names[m.inventory_item_id] || m.inventory_item_id.slice(0, 8)}</td>
-                <td>{m.quantity}</td>
-                <td className="text-xs">{locs[m.from_location_id || ""] || "—"} → {locs[m.to_location_id || ""] || "—"}</td>
-                <td className="text-xs text-muted">{m.reason}</td>
-              </tr>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[14rem] flex-1 text-sm">
+          <span className="label">Search movements</span>
+          <span className="search-field">
+            <Search className="search-field__icon" aria-hidden="true" />
+            <input
+              className="input"
+              type="search"
+              value={search}
+              autoComplete="off"
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="SKU, item, or reason"
+            />
+          </span>
+        </label>
+        <label className="text-sm">
+          <span className="label">Type</span>
+          <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="all">All types</option>
+            {types.map((t) => (
+              <option key={t} value={t}>{humanize(t)}</option>
             ))}
-          </tbody>
-        </table>
-        {!rows.length && <EmptyState title="No movements yet" hint="Receives, issues, and write-offs appear here." />}
+          </select>
+        </label>
+        {filtered && (
+          <button type="button" className="btn-ghost" onClick={clearFilters}>Clear filters</button>
+        )}
       </div>
+      <p className="text-sm text-muted" aria-live="polite">
+        Showing {rows.length} of {movements.length} movements.
+      </p>
+      {!rows.length ? (
+        <EmptyState
+          title="No matching movements"
+          hint="Nothing matches this search and type."
+          action={<button type="button" className="btn-ghost" onClick={clearFilters}>Clear filters</button>}
+        />
+      ) : (
+        <div className="admin-scroll">
+          <table className="admin-table">
+            <caption className="sr-only">Stock movements</caption>
+            <thead>
+              <tr><th>When</th><th>Type</th><th>Item</th><th>Qty</th><th>From / to</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td>{new Date(m.created_at).toLocaleString()}</td>
+                  <td><span className="status-pill">{humanize(m.movement_type)}</span></td>
+                  <td>{names[m.inventory_item_id] || m.inventory_item_id.slice(0, 8)}</td>
+                  <td>{qtyLabel(m.quantity)}</td>
+                  <td>
+                    {locs[m.from_location_id || ""] || "—"} <span aria-hidden="true">→</span>
+                    <span className="sr-only"> to </span> {locs[m.to_location_id || ""] || "—"}
+                  </td>
+                  <td className="text-muted">{m.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1440,68 +2050,138 @@ function FeesPanel({
   canManage,
   money,
   onReload,
-  setError,
 }: {
   items: InventoryItem[];
   canManage: boolean;
   money: (n: number) => string;
   onReload: () => Promise<void>;
-  setError: (v: string) => void;
 }) {
   const [form, setForm] = useState(emptyFee);
+  const createStatus = useSubmit();
+  const rowStatus = useSubmit();
 
-  async function onCreate(e: FormEvent) {
+  function onCreate(e: FormEvent) {
     e.preventDefault();
-    try {
-      await api("/api/v1/inventory", { method: "POST", body: JSON.stringify({ ...form, quantity: 0, item_kind: "service" }) });
-      setForm(emptyFee);
-      await onReload();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    const added = form.name.trim();
+    void createStatus.run(
+      async () => {
+        await api("/api/v1/inventory", { method: "POST", body: JSON.stringify({ ...form, quantity: 0, item_kind: "service" }) });
+        setForm(emptyFee);
+        await onReload();
+      },
+      `Added registration fee ${added}.`,
+      "add this fee",
+    );
   }
 
-  async function toggle(item: InventoryItem) {
-    await api(`/api/v1/inventory/${item.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ billable_at_registration: !item.billable_at_registration }),
-    });
-    await onReload();
+  function toggle(item: InventoryItem) {
+    const turningOn = !item.billable_at_registration;
+    void rowStatus.run(
+      async () => {
+        await api(`/api/v1/inventory/${item.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ billable_at_registration: turningOn }),
+        });
+        await onReload();
+      },
+      turningOn ? `${item.name} is now charged at registration.` : `${item.name} is no longer charged at registration.`,
+      "change this fee",
+      item.id,
+    );
   }
 
   return (
     <div className="space-y-3">
       {canManage && (
-        <form className="glass-panel grid gap-2 p-4 md:grid-cols-3" onSubmit={onCreate}>
-          <input className="input" placeholder="SKU" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
-          <input className="input" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <input className="input" type="number" placeholder="Sale price" value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: Number(e.target.value) })} />
-          <button className="btn-primary md:col-span-3" type="submit">Add registration fee</button>
+        <form className="glass-panel grid gap-3 p-4 md:grid-cols-3" onSubmit={onCreate}>
+          <h3 className="reg-section__title md:col-span-3">Add registration fee</h3>
+          <ConfigField label="SKU (required)">
+            <input className="input" value={form.sku} autoComplete="off" onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
+          </ConfigField>
+          <ConfigField label="Name (required)">
+            <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          </ConfigField>
+          <ConfigField label="Sale price">
+            <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="any"
+              value={form.sale_price}
+              onChange={(e) => setForm({ ...form, sale_price: Number(e.target.value) })}
+            />
+          </ConfigField>
+          <div className="md:col-span-3">
+            <button className="btn-primary" type="submit" disabled={createStatus.busy}>
+              {createStatus.busy ? "Adding…" : "Add registration fee"}
+            </button>
+          </div>
+          <div className="md:col-span-3">
+            <ConfigStatus error={createStatus.error} ok={createStatus.ok} />
+          </div>
         </form>
       )}
-      <div className="admin-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr><th>SKU</th><th>Name</th><th>Price</th><th>Registration</th></tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td className="font-mono text-xs">{item.sku}</td>
-                <td>{item.name}</td>
-                <td>{money(item.sale_price || item.unit_cost)}</td>
-                <td>
-                  {canManage ? (
-                    <button type="button" className="btn-ghost text-xs" onClick={() => toggle(item)}>
-                      {item.billable_at_registration ? "On" : "Off"}
-                    </button>
-                  ) : item.billable_at_registration ? "On" : "Off"}
-                </td>
+      <ConfigStatus error={rowStatus.error} ok={rowStatus.ok} />
+      {!items.length ? (
+        <EmptyState
+          title="No registration fees"
+          hint={canManage ? "Add the fees charged when a patient registers." : "The clinic admin sets registration fees."}
+        />
+      ) : (
+        <div className="admin-scroll">
+          <table className="admin-table">
+            <caption className="sr-only">Registration fees</caption>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Name</th>
+                <th>Price</th>
+                <th>At registration</th>
+                {canManage && <th>Actions</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const busy = rowStatus.busyKey === item.id;
+                return (
+                  <tr key={item.id}>
+                    <td className="font-mono text-sm">{item.sku}</td>
+                    <td>{item.name}</td>
+                    <td>{money(item.sale_price || item.unit_cost)}</td>
+                    <td>
+                      {item.billable_at_registration ? (
+                        <span className="status-pill status-pill--success">Charged</span>
+                      ) : (
+                        <span className="status-pill">Not charged</span>
+                      )}
+                    </td>
+                    {canManage && (
+                      <td>
+                        {item.billable_at_registration ? (
+                          <ConfirmAction
+                            label="Stop charging"
+                            confirmLabel="Yes, stop charging"
+                            cancelLabel="Keep charging"
+                            destructive
+                            disabled={rowStatus.busy}
+                            message={`Stop adding ${item.name} to new registrations? Invoices already raised do not change.`}
+                            onConfirm={() => toggle(item)}
+                          />
+                        ) : (
+                          <button type="button" className="btn-ghost" disabled={rowStatus.busy} onClick={() => toggle(item)}>
+                            {busy ? "Saving…" : "Start charging"}
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

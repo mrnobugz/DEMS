@@ -316,6 +316,41 @@ async def approve_requisition(
         payload={"req_number": row.req_number, "department": row.department},
         actor_id=actor_id,
     )
+    try:
+        from app.services import staff_inbox as inbox
+
+        await inbox.notify_staff(
+            db,
+            clinic_id=clinic_id,
+            category="requisition",
+            event_type=inbox.REQUISITION_APPROVED,
+            title=f"Requisition {row.req_number} approved",
+            body=f"{row.department} can be fulfilled from the store.",
+            link_path="/requisitions",
+            payload={"requisition_id": row.id, "req_number": row.req_number},
+            actor_id=actor_id,
+            audience_permissions=inbox.AUDIENCE_PERMISSIONS["requisition"],
+        )
+        if row.requested_by_id and row.requested_by_id != actor_id:
+            await inbox.notify_staff(
+                db,
+                clinic_id=clinic_id,
+                category="requisition",
+                event_type=inbox.REQUISITION_APPROVED,
+                title=f"Your requisition {row.req_number} was approved",
+                body="The store can fulfill your request.",
+                link_path="/requisitions",
+                payload={"requisition_id": row.id, "req_number": row.req_number},
+                actor_id=actor_id,
+                user_ids=[row.requested_by_id],
+                exclude_actor=False,
+            )
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("demsta.requisitions").exception(
+            "staff inbox notify failed for requisition %s", row.id
+        )
     await write_audit(
         db,
         clinic_id=clinic_id,

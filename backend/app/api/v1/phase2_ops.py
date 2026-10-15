@@ -2,23 +2,16 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api.deps import ClinicId, DbSession, require_any_permission, require_permission
+from app.core.rbac import user_has_any_permission
 from app.models import (
-    Appointment,
-    InventoryItem,
-    InventoryUsage,
-    Invoice,
-    InvoiceStatus,
     Patient,
-    Payment,
-    Restoration,
     StaffLeave,
     StaffProfile,
     StaffShift,
@@ -32,73 +25,20 @@ from app.schemas import (
     StaffShiftCreate,
     StaffShiftOut,
 )
-from app.services import clinical_depth as depth
-from app.services.domain import as_utc
+from app.services import reports as report_svc
 
 router = APIRouter(tags=["phase2-ops"])
+
 
 @router.get("/reports/financial")
 async def financial_report(
     db: DbSession,
     clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("reports:financial"))],
+    user: Annotated[User, Depends(require_any_permission("reports:financial", "reports:*"))],
+    days: int = Query(30, ge=1, le=365),
 ):
     _ = user
-    today = date.today()
-    month_start = today.replace(day=1)
-    day_start = datetime(today.year, today.month, today.day, tzinfo=UTC)
-    payments_today = (
-        await db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0.0)).where(
-                Payment.clinic_id == clinic_id, Payment.paid_at >= day_start
-            )
-        )
-    ).scalar_one()
-    payments_month = (
-        await db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0.0)).where(
-                Payment.clinic_id == clinic_id,
-                Payment.paid_at >= datetime(month_start.year, month_start.month, 1, tzinfo=UTC),
-            )
-        )
-    ).scalar_one()
-    outstanding = (
-        await db.execute(
-            select(func.coalesce(func.sum(Invoice.total - Invoice.amount_paid), 0.0)).where(
-                Invoice.clinic_id == clinic_id,
-                Invoice.status.in_([InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID]),
-            )
-        )
-    ).scalar_one()
-    # Simple aging buckets by issued_at
-    aging = {"0_30": 0.0, "31_60": 0.0, "61_90": 0.0, "90_plus": 0.0}
-    open_inv = (
-        await db.execute(
-            select(Invoice).where(
-                Invoice.clinic_id == clinic_id,
-                Invoice.status.in_([InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID]),
-            )
-        )
-    ).scalars().all()
-    now = datetime.now(UTC)
-    for inv in open_inv:
-        bal = float(inv.total) - float(inv.amount_paid)
-        issued = inv.issued_at or inv.created_at
-        days = (now - as_utc(issued)).days if issued else 0
-        if days <= 30:
-            aging["0_30"] += bal
-        elif days <= 60:
-            aging["31_60"] += bal
-        elif days <= 90:
-            aging["61_90"] += bal
-        else:
-            aging["90_plus"] += bal
-    return {
-        "revenue_today": float(payments_today or 0),
-        "revenue_month": float(payments_month or 0),
-        "outstanding": float(outstanding or 0),
-        "aging": aging,
-    }
+    return await report_svc.financial_report(db, clinic_id, days=days)
 
 
 @router.get("/reports/clinical")
@@ -106,86 +46,23 @@ async def clinical_report(
     db: DbSession,
     clinic_id: ClinicId,
     user: Annotated[User, Depends(require_any_permission("reports:own", "reports:financial", "reports:*"))],
+    days: int = Query(30, ge=1, le=365),
 ):
-    # clinic_admin / dentist / accountant (read clinical metrics)
-    _ = user
-    top = (
-        await db.execute(
-            select(Restoration.restoration_type, func.count())
-            .where(Restoration.clinic_id == clinic_id)
-            .group_by(Restoration.restoration_type)
-            .order_by(func.count().desc())
-            .limit(10)
-        )
-    ).all()
-    fail = await depth.restoration_failure_rate(db, clinic_id)
-    material_cost = (
-        await db.execute(
-            select(func.coalesce(func.sum(InventoryUsage.quantity * InventoryItem.unit_cost), 0.0))
-            .select_from(InventoryUsage)
-            .join(InventoryItem, InventoryItem.id == InventoryUsage.inventory_item_id)
-            .where(InventoryUsage.clinic_id == clinic_id)
-        )
-    ).scalar_one()
-    return {
-        "top_procedures": [{"type": t, "count": c} for t, c in top],
-        "restoration_failures": fail,
-        "material_cost_used": float(material_cost or 0),
-    }
+    clinic_wide = user_has_any_permission(user, "reports:financial", "reports:*")
+    provider_id = None if clinic_wide else user.id
+    return await report_svc.clinical_report(db, clinic_id, days=days, provider_id=provider_id)
 
 
 @router.get("/reports/operational")
 async def operational_report(
     db: DbSession,
     clinic_id: ClinicId,
-    user: Annotated[User, Depends(require_permission("reports:*"))],
+    user: Annotated[User, Depends(require_any_permission("reports:*", "reports:financial"))],
+    days: int = Query(7, ge=1, le=365),
 ):
     _ = user
-    week_ago = datetime.now(UTC) - timedelta(days=7)
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(Appointment)
-            .where(Appointment.clinic_id == clinic_id, Appointment.starts_at >= week_ago)
-        )
-    ).scalar_one()
-    no_shows = (
-        await db.execute(
-            select(func.count())
-            .select_from(Appointment)
-            .where(
-                Appointment.clinic_id == clinic_id,
-                Appointment.starts_at >= week_ago,
-                Appointment.status == "no_show",
-            )
-        )
-    ).scalar_one()
-    completed = (
-        await db.execute(
-            select(func.count())
-            .select_from(Appointment)
-            .where(
-                Appointment.clinic_id == clinic_id,
-                Appointment.starts_at >= week_ago,
-                Appointment.status == "completed",
-            )
-        )
-    ).scalar_one()
-    return {
-        "appointments_7d": total,
-        "completed_7d": completed,
-        "no_shows_7d": no_shows,
-        "no_show_rate": (no_shows / total) if total else 0.0,
-        "utilization_proxy": (completed / total) if total else 0.0,
-    }
+    return await report_svc.operational_report(db, clinic_id, days=days)
 
-
-# Allow dentist reports:own on clinical report; financial needs reports:financial
-# Fix clinical report permission - dentists have reports:own, clinic_admin has reports:*
-# has_permission("reports:own") works for dentist; for clinic_admin reports:* covers reports:own? 
-# Looking at has_permission - reports:* covers reports:own via resource wildcard. Good.
-# For operational, only reports:* - accountant doesn't have it. Clinic admin does. Dentist doesn't.
-# Plan says dentist own for clinical - OK.
 
 @router.post("/pharmacy/warn", response_model=RxWarnOut)
 async def rx_warn(

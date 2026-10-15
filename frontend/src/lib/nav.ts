@@ -368,7 +368,8 @@ export type ModuleNav = {
   key: string;
   titleKey: string;
   home: string;
-  items: NavItem[];
+  /** In-module destinations — flat links and expandable groups. */
+  entries: NavEntry[];
 };
 
 type ModuleDef = {
@@ -376,7 +377,7 @@ type ModuleDef = {
   titleKey: string;
   home: string;
   match: (path: string) => boolean;
-  items: NavItem[];
+  entries: NavEntry[];
 };
 
 function singletonModule(
@@ -390,7 +391,7 @@ function singletonModule(
     titleKey,
     home,
     match: (path) => path === home || path.startsWith(`${home}/`),
-    items: [item],
+    entries: [item],
   };
 }
 
@@ -407,14 +408,41 @@ const MODULE_DEFS: ModuleDef[] = [
     titleKey: "clinicAdmin",
     home: "/admin",
     match: (path) => path === "/admin" || path.startsWith("/admin/"),
-    items: ADMIN_ITEMS,
+    entries: [
+      ADMIN_ITEMS[0]!,
+      {
+        labelKey: "adminPeople",
+        icon: Users,
+        roles: ["clinic_admin", "super_admin"],
+        anyPermission: ["staff:*"],
+        children: ADMIN_ITEMS.filter((item) => item.to.includes("staff") || item.to.includes("roles")),
+      },
+      {
+        labelKey: "adminSetup",
+        icon: Settings2,
+        roles: ["clinic_admin", "super_admin"],
+        anyPermission: ["staff:*", "config:clinic", "config:*", "billing:*"],
+        children: ADMIN_ITEMS.filter((item) =>
+          ["clinical", "fees", "templates", "ops"].some((view) => item.to.includes(`view=${view}`)),
+        ),
+      },
+    ],
   },
   {
     key: "front-desk",
     titleKey: "frontDesk",
     home: "/front-desk",
     match: (path) => path === "/front-desk" || path.startsWith("/front-desk/"),
-    items: FRONT_DESK_GROUP.children,
+    entries: [
+      FRONT_DESK_GROUP.children[0]!,
+      {
+        labelKey: "registration",
+        icon: UserPlus,
+        roles: FRONT_DESK_ROLES,
+        anyPermission: ["patients:*"],
+        children: FRONT_DESK_GROUP.children.slice(1),
+      },
+    ],
   },
   singletonModule("vitals", "vitals", "/vitals", {
     to: "/vitals",
@@ -423,10 +451,21 @@ const MODULE_DEFS: ModuleDef[] = [
     roles: ["nurse", "dentist", "clinic_admin", "super_admin"],
     anyPermission: ["clinical:vitals", "clinical:*"],
   }),
-  ...CLINICAL_GROUP.children.map((item) => {
-    const home = item.to.split("?")[0];
-    return singletonModule(home.replace("/clinical/", ""), item.labelKey, home, item);
-  }),
+  {
+    key: "clinical",
+    titleKey: "clinical",
+    home: "/clinical/restorative",
+    match: (path) => path === "/clinical" || path.startsWith("/clinical/"),
+    entries: [
+      {
+        labelKey: "clinicalDepts",
+        icon: Stethoscope,
+        roles: CLINICAL_ROLES,
+        anyPermission: ["clinical:read", "clinical:*"],
+        children: CLINICAL_GROUP.children,
+      },
+    ],
+  },
   singletonModule("clinical-records", "clinicalRecords", "/clinical-records", {
     to: "/clinical-records",
     labelKey: "clinicalRecords",
@@ -468,7 +507,29 @@ const MODULE_DEFS: ModuleDef[] = [
     titleKey: "inventory",
     home: "/inventory",
     match: (path) => path === "/inventory" || path.startsWith("/inventory/"),
-    items: WAREHOUSE_GROUP.children,
+    entries: [
+      WAREHOUSE_GROUP.children[0]!,
+      WAREHOUSE_GROUP.children[1]!,
+      {
+        labelKey: "whStockFlow",
+        icon: Package,
+        roles: WAREHOUSE_ROLES,
+        anyPermission: WAREHOUSE_PERMS,
+        children: WAREHOUSE_GROUP.children.filter((item) =>
+          ["stock", "receive", "issues", "movements"].some((view) => item.to.includes(`view=${view}`)),
+        ),
+      },
+      {
+        labelKey: "whBuying",
+        icon: Truck,
+        roles: WAREHOUSE_ROLES,
+        anyPermission: WAREHOUSE_PERMS,
+        children: WAREHOUSE_GROUP.children.filter((item) =>
+          ["orders", "suppliers", "fees"].some((view) => item.to.includes(`view=${view}`)),
+        ),
+      },
+      WAREHOUSE_GROUP.children.find((item) => item.to.includes("view=analysis"))!,
+    ],
   },
   singletonModule("patients", "patients", "/patients", {
     to: "/patients",
@@ -493,13 +554,42 @@ const MODULE_DEFS: ModuleDef[] = [
     roles: ["super_admin", "clinic_admin", "dentist", "hygienist", "receptionist"],
     anyPermission: ["appointments:read", "appointments:*"],
   }),
-  singletonModule("billing", "billing", "/billing", {
-    to: "/billing",
-    labelKey: "billing",
-    icon: Receipt,
-    roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
-    anyPermission: ["billing:read", "billing:create", "billing:*"],
-  }),
+  {
+    key: "billing",
+    titleKey: "billing",
+    home: "/billing",
+    match: (path) => path === "/billing" || path.startsWith("/billing/"),
+    entries: [
+      {
+        to: "/billing",
+        labelKey: "billOverview",
+        icon: LayoutDashboard,
+        roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
+        anyPermission: ["billing:read", "billing:create", "billing:*"],
+      },
+      {
+        to: "/billing/invoices",
+        labelKey: "billInvoices",
+        icon: Receipt,
+        roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
+        anyPermission: ["billing:read", "billing:create", "billing:*"],
+      },
+      {
+        to: "/billing/payments",
+        labelKey: "billPayments",
+        icon: ClipboardPlus,
+        roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
+        anyPermission: ["billing:read", "billing:create", "billing:*"],
+      },
+      {
+        to: "/billing/notifications",
+        labelKey: "billNotifications",
+        icon: ClipboardList,
+        roles: ["super_admin", "clinic_admin", "receptionist", "accountant", "dentist"],
+        anyPermission: ["billing:read", "billing:create", "billing:*"],
+      },
+    ],
+  },
   singletonModule("ai", "aiAssist", "/ai", {
     to: "/ai",
     labelKey: "aiAssist",
@@ -507,13 +597,42 @@ const MODULE_DEFS: ModuleDef[] = [
     roles: ["super_admin", "clinic_admin", "dentist", "hygienist", "receptionist"],
     anyPermission: ["ai:suggest", "ai:*"],
   }),
-  singletonModule("reports", "reports", "/reports", {
-    to: "/reports",
-    labelKey: "reports",
-    icon: BarChart3,
-    roles: ["super_admin", "clinic_admin", "accountant", "dentist"],
-    anyPermission: ["reports:own", "reports:financial", "reports:*"],
-  }),
+  {
+    key: "reports",
+    titleKey: "reports",
+    home: "/reports",
+    match: (path) => path === "/reports" || path.startsWith("/reports/"),
+    entries: [
+      {
+        to: "/reports",
+        labelKey: "rptOverview",
+        icon: LayoutDashboard,
+        roles: ["super_admin", "clinic_admin", "accountant", "dentist"],
+        anyPermission: ["reports:own", "reports:financial", "reports:*"],
+      },
+      {
+        to: "/reports?view=financial",
+        labelKey: "rptFinancial",
+        icon: Receipt,
+        roles: ["super_admin", "clinic_admin", "accountant"],
+        anyPermission: ["reports:financial", "reports:*"],
+      },
+      {
+        to: "/reports?view=clinical",
+        labelKey: "rptClinical",
+        icon: Stethoscope,
+        roles: ["super_admin", "clinic_admin", "accountant", "dentist"],
+        anyPermission: ["reports:own", "reports:financial", "reports:*"],
+      },
+      {
+        to: "/reports?view=operational",
+        labelKey: "rptOperational",
+        icon: ClipboardList,
+        roles: ["super_admin", "clinic_admin", "accountant"],
+        anyPermission: ["reports:*", "reports:financial"],
+      },
+    ],
+  },
 ];
 
 function roleAllows(roles: string[] | undefined, role: string | undefined | null): boolean {
@@ -541,6 +660,23 @@ function itemVisible(
     return item.anyPermission.some((perm) => hasEffectivePermission(permissions, perm));
   }
   return roleAllows(item.roles, role);
+}
+
+function filterEntries(
+  entries: NavEntry[],
+  role: string | undefined | null,
+  permissions?: string[] | null,
+): NavEntry[] {
+  const out: NavEntry[] = [];
+  for (const entry of entries) {
+    if (isNavGroup(entry)) {
+      const children = entry.children.filter((child) => itemVisible(child, role, permissions));
+      if (children.length > 0) out.push({ ...entry, children });
+    } else if (itemVisible(entry, role, permissions)) {
+      out.push(entry);
+    }
+  }
+  return out;
 }
 
 export function navForRole(
@@ -582,12 +718,20 @@ export function moduleNavForPath(
   }
   const def = MODULE_DEFS.find((mod) => mod.match(clean));
   if (!def) return null;
+  const entries = filterEntries(def.entries, role, permissions);
+  if (!entries.length) return null;
   return {
     key: def.key,
     titleKey: def.titleKey,
     home: def.home,
-    items: def.items.filter((item) => itemVisible(item, role, permissions)),
+    entries,
   };
+}
+
+/** True when the current route is the permissioned modules home (no module sidebar). */
+export function isModulesDashboardPath(path: string): boolean {
+  const clean = path.split("?")[0];
+  return clean === MODULES_DASHBOARD_PATH || clean.startsWith(`${MODULES_DASHBOARD_PATH}/`);
 }
 
 export const MODULES_DASHBOARD_PATH = "/dashboard/modules";
@@ -658,6 +802,33 @@ export function breadcrumbFor(
     const view = new URLSearchParams(search).get("view");
     const sub = view ? ADMIN_ITEMS.find((item) => item.to === `/admin?view=${view}`) : undefined;
     if (sub) crumbs.push({ to: sub.to, labelKey: sub.labelKey });
+    return crumbs;
+  }
+
+  if (pathname === "/reports" || pathname.startsWith("/reports/")) {
+    const crumbs: Crumb[] = [home, { to: "/reports", labelKey: "reports" }];
+    const view = new URLSearchParams(search).get("view");
+    const reportMod = MODULE_DEFS.find((mod) => mod.key === "reports");
+    const flat = (reportMod?.entries || []).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
+    const sub = view ? flat.find((item) => item.to === `/reports?view=${view}`) : undefined;
+    if (sub) crumbs.push({ to: sub.to, labelKey: sub.labelKey });
+    return crumbs;
+  }
+
+  if (pathname === "/billing" || pathname.startsWith("/billing/")) {
+    const billingMod = MODULE_DEFS.find((mod) => mod.key === "billing");
+    const crumbs: Crumb[] = [home, { to: "/billing", labelKey: "billing" }];
+    const here = pathname === "/billing" ? "/billing" : pathname;
+    const flat = (billingMod?.entries || []).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
+    const sub = flat.find((item) => item.to === here && item.to !== "/billing");
+    if (sub) crumbs.push({ to: sub.to, labelKey: sub.labelKey });
+    return crumbs;
+  }
+
+  if (pathname.startsWith("/clinical/")) {
+    const crumbs: Crumb[] = [home, { to: "/clinical/restorative", labelKey: "clinical" }];
+    const dept = CLINICAL_GROUP.children.find((item) => item.to === pathname);
+    if (dept) crumbs.push({ to: dept.to, labelKey: dept.labelKey });
     return crumbs;
   }
 

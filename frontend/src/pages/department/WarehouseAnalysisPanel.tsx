@@ -104,6 +104,7 @@ export function WarehouseAnalysisPanel() {
   const [analysis, setAnalysis] = useState<WarehouseAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const params = new URLSearchParams({ days: String(days) });
@@ -113,9 +114,15 @@ export function WarehouseAnalysisPanel() {
     setError("");
     api<WarehouseAnalysis>(`/api/v1/inventory/analysis?${params.toString()}`)
       .then(setAnalysis)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load warehouse analysis"))
+      .catch((err) =>
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Could not load warehouse analysis. Check your connection and try again.",
+        ),
+      )
       .finally(() => setLoading(false));
-  }, [days, category, department]);
+  }, [days, category, department, attempt]);
 
   const rows = useMemo(() => (analysis ? detailRows(analysis, money) : []), [analysis, currency, locale]);
   const periodLabel = PERIODS.find((period) => period.days === days)?.label || `Last ${days} days`;
@@ -200,7 +207,14 @@ export function WarehouseAnalysisPanel() {
             </select>
           </label>
         </div>
-        <ConfigStatus loading={loading} error={error} />
+        <div aria-busy={loading || undefined}>
+          <ConfigStatus loading={loading} error={error} />
+        </div>
+        {error && !loading && (
+          <button type="button" className="btn-ghost" onClick={() => setAttempt((n) => n + 1)}>
+            Retry analysis
+          </button>
+        )}
       </section>
 
       {!loading && !analysis && !error && (
@@ -362,7 +376,7 @@ function DetailTable({
                 <tr key={`${title}-${index}`}>
                   <td className="rec-num">{index + 1}</td>
                   {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className={cellIndex === 0 ? "font-mono text-xs" : undefined}>
+                    <td key={cellIndex} className={cellIndex === 0 ? "font-mono text-sm" : undefined}>
                       {cell}
                     </td>
                   ))}

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
 import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
+import { DepartmentOdontogram } from "@/components/viz/DepartmentOdontogram";
 import { PERMANENT_LOWER, PERMANENT_UPPER } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
 import {
@@ -177,7 +178,7 @@ export function OrthodonticPage() {
     <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
         title="Orthodontic"
-        subtitle="Clerkship sheet · history · extra-oral · intra-oral · models · photographs · appliance"
+        subtitle="Step through clerkship, chart the arch, then plan the appliance."
       />
       {overview && (
         <StatCards
@@ -194,64 +195,116 @@ export function OrthodonticPage() {
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section className="glass-panel rounded-3xl p-5">
-        <PatientSelect
-          patients={patients}
-          value={form.patient_id}
-          onChange={(id) => setForm({ ...form, patient_id: id })}
-          label="Patient for this clerkship"
-        />
-      </section>
-
       <DepartmentChairwork
         dept="orthodontic"
         patientId={form.patient_id || undefined}
         selectedTooth={selectedTooth}
-      />
-
-      <Clinical3DImaging
-        mode="ortho"
-        patientId={form.patient_id || undefined}
-        selected={selectedTooth}
-        onSelect={(fdi) => {
-          setSelectedTooth(fdi);
-          setForm((f) => ({
-            ...f,
-            arch: PERMANENT_UPPER.includes(fdi) ? "upper" : "lower",
-          }));
-        }}
-        colors={archColors}
-        wire={wireArches}
-        onAction={(actionId, tooth, meta) => {
-          setSelectedTooth(tooth);
-          const arch = PERMANENT_UPPER.includes(tooth) ? "upper" : "lower";
-          setForm((f) => ({
-            ...f,
-            arch: actionId === "arch" || actionId === "tad" ? arch : f.arch,
-            malocclusion_summary:
-              actionId === "ceph" && meta?.angleDeg != null
-                ? `${f.malocclusion_summary ? f.malocclusion_summary + " · " : ""}Angle ${meta.angleDeg}° at ${tooth}`
-                : actionId === "tad"
-                  ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
-                  : f.malocclusion_summary,
-          }));
-          if (actionId === "adjust") {
-            const match =
-              cases.find(
-                (c) =>
-                  c.patient_id === form.patient_id &&
-                  (c.status === "active" || c.status === "retention"),
-              ) ??
-              cases.find((c) => c.status === "active" || c.status === "retention");
-            if (match) {
-              setAdjustFor(match.id);
-              setAdj((a) => ({
-                ...a,
-                procedures: a.procedures || `3D review · tooth ${tooth}`,
+        queueSlot={
+          <div className="rounded-xl border border-border/40 bg-surface-elevated/30 p-3">
+            <PatientSelect
+              patients={patients}
+              value={form.patient_id}
+              onChange={(id) => setForm({ ...form, patient_id: id })}
+              label="Or search any patient"
+            />
+          </div>
+        }
+        chartSlot={
+          <DepartmentOdontogram
+            mode="ortho"
+            patientId={form.patient_id || undefined}
+            selected={selectedTooth}
+            onSelect={(fdi) => {
+              setSelectedTooth(fdi);
+              setForm((f) => ({
+                ...f,
+                arch: PERMANENT_UPPER.includes(fdi) ? "upper" : "lower",
               }));
+            }}
+            colors={archColors}
+            wire={
+              wireArches === "both"
+                ? ["upper", "lower"]
+                : wireArches
+                  ? [wireArches]
+                  : []
             }
-          }
-        }}
+            onAction={(actionId, tooth) => {
+              setSelectedTooth(tooth);
+              const arch = PERMANENT_UPPER.includes(tooth) ? "upper" : "lower";
+              setForm((f) => ({
+                ...f,
+                arch: actionId === "arch" || actionId === "tad" ? arch : f.arch,
+                malocclusion_summary:
+                  actionId === "tad"
+                    ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
+                    : f.malocclusion_summary,
+              }));
+              if (actionId === "adjust") {
+                const match =
+                  cases.find(
+                    (c) =>
+                      c.patient_id === form.patient_id &&
+                      (c.status === "active" || c.status === "retention"),
+                  ) ??
+                  cases.find((c) => c.status === "active" || c.status === "retention");
+                if (match) {
+                  setAdjustFor(match.id);
+                  setAdj((a) => ({
+                    ...a,
+                    procedures: a.procedures || `Odontogram · tooth ${tooth}`,
+                  }));
+                }
+              }
+            }}
+          />
+        }
+        treatSlot={
+          <Clinical3DImaging
+            mode="ortho"
+            patientId={form.patient_id || undefined}
+            selected={selectedTooth}
+            onSelect={(fdi) => {
+              setSelectedTooth(fdi);
+              setForm((f) => ({
+                ...f,
+                arch: PERMANENT_UPPER.includes(fdi) ? "upper" : "lower",
+              }));
+            }}
+            colors={archColors}
+            wire={wireArches}
+            onAction={(actionId, tooth, meta) => {
+              setSelectedTooth(tooth);
+              const arch = PERMANENT_UPPER.includes(tooth) ? "upper" : "lower";
+              setForm((f) => ({
+                ...f,
+                arch: actionId === "arch" || actionId === "tad" ? arch : f.arch,
+                malocclusion_summary:
+                  actionId === "ceph" && meta?.angleDeg != null
+                    ? `${f.malocclusion_summary ? f.malocclusion_summary + " · " : ""}Angle ${meta.angleDeg}° at ${tooth}`
+                    : actionId === "tad"
+                      ? f.malocclusion_summary || `TAD / anchorage planned at ${tooth}`
+                      : f.malocclusion_summary,
+              }));
+              if (actionId === "adjust") {
+                const match =
+                  cases.find(
+                    (c) =>
+                      c.patient_id === form.patient_id &&
+                      (c.status === "active" || c.status === "retention"),
+                  ) ??
+                  cases.find((c) => c.status === "active" || c.status === "retention");
+                if (match) {
+                  setAdjustFor(match.id);
+                  setAdj((a) => ({
+                    ...a,
+                    procedures: a.procedures || `3D review · tooth ${tooth}`,
+                  }));
+                }
+              }
+            }}
+          />
+        }
       />
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onCreate}>

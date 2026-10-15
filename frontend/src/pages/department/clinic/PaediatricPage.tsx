@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { EmptyState } from "@/components/EmptyState";
 import { Clinical3DImaging } from "@/components/viz/Clinical3DImaging";
+import { DepartmentOdontogram } from "@/components/viz/DepartmentOdontogram";
 import { TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { api } from "@/lib/api";
 import {
@@ -155,7 +156,7 @@ export function PaediatricPage() {
     <div className="clin-shell animate-rise space-y-4">
       <DeptHeader
         title="Paediatric"
-        subtitle="Frankl behaviour · caries risk · fluoride recalls · primary & mixed dentition care"
+        subtitle="Step through clerkship, chart primary teeth, then update the paediatric profile."
       />
       {overview && (
         <StatCards
@@ -176,53 +177,114 @@ export function PaediatricPage() {
         dept="paediatric"
         patientId={form.patient_id || treatFor || undefined}
         selectedTooth={tx.tooth || null}
-      />
-
-      <Clinical3DImaging
-        mode="paediatric"
-        dentition={form.dentition_stage === "permanent" ? "permanent" : "primary"}
-        patientId={form.patient_id || treatFor || undefined}
-        selected={tx.tooth || null}
-        onSelect={(fdi) => setTx((t) => ({ ...t, tooth: fdi }))}
-        colors={treatmentColors}
-        missing={profiles.flatMap((p) =>
-          p.treatments.filter((tr) => tr.treatment_type === "extraction" && tr.tooth).map((tr) => tr.tooth as string),
-        )}
-        endo={profiles.flatMap((p) =>
-          p.treatments
-            .filter((tr) => (tr.treatment_type === "pulpotomy" || tr.treatment_type === "pulpectomy") && tr.tooth)
-            .map((tr) => tr.tooth as string),
-        )}
-        onAction={(actionId, tooth) => {
-          setTx((t) => ({
-            ...t,
-            tooth,
-            treatment_type:
-              actionId === "fluoride"
-                ? "fluoride_varnish"
-                : actionId === "sealant"
-                  ? "fissure_sealant"
-                  : actionId === "ssc" || actionId === "auto-crown"
-                    ? "stainless_steel_crown"
-                    : t.treatment_type,
-          }));
-          const pid = form.patient_id || treatFor;
-          if (pid && profiles.some((p) => p.patient_id === pid)) {
-            if (actionId !== "profile" && actionId !== "fov0") setTreatFor(pid);
-          }
-        }}
-      />
-      <div className="flex flex-wrap gap-3 px-1 text-[11px] font-semibold text-muted">
-        {legendTypes.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1.5 capitalize">
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
-              style={{ background: TOOTH_STATUS_COLORS[t] }}
+        queueSlot={
+          <div className="rounded-xl border border-border/40 bg-surface-elevated/30 p-3">
+            <PatientSelect
+              patients={patients}
+              value={form.patient_id}
+              onChange={(id) => setForm({ ...form, patient_id: id })}
+              label="Or search any child patient"
             />
-            {prettyLabel(t)}
-          </span>
-        ))}
-      </div>
+          </div>
+        }
+        chartSlot={
+          <div className="space-y-2">
+            <DepartmentOdontogram
+              mode="paediatric"
+              dentition={form.dentition_stage === "permanent" ? "permanent" : "primary"}
+              patientId={form.patient_id || treatFor || undefined}
+              selected={tx.tooth || null}
+              onSelect={(fdi) => setTx((t) => ({ ...t, tooth: fdi }))}
+              colors={treatmentColors}
+              missing={profiles.flatMap((p) =>
+                p.treatments
+                  .filter((tr) => tr.treatment_type === "extraction" && tr.tooth)
+                  .map((tr) => tr.tooth as string),
+              )}
+              endo={profiles.flatMap((p) =>
+                p.treatments
+                  .filter(
+                    (tr) =>
+                      (tr.treatment_type === "pulpotomy" || tr.treatment_type === "pulpectomy") &&
+                      tr.tooth,
+                  )
+                  .map((tr) => tr.tooth as string),
+              )}
+              onAction={(actionId, tooth) => {
+                setTx((t) => ({
+                  ...t,
+                  tooth,
+                  treatment_type:
+                    actionId === "fluoride"
+                      ? "fluoride_varnish"
+                      : actionId === "sealant"
+                        ? "fissure_sealant"
+                        : actionId === "ssc" || actionId === "auto-crown"
+                          ? "stainless_steel_crown"
+                          : t.treatment_type,
+                }));
+                const pid = form.patient_id || treatFor;
+                if (pid && profiles.some((p) => p.patient_id === pid)) {
+                  if (actionId !== "profile" && actionId !== "fov0") setTreatFor(pid);
+                }
+              }}
+            />
+            <div className="flex flex-wrap gap-3 px-1 text-[11px] font-semibold text-muted">
+              {legendTypes.map((t) => (
+                <span key={t} className="inline-flex items-center gap-1.5 capitalize">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full border border-black/10"
+                    style={{ background: TOOTH_STATUS_COLORS[t] }}
+                  />
+                  {prettyLabel(t)}
+                </span>
+              ))}
+            </div>
+          </div>
+        }
+        treatSlot={
+          <Clinical3DImaging
+            mode="paediatric"
+            dentition={form.dentition_stage === "permanent" ? "permanent" : "primary"}
+            patientId={form.patient_id || treatFor || undefined}
+            selected={tx.tooth || null}
+            onSelect={(fdi) => setTx((t) => ({ ...t, tooth: fdi }))}
+            colors={treatmentColors}
+            missing={profiles.flatMap((p) =>
+              p.treatments
+                .filter((tr) => tr.treatment_type === "extraction" && tr.tooth)
+                .map((tr) => tr.tooth as string),
+            )}
+            endo={profiles.flatMap((p) =>
+              p.treatments
+                .filter(
+                  (tr) =>
+                    (tr.treatment_type === "pulpotomy" || tr.treatment_type === "pulpectomy") &&
+                    tr.tooth,
+                )
+                .map((tr) => tr.tooth as string),
+            )}
+            onAction={(actionId, tooth) => {
+              setTx((t) => ({
+                ...t,
+                tooth,
+                treatment_type:
+                  actionId === "fluoride"
+                    ? "fluoride_varnish"
+                    : actionId === "sealant"
+                      ? "fissure_sealant"
+                      : actionId === "ssc" || actionId === "auto-crown"
+                        ? "stainless_steel_crown"
+                        : t.treatment_type,
+              }));
+              const pid = form.patient_id || treatFor;
+              if (pid && profiles.some((p) => p.patient_id === pid)) {
+                if (actionId !== "profile" && actionId !== "fov0") setTreatFor(pid);
+              }
+            }}
+          />
+        }
+      />
 
       <form className="glass-panel grid gap-3 rounded-3xl p-5 md:grid-cols-3" onSubmit={onUpsert}>
         <div className="md:col-span-2">

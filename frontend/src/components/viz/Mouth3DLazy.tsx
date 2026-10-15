@@ -34,8 +34,11 @@ export function Mouth3DLazy(props: Mouth3DProps & { title?: string; eager?: bool
     <Suspense
       fallback={
         <div
-          className="flex items-center justify-center rounded-2xl bg-brand-50/40 text-xs text-muted"
+          className="flex items-center justify-center rounded-2xl bg-brand-50/40 text-sm text-muted"
           style={{ minHeight: height }}
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
         >
           Loading 3D engine…
         </div>

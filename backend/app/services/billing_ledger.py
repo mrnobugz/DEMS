@@ -571,6 +571,45 @@ async def post_remittance(
         resource_id=claim.id,
         after={"line_id": line.id, "paid": paid, "denied": data.denied},
     )
+    if data.denied or claim.status == ClaimStatus.DENIED:
+        try:
+            from app.services import events as bus
+            from app.services import staff_inbox as inbox
+
+            await bus.publish(
+                db,
+                clinic_id=clinic_id,
+                event_type=bus.CLAIM_DENIED,
+                aggregate_type="claim",
+                aggregate_id=claim.id,
+                payload={
+                    "claim_number": claim.claim_number,
+                    "invoice_id": claim.invoice_id,
+                    "denial_reason": data.denial_reason,
+                },
+                actor_id=actor_id,
+            )
+            await inbox.notify_staff(
+                db,
+                clinic_id=clinic_id,
+                category="billing",
+                event_type=inbox.CLAIM_DENIED,
+                title=f"Claim {claim.claim_number} denied",
+                body=data.denial_reason or "Payer denied one or more claim lines.",
+                link_path=f"/billing/invoices/{claim.invoice_id}",
+                payload={
+                    "claim_id": claim.id,
+                    "claim_number": claim.claim_number,
+                    "invoice_id": claim.invoice_id,
+                },
+                actor_id=actor_id,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("demsta.billing").exception(
+                "staff inbox notify failed for claim %s", claim.id
+            )
     return await get_claim(db, clinic_id, claim.id)
 
 

@@ -4,6 +4,7 @@ const LINKS = [
   { to: "/billing", label: "Overview", end: true },
   { to: "/billing/invoices", label: "Invoices", end: false },
   { to: "/billing/payments", label: "Payments", end: false },
+  { to: "/billing/notifications", label: "Notifications", end: false },
 ];
 
 export function BillingNav() {

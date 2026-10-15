@@ -64,6 +64,12 @@ async def refresh(body: RefreshRequest, db: DbSession):
     )
 
 
+@router.post("/logout", status_code=204)
+async def logout(body: RefreshRequest, db: DbSession):
+    """End the staff session — revoke refresh tokens so the client must sign in again."""
+    await svc.revoke_refresh_token(db, body.refresh_token)
+
+
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser):
     return UserOut.model_validate(user)

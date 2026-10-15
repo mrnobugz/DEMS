@@ -93,6 +93,7 @@ PERMISSION_CATALOG: tuple[PermissionDef, ...] = (
     PermissionDef("departments:read", "Read departments", "See department queues and overviews"),
     PermissionDef("notifications:send", "Send notifications", "Queue patient or staff messages"),
     PermissionDef("notifications:read", "Read notifications", "View outbound notification history"),
+    PermissionDef("inbox:read", "Staff inbox", "Receive and read in-app staff notifications"),
     PermissionDef("portal:read", "Patient portal", "Sign in to the patient portal"),
 )
 
@@ -133,6 +134,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "reports:own",
         "ai:suggest",
         "departments:read",
+        "inbox:read",
     },
     Role.HYGIENIST: {
         "patients:read",
@@ -145,6 +147,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "inventory:issue",
         "requisition:create",
         "departments:read",
+        "inbox:read",
     },
     Role.RECEPTIONIST: {
         "patients:*",
@@ -158,6 +161,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "departments:read",
         "notifications:send",
         "notifications:read",
+        "inbox:read",
     },
     Role.ACCOUNTANT: {
         "billing:*",
@@ -166,6 +170,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "patients:read",
         "departments:read",
         "inventory:read",
+        "inbox:read",
     },
     Role.LAB_TECH: {
         "lab:*",
@@ -173,6 +178,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "clinical:read",
         "departments:read",
         "requisition:create",
+        "inbox:read",
     },
     Role.PHARMACY: {
         "pharmacy:*",
@@ -184,12 +190,14 @@ PERMISSIONS: dict[Role, set[str]] = {
         "requisition:create",
         "requisition:approve",
         "requisition:fulfill",
+        "inbox:read",
     },
     Role.IMAGING_TECH: {
         "imaging:*",
         "patients:read",
         "clinical:read",
         "departments:read",
+        "inbox:read",
     },
     Role.NURSE: {
         "patients:read",
@@ -197,6 +205,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "clinical:vitals",
         "departments:read",
         "requisition:create",
+        "inbox:read",
     },
     Role.PATIENT: {
         "patients:own",

@@ -2222,6 +2222,9 @@ class LabCaseOut(ORMModel):
     id: str
     patient_id: str
     dentist_id: Optional[str] = None
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    dentist_name: Optional[str] = None
     tooth: Optional[str] = None
     shade: Optional[str] = None
     case_type: str
@@ -2251,7 +2254,23 @@ class LabCaseOut(ORMModel):
                 overdue = due < now
             except TypeError:
                 overdue = False
-        return result.model_copy(update={"is_overdue": overdue})
+        updates: dict[str, Any] = {"is_overdue": overdue}
+        if not isinstance(value, dict):
+            from sqlalchemy import inspect as sa_inspect
+
+            unloaded: set[str] = set()
+            try:
+                unloaded = set(sa_inspect(value).unloaded)
+            except Exception:
+                unloaded = set()
+            patient = None if "patient" in unloaded else getattr(value, "patient", None)
+            if patient is not None:
+                updates["patient_name"] = f"{patient.first_name} {patient.last_name}".strip()
+                updates["patient_code"] = patient.patient_code
+            dentist = None if "dentist" in unloaded else getattr(value, "dentist", None)
+            if dentist is not None:
+                updates["dentist_name"] = dentist.full_name
+        return result.model_copy(update=updates)
 
 
 class ImagingStudyCreate(BaseModel):

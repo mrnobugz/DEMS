@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useNavigationType } from "react-router-dom";
-import { ArrowLeft, CalendarPlus, LayoutDashboard, LogOut, Menu, PanelLeft, Search, UserPlus } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarPlus,
+  ChevronDown,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  PanelLeft,
+  Search,
+  UserPlus,
+} from "lucide-react";
 import { AppearanceMenu } from "@/components/AppearanceMenu";
 import { CommandPalette } from "@/components/CommandPalette";
 import { DemstaLogo } from "@/components/DemstaLogo";
@@ -10,15 +20,19 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { IconButton } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
+import { NotificationBell } from "@/features/inbox/components/NotificationBell";
+import { useInboxStream } from "@/features/inbox/hooks/useInboxStream";
+import { api, keepSessionAlive, signOutSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { t, type StringKey } from "@/lib/i18n";
 import {
   MODULES_DASHBOARD_PATH,
   breadcrumbFor,
   canAccessPath,
+  isModulesDashboardPath,
   isNavGroup,
-  navForRole,
+  moduleNavForPath,
+  type NavGroup,
   type NavItem,
 } from "@/lib/nav";
 import { cn } from "@/lib/utils";
@@ -26,9 +40,9 @@ import { useUiPrefs } from "@/lib/uiPrefs";
 
 type ClinicRow = { id: string; name: string; code: string };
 
-const DASHBOARD_ITEM: NavItem = {
+const ALL_MODULES_ITEM: NavItem = {
   to: MODULES_DASHBOARD_PATH,
-  labelKey: "dashboard",
+  labelKey: "allModules",
   icon: LayoutDashboard,
 };
 
@@ -41,8 +55,17 @@ function navTargetActive(to: string, location: { pathname: string; search: strin
   if (path === "/patients") {
     return location.pathname === "/patients" || location.pathname.startsWith("/patients/");
   }
-  if (location.pathname !== path) return false;
+  if (path === "/billing") {
+    return location.pathname === "/billing";
+  }
+  if (location.pathname !== path) {
+    return path !== "/" && location.pathname.startsWith(`${path}/`);
+  }
   return !location.search || location.search === "?";
+}
+
+function groupContainsActive(group: NavGroup, location: { pathname: string; search: string }) {
+  return group.children.some((child) => navTargetActive(child.to, location));
 }
 
 const SKIP_HISTORY_PATHS = new Set(["/", "/home", "/clinical"]);
@@ -59,10 +82,12 @@ function ShellLink({
   item,
   collapsed,
   onNavigate,
+  nested = false,
 }: {
   item: NavItem;
   collapsed: boolean;
   onNavigate: () => void;
+  nested?: boolean;
 }) {
   const location = useLocation();
   const label = t(item.labelKey as StringKey);
@@ -71,7 +96,8 @@ function ShellLink({
     <NavLink
       to={item.to}
       aria-label={label}
-      className={() => cn("shell-link", active && "shell-link--on")}
+      aria-current={active ? "page" : undefined}
+      className={() => cn("shell-link", nested && "shell-link--nested", active && "shell-link--on")}
       onClick={onNavigate}
     >
       <item.icon size={18} aria-hidden />
@@ -87,7 +113,64 @@ function ShellLink({
   );
 }
 
-function ShellNav({
+function ShellNavGroup({
+  group,
+  collapsed,
+  onNavigate,
+}: {
+  group: NavGroup;
+  collapsed: boolean;
+  onNavigate: () => void;
+}) {
+  const location = useLocation();
+  const panelId = useId();
+  const label = t(group.labelKey as StringKey);
+  const activeInside = groupContainsActive(group, location);
+  const [open, setOpen] = useState(activeInside);
+
+  useEffect(() => {
+    if (activeInside) setOpen(true);
+  }, [activeInside, location.pathname, location.search]);
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-col gap-0.5" role="group" aria-label={label}>
+        {group.children.map((child) => (
+          <ShellLink key={child.to} item={child} collapsed onNavigate={onNavigate} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="shell-nav-group">
+      <button
+        type="button"
+        className={cn("shell-nav-group__trigger", activeInside && "shell-nav-group__trigger--on")}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <group.icon size={18} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+        <ChevronDown
+          size={16}
+          aria-hidden
+          className={cn("shrink-0 transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div id={panelId} className="shell-nav-group__panel" role="group" aria-label={label}>
+          {group.children.map((child) => (
+            <ShellLink key={child.to} item={child} collapsed={false} nested onNavigate={onNavigate} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModuleShellNav({
   collapsed,
   onNavigate,
   clinics,
@@ -96,13 +179,13 @@ function ShellNav({
   onNavigate: () => void;
   clinics: ClinicRow[];
 }) {
-  const { user, clear, activeClinicId, setActiveClinicId } = useAuth();
+  const { user, activeClinicId, setActiveClinicId } = useAuth();
   const navigate = useNavigate();
-  const entries = navForRole(user?.role, user?.effective_permissions).filter((entry) => {
-    if (isNavGroup(entry)) return true;
-    return entry.to !== MODULES_DASHBOARD_PATH;
-  });
+  const location = useLocation();
+  const moduleNav = moduleNavForPath(location.pathname, user?.role, user?.effective_permissions);
   const clinicName = clinics.find((clinic) => clinic.id === activeClinicId)?.name;
+
+  if (!moduleNav) return null;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-2">
@@ -111,29 +194,21 @@ function ShellNav({
       </div>
       {!collapsed && (
         <div className="px-1">
-          <p className="truncate text-sm font-semibold text-ink">{clinicName || "DEMSTA"}</p>
-          <p className="truncate text-xs capitalize text-muted">{user?.role?.replaceAll("_", " ")}</p>
+          <p className="truncate text-sm font-semibold text-ink">{t(moduleNav.titleKey as StringKey)}</p>
+          <p className="truncate text-xs capitalize text-muted">
+            {clinicName || user?.role?.replaceAll("_", " ")}
+          </p>
         </div>
       )}
-      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Main">
-        <ShellLink item={DASHBOARD_ITEM} collapsed={collapsed} onNavigate={onNavigate} />
-        {entries.map((entry) => {
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={t(moduleNav.titleKey as StringKey)}>
+        <ShellLink item={ALL_MODULES_ITEM} collapsed={collapsed} onNavigate={onNavigate} />
+        <div className="my-1 border-t border-border" role="presentation" />
+        {moduleNav.entries.map((entry) => {
           if (!isNavGroup(entry)) {
             return <ShellLink key={entry.to} item={entry} collapsed={collapsed} onNavigate={onNavigate} />;
           }
           return (
-            <div key={entry.labelKey} className="mt-3">
-              {!collapsed && (
-                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                  {t(entry.labelKey as StringKey)}
-                </p>
-              )}
-              <div className="flex flex-col gap-0.5">
-                {entry.children.map((child) => (
-                  <ShellLink key={child.to} item={child} collapsed={collapsed} onNavigate={onNavigate} />
-                ))}
-              </div>
-            </div>
+            <ShellNavGroup key={entry.labelKey} group={entry} collapsed={collapsed} onNavigate={onNavigate} />
           );
         })}
       </nav>
@@ -169,8 +244,7 @@ function ShellNav({
           className={cn("btn-ghost w-full", collapsed && "px-2")}
           aria-label={t("signOut")}
           onClick={() => {
-            clear();
-            navigate("/login");
+            void signOutSession().then(() => navigate("/login"));
           }}
         >
           <LogOut size={16} aria-hidden />
@@ -182,7 +256,7 @@ function ShellNav({
 }
 
 export function AppShell() {
-  const { user, clear } = useAuth();
+  const { user, accessToken, refreshToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -196,6 +270,21 @@ export function AppShell() {
   const viewStackRef = useRef<string[]>([]);
   const mainRef = useRef<HTMLElement>(null);
   const [canGoBack, setCanGoBack] = useState(false);
+  useInboxStream();
+
+  // Slide the refresh token while the app stays open so the session lasts until Sign out.
+  useEffect(() => {
+    if (!accessToken || !refreshToken) return;
+    const tick = window.setInterval(() => {
+      void keepSessionAlive();
+    }, 30 * 60 * 1000);
+    void keepSessionAlive();
+    return () => window.clearInterval(tick);
+  }, [accessToken, refreshToken]);
+
+  const onModulesHome = isModulesDashboardPath(location.pathname);
+  const moduleNav = moduleNavForPath(location.pathname, user?.role, user?.effective_permissions);
+  const showSidebar = !onModulesHome && !!moduleNav;
 
   const showNewPatient = canAccessPath(user?.role, "/front-desk", user?.effective_permissions);
   const showNewAppointment = canAccessPath(user?.role, "/schedule", user?.effective_permissions);
@@ -277,34 +366,47 @@ export function AppShell() {
       </a>
       <OfflineBanner />
       <div className="app-frame__body">
-        <aside
-          id="app-sidebar"
-          className={cn("app-shell__aside hidden lg:flex", collapsed && "app-shell__aside--collapsed")}
-          aria-label="Main"
-        >
-          <ShellNav collapsed={collapsed} onNavigate={() => undefined} clinics={clinics} />
-        </aside>
+        {showSidebar && (
+          <aside
+            id="app-sidebar"
+            className={cn("app-shell__aside hidden lg:flex", collapsed && "app-shell__aside--collapsed")}
+            aria-label={t(moduleNav.titleKey as StringKey)}
+          >
+            <ModuleShellNav collapsed={collapsed} onNavigate={() => undefined} clinics={clinics} />
+          </aside>
+        )}
         <div className="app-frame__stage">
           <header className="app-frame__header flex items-center gap-2 px-3 py-2 lg:px-5">
-            <IconButton className="lg:hidden" aria-label={t("openMenu")} aria-expanded={mobileOpen} aria-controls="app-sidebar" onClick={() => setMobileOpen(true)}>
-              <Menu size={18} aria-hidden />
-            </IconButton>
-            <IconButton
-              className="hidden lg:inline-flex"
-              aria-label={collapsed ? t("expandSidebar") : t("collapseSidebar")}
-              aria-pressed={collapsed}
-              onClick={() => toggleCollapsed()}
-            >
-              <PanelLeft size={18} aria-hidden />
-            </IconButton>
+            {showSidebar && (
+              <>
+                <IconButton
+                  className="lg:hidden"
+                  aria-label={t("openMenu")}
+                  aria-expanded={mobileOpen}
+                  aria-controls="app-sidebar"
+                  onClick={() => setMobileOpen(true)}
+                >
+                  <Menu size={18} aria-hidden />
+                </IconButton>
+                <IconButton
+                  className="hidden lg:inline-flex"
+                  aria-label={collapsed ? t("expandSidebar") : t("collapseSidebar")}
+                  aria-pressed={collapsed}
+                  onClick={() => toggleCollapsed()}
+                >
+                  <PanelLeft size={18} aria-hidden />
+                </IconButton>
+              </>
+            )}
+            {onModulesHome && <DemstaLogo withWordmark size={36} className="mr-1" />}
             <Breadcrumb items={crumbs} />
             <div className="ml-auto flex items-center gap-2">
-              {showNewAppointment && (
+              {showNewAppointment && !onModulesHome && (
                 <NavLink to="/schedule" className="btn-primary hidden xl:inline-flex">
                   <CalendarPlus size={16} aria-hidden /> {t("newAppointment")}
                 </NavLink>
               )}
-              {showNewPatient && (
+              {showNewPatient && !onModulesHome && (
                 <NavLink to="/front-desk/register?step=0" className="btn-ghost hidden lg:inline-flex">
                   <UserPlus size={16} aria-hidden /> {t("newPatient")}
                 </NavLink>
@@ -317,14 +419,14 @@ export function AppShell() {
               <IconButton className="sm:hidden" aria-label={t("searchPages")} onClick={() => setCommandOpen(true)}>
                 <Search size={16} aria-hidden />
               </IconButton>
+              <NotificationBell />
               <AppearanceMenu />
               <button
                 type="button"
                 className="btn-ghost px-2.5"
                 aria-label={t("signOut")}
                 onClick={() => {
-                  clear();
-                  navigate("/login");
+                  void signOutSession().then(() => navigate("/login"));
                 }}
               >
                 <LogOut size={16} aria-hidden />
@@ -338,16 +440,22 @@ export function AppShell() {
         </div>
       </div>
 
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent title="Navigation">
-          <ShellNav collapsed={false} onNavigate={() => setMobileOpen(false)} clinics={clinics} />
-        </SheetContent>
-      </Sheet>
+      {showSidebar && (
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent title={t(moduleNav.titleKey as StringKey)}>
+            <ModuleShellNav collapsed={false} onNavigate={() => setMobileOpen(false)} clinics={clinics} />
+          </SheetContent>
+        </Sheet>
+      )}
       <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
 
       <button
         type="button"
-        className={cn("app-back-fab app-back-fab--with-sidebar", collapsed && "app-back-fab--collapsed")}
+        className={cn(
+          "app-back-fab",
+          showSidebar && "app-back-fab--with-sidebar",
+          showSidebar && collapsed && "app-back-fab--collapsed",
+        )}
         aria-label={t("goBack")}
         title={t("goBack")}
         disabled={!canGoBack}

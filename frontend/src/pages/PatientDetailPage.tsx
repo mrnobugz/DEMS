@@ -14,12 +14,8 @@ import { Odontogram } from "@/components/Odontogram";
 import { PerioChart } from "@/components/PerioChart";
 import { RestorativePanel } from "@/components/RestorativePanel";
 import { EndoPanel } from "@/components/EndoPanel";
-import { RevealSection } from "@/components/RevealSection";
 import { ToothHistoryPanel } from "@/components/ToothHistoryPanel";
 import { TreatmentPlanTimeline } from "@/components/TreatmentPlanTimeline";
-import { Mouth3DLazy } from "@/components/viz/Mouth3DLazy";
-import { ObjectsPanel, type ObjectLayerKey } from "@/components/viz/ObjectsPanel";
-import { PERMANENT_LOWER, PERMANENT_UPPER, TOOTH_STATUS_COLORS } from "@/components/viz/teeth";
 import { PatientIdentityPhoto } from "@/components/PatientIdentityPhoto";
 import { PatientMedicationList } from "@/components/ChairsidePharmacy";
 import { PatientSafetyBanner } from "@/components/PatientSafetyBanner";
@@ -53,17 +49,6 @@ export function PatientDetailPage() {
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
   const [perioExams, setPerioExams] = useState<PerioExam[]>([]);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(params.get("tooth"));
-  const [objectLayers, setObjectLayers] = useState<Record<ObjectLayerKey, boolean>>({
-    teeth: true,
-    maxilla: false,
-    mandible: false,
-    canalArch: false,
-    nerves: true,
-    implants: true,
-    crowns: false,
-    endo: true,
-    wire: false,
-  });
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [intakeForm, setIntakeForm] = useState<ClerkshipFormState | null>(null);
   const [planForm, setPlanForm] = useState({
@@ -96,37 +81,6 @@ export function PatientDetailPage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [latestVitals, setLatestVitals] = useState<PatientVitalSign | null>(null);
   const isNurse = user?.role === "nurse";
-
-  // Latest chart entry per tooth → 3D status colors (mirrors the 2D Odontogram)
-  const chart3dColors = useMemo(() => {
-    const latest = new Map<string, ChartEntry>();
-    for (const e of chart) {
-      const prev = latest.get(e.tooth_number);
-      if (!prev || new Date(e.created_at) > new Date(prev.created_at)) {
-        latest.set(e.tooth_number, e);
-      }
-    }
-    const colors: Record<string, string | undefined> = {};
-    for (const [tooth, e] of latest) {
-      colors[tooth] =
-        (e.status && TOOTH_STATUS_COLORS[e.status]) ||
-        TOOTH_STATUS_COLORS[e.condition_code] ||
-        (e.entry_kind === "planned" ? TOOTH_STATUS_COLORS.planned : "#bfdbfe");
-    }
-    return colors;
-  }, [chart]);
-
-  const chartAnatomy = useMemo(() => {
-    const missing: string[] = [];
-    const endo: string[] = [];
-    const implants: string[] = [];
-    for (const e of chart) {
-      if (e.condition_code === "missing") missing.push(e.tooth_number);
-      if (e.condition_code === "rct") endo.push(e.tooth_number);
-      if ((e.condition_label || "").toLowerCase().includes("implant")) implants.push(e.tooth_number);
-    }
-    return { missing, endo, implants };
-  }, [chart]);
 
   async function reload() {
     const [p, c, t, pe, d, vitals] = await Promise.all([
@@ -462,7 +416,6 @@ export function PatientDetailPage() {
           ["#patient-vitals", "Vitals"],
           ...(!isNurse ? [["#patient-exam", "Exam"] as const] : []),
           ["#patient-chart", "Odontogram"],
-          ["#patient-3d", "3D"],
           ["#patient-history", "History"],
           ["#patient-plan", "Plan"],
         ].map(([href, label]) => (
@@ -550,41 +503,6 @@ export function PatientDetailPage() {
         patientId={id}
         dentition={patient.destination_department === "paediatric" ? "primary" : "permanent"}
       />
-      </div>
-
-      <div id="patient-3d">
-      <RevealSection
-        title="3D odontogram + objects"
-        hint="Mapped anatomy — tap a tooth to select it · toggle nerve / implant / endo objects"
-        showLabel="Show 3D workspace"
-      >
-        <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
-          <Mouth3DLazy
-            title="Patient 3D odontogram"
-            eager
-            colors={chart3dColors}
-            selected={selectedTooth}
-            onSelect={setSelectedTooth}
-            height={360}
-            layers={{
-              nerves: objectLayers.nerves,
-              implants: objectLayers.implants ? chartAnatomy.implants : [],
-              missing: objectLayers.teeth
-                ? chartAnatomy.missing
-                : [...PERMANENT_UPPER, ...PERMANENT_LOWER],
-              endo: objectLayers.endo ? chartAnatomy.endo : [],
-              maxillaArch: objectLayers.maxilla,
-              mandibleArch: objectLayers.mandible,
-              canalArch: objectLayers.canalArch,
-            }}
-            wire={objectLayers.wire ? "both" : null}
-          />
-          <ObjectsPanel
-            layers={objectLayers}
-            onToggle={(key) => setObjectLayers((o) => ({ ...o, [key]: !o[key] }))}
-          />
-        </div>
-      </RevealSection>
       </div>
 
       <div id="patient-history" className="grid gap-4 lg:grid-cols-2">
